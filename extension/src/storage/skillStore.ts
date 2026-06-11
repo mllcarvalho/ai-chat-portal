@@ -3,11 +3,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Skill, SkillWithContent } from '@aiportal/shared';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
-import { PROJECT_META_DIR, SKILLS_DIR, ensureDir } from './paths';
+import { PROJECT_META_DIR, skillsDir, ensureDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 
 function skillsDirFor(scope: 'global' | 'project', projectId?: string): string | undefined {
-  if (scope === 'global') return SKILLS_DIR;
+  if (scope === 'global') return skillsDir();
   if (!projectId) return undefined;
   const project = getProject(projectId);
   if (!project) return undefined;
@@ -32,7 +32,7 @@ function readSkillsIn(dir: string): Skill[] {
 
 /** Skills globais + (se informado) as do projeto. */
 export function listSkills(projectId?: string): Skill[] {
-  const skills = readSkillsIn(SKILLS_DIR);
+  const skills = readSkillsIn(skillsDir());
   if (projectId) {
     const dir = skillsDirFor('project', projectId);
     if (dir) skills.push(...readSkillsIn(dir));
@@ -41,7 +41,7 @@ export function listSkills(projectId?: string): Skill[] {
 }
 
 function findSkillDir(id: string): string | undefined {
-  if (fs.existsSync(path.join(SKILLS_DIR, `${id}.json`))) return SKILLS_DIR;
+  if (fs.existsSync(path.join(skillsDir(), `${id}.json`))) return skillsDir();
   for (const project of listProjects()) {
     const dir = path.join(projectDir(project), PROJECT_META_DIR, 'skills');
     if (fs.existsSync(path.join(dir, `${id}.json`))) return dir;

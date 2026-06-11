@@ -59,6 +59,9 @@ export class Router {
   patch(path: string, handler: Handler): void {
     this.add('PATCH', path, handler);
   }
+  put(path: string, handler: Handler): void {
+    this.add('PUT', path, handler);
+  }
   delete(path: string, handler: Handler): void {
     this.add('DELETE', path, handler);
   }
@@ -87,7 +90,7 @@ export class Router {
       if (!ok) continue;
 
       let body: unknown;
-      if (req.method === 'POST' || req.method === 'PATCH') {
+      if (req.method === 'POST' || req.method === 'PATCH' || req.method === 'PUT') {
         try {
           body = await readBody(req);
         } catch {

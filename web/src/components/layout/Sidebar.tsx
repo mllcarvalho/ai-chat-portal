@@ -7,6 +7,7 @@ import { UserBadge } from './UserBadge';
 function SessionItem({ session }: { session: SessionSummary }) {
   const current = useSessions((s) => s.current);
   const selectSession = useSessions((s) => s.selectSession);
+  const setView = useUi((s) => s.setView);
   const renameSession = useSessions((s) => s.renameSession);
   const removeSession = useSessions((s) => s.removeSession);
   const [editing, setEditing] = useState(false);
@@ -37,7 +38,10 @@ function SessionItem({ session }: { session: SessionSummary }) {
   return (
     <button
       className={`session-item${current?.id === session.id ? ' session-item--active' : ''}`}
-      onClick={() => void selectSession(session.id)}
+      onClick={() => {
+        setView('chat');
+        void selectSession(session.id);
+      }}
       onDoubleClick={() => {
         setDraft(session.title);
         setEditing(true);
@@ -70,6 +74,7 @@ export function Sidebar() {
   const openProject = useSessions((s) => s.openProject);
   const newSession = useSessions((s) => s.newSession);
   const openPanel = useUi((s) => s.openPanel);
+  const setView = useUi((s) => s.setView);
 
   return (
     <aside className="sidebar">
@@ -79,7 +84,13 @@ export function Sidebar() {
         </span>
       </div>
 
-      <button className="sidebar__new-chat" onClick={() => void newSession(null)}>
+      <button
+        className="sidebar__new-chat"
+        onClick={() => {
+          setView('chat');
+          void newSession(null);
+        }}
+      >
         <span>＋</span> Nova conversa
       </button>
 
@@ -109,7 +120,10 @@ export function Sidebar() {
               </button>
               <button
                 className="project-item__name"
-                onClick={() => openProject(project.id)}
+                onClick={() => {
+                  setView('chat');
+                  openProject(project.id);
+                }}
                 title={project.name}
                 style={{ textAlign: 'left' }}
               >
@@ -119,7 +133,10 @@ export function Sidebar() {
                 className="session-item__menu"
                 title="Nova conversa no projeto"
                 style={{ opacity: 1 }}
-                onClick={() => void newSession(project.id)}
+                onClick={() => {
+                  setView('chat');
+                  void newSession(project.id);
+                }}
               >
                 ＋
               </button>
@@ -147,14 +164,17 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__footer">
-        <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'agents' })}>
+        <button className="sidebar__footer-btn" onClick={() => setView('agents')}>
           🤖 Agentes
         </button>
-        <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'skills' })}>
+        <button className="sidebar__footer-btn" onClick={() => setView('skills')}>
           ⚡ Skills
         </button>
-        <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'tools' })}>
-          🔧 Ferramentas &amp; MCPs
+        <button className="sidebar__footer-btn" onClick={() => setView('mcps')}>
+          🔧 Servidores MCP
+        </button>
+        <button className="sidebar__footer-btn" onClick={() => setView('knowledge')}>
+          📚 Conhecimento
         </button>
         <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
           ⚙️ Configurações

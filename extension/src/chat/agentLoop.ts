@@ -16,8 +16,9 @@ import { getProject, projectDir } from '../storage/projectStore';
 import { saveSession, toSummary } from '../storage/sessionStore';
 import { getSkill } from '../storage/skillStore';
 import { dispatchBuiltinTool, isBuiltinTool } from '../tools/builtinTools';
-import { ensureMcpStarted, invokeMcpTool } from '../tools/mcp';
+import { callMcpTool } from '../tools/mcpManager';
 import { getEnabledToolDefs } from '../tools/toolRegistry';
+import { collectKnowledge } from '../storage/knowledgeStore';
 import { buildMessages } from './messageBuilder';
 import { registerRequest, releaseRequest } from './activeRequests';
 import { withTimeout } from '../util';
@@ -139,7 +140,6 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       );
     }
 
-    if (session.mode === 'agent') await ensureMcpStarted();
     const toolDefs = getEnabledToolDefs(session, agent);
 
     const messages = buildMessages({
@@ -148,6 +148,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       agent,
       instructionSkills,
       commandSkills,
+      knowledge: collectKnowledge(session.projectId),
       maxInputTokens: model.maxInputTokens,
     });
 
@@ -209,7 +210,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
             ok = outcome.ok;
             content = outcome.content;
           } else {
-            content = await invokeMcpTool(call.name, call.input as object, cts.token);
+            content = await callMcpTool(call.name, call.input as object);
           }
         } catch (err) {
           if (cts.token.isCancellationRequested) {

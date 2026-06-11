@@ -2,16 +2,21 @@
   "name": "ai-chat-portal-extension",
   "displayName": "AI Chat Portal",
   "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o AI Chat Portal",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "aichatportal",
   "private": true,
   "license": "MIT",
   "engines": {
     "vscode": "^1.104.0"
   },
-  "categories": ["AI", "Chat"],
+  "categories": [
+    "AI",
+    "Chat"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -26,12 +31,6 @@
         "command": "aiChatPortal.warmup",
         "title": "AI Chat Portal: Autorizar uso do Copilot"
       }
-    ],
-    "mcpServerDefinitionProviders": [
-      {
-        "id": "aiChatPortal.userServers",
-        "label": "AI Chat Portal"
-      }
     ]
   },
   "scripts": {
@@ -41,7 +40,8 @@
     "package": "vsce package --no-dependencies --allow-missing-repository"
   },
   "dependencies": {
-    "@aiportal/shared": "*"
+    "@aiportal/shared": "*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

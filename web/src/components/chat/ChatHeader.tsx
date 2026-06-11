@@ -32,6 +32,7 @@ export function ChatHeader() {
   const skills = useCatalog((s) => s.skills);
   const loadSkills = useCatalog((s) => s.loadSkills);
   const openPanel = useUi((s) => s.openPanel);
+  const setView = useUi((s) => s.setView);
   const [title, setTitle] = useState(session?.title ?? '');
 
   useEffect(() => {
@@ -164,7 +165,7 @@ export function ChatHeader() {
             <button
               className="dropdown__item"
               onClick={() => {
-                openPanel({ kind: 'agents' });
+                setView('agents');
                 close();
               }}
             >
@@ -217,7 +218,7 @@ export function ChatHeader() {
             <button
               className="dropdown__item"
               onClick={() => {
-                openPanel({ kind: 'skills' });
+                setView('skills');
                 close();
               }}
             >
@@ -227,8 +228,8 @@ export function ChatHeader() {
         )}
       </Dropdown>
 
-      <button className="pill-btn" onClick={() => openPanel({ kind: 'tools' })} title="Ferramentas e MCPs">
-        🔧 Ferramentas
+      <button className="pill-btn" onClick={() => setView('mcps')} title="Servidores MCP">
+        🔧 MCPs
       </button>
       {session.projectId && (
         <button className="pill-btn" onClick={() => openPanel({ kind: 'files' })} title="Arquivos do projeto">

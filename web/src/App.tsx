@@ -7,9 +7,10 @@ import { ChatView } from './components/chat/ChatView';
 import { ProjectHome } from './components/panels/ProjectHome';
 import { Welcome } from './components/layout/Welcome';
 import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
-import { ToolsPanel } from './components/panels/ToolsPanel';
-import { SkillsManager } from './components/panels/SkillsManager';
-import { AgentsManager } from './components/panels/AgentsManager';
+import { SkillsPage } from './components/pages/SkillsPage';
+import { AgentsPage } from './components/pages/AgentsPage';
+import { McpServersPage } from './components/pages/McpServersPage';
+import { KnowledgePage } from './components/pages/KnowledgePage';
 import { ProjectFilesDrawer } from './components/panels/ProjectFilesDrawer';
 import { NewProjectModal } from './components/panels/NewProjectModal';
 import { SettingsModal } from './components/settings/SettingsModal';
@@ -41,9 +42,6 @@ export function App() {
     <div className="app-shell">
       <Sidebar />
       <MainArea />
-      {panel.kind === 'tools' && <ToolsPanel />}
-      {panel.kind === 'skills' && <SkillsManager />}
-      {panel.kind === 'agents' && <AgentsManager />}
       {panel.kind === 'files' && <ProjectFilesDrawer />}
       {panel.kind === 'newProject' && <NewProjectModal />}
       {panel.kind === 'settings' && <SettingsModal />}
@@ -53,12 +51,18 @@ export function App() {
 }
 
 function MainArea() {
+  const view = useUi((s) => s.view);
   const current = useSessions((s) => s.current);
   const viewProjectId = useSessions((s) => s.viewProjectId);
 
   return (
     <main className="main-area">
-      {current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />}
+      {view === 'skills' && <SkillsPage />}
+      {view === 'agents' && <AgentsPage />}
+      {view === 'mcps' && <McpServersPage />}
+      {view === 'knowledge' && <KnowledgePage />}
+      {view === 'chat' &&
+        (current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />)}
     </main>
   );
 }

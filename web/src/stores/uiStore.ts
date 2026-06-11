@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 
+/** Conteúdo da área principal: chat ou as páginas de gestão (tela cheia). */
+export type MainView = 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
+
+/** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
   | { kind: 'none' }
-  | { kind: 'tools' }
-  | { kind: 'skills' }
-  | { kind: 'agents' }
   | { kind: 'files' }
   | { kind: 'settings' }
   | { kind: 'newProject' };
@@ -16,8 +17,10 @@ interface Toast {
 }
 
 interface UiState {
+  view: MainView;
   panel: PanelKind;
   toasts: Toast[];
+  setView: (view: MainView) => void;
   openPanel: (panel: PanelKind) => void;
   closePanel: () => void;
   toast: (text: string, tone?: Toast['tone']) => void;
@@ -27,8 +30,10 @@ interface UiState {
 let toastSeq = 1;
 
 export const useUi = create<UiState>((set, get) => ({
+  view: 'chat',
   panel: { kind: 'none' },
   toasts: [],
+  setView: (view) => set({ view }),
   openPanel: (panel) => set({ panel }),
   closePanel: () => set({ panel: { kind: 'none' } }),
   toast: (text, tone = 'info') => {

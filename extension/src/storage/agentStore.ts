@@ -1,10 +1,10 @@
 import * as crypto from 'node:crypto';
 import type { AgentPreset } from '@aiportal/shared';
 import { readJson, writeJsonAtomic } from './jsonStore';
-import { AGENTS_PATH } from './paths';
+import { agentsPath } from './paths';
 
 function readAll(): AgentPreset[] {
-  return readJson<AgentPreset[]>(AGENTS_PATH) ?? [];
+  return readJson<AgentPreset[]>(agentsPath()) ?? [];
 }
 
 export function listAgents(): AgentPreset[] {
@@ -20,7 +20,7 @@ export function createAgent(
 ): AgentPreset {
   const now = new Date().toISOString();
   const agent: AgentPreset = { ...input, id: crypto.randomUUID(), createdAt: now, updatedAt: now };
-  writeJsonAtomic(AGENTS_PATH, [...readAll(), agent]);
+  writeJsonAtomic(agentsPath(), [...readAll(), agent]);
   return agent;
 }
 
@@ -32,7 +32,7 @@ export function updateAgent(
   const idx = agents.findIndex((a) => a.id === id);
   if (idx < 0) return undefined;
   agents[idx] = { ...agents[idx], ...patch, updatedAt: new Date().toISOString() };
-  writeJsonAtomic(AGENTS_PATH, agents);
+  writeJsonAtomic(agentsPath(), agents);
   return agents[idx];
 }
 
@@ -40,6 +40,6 @@ export function deleteAgent(id: string): boolean {
   const agents = readAll();
   const next = agents.filter((a) => a.id !== id);
   if (next.length === agents.length) return false;
-  writeJsonAtomic(AGENTS_PATH, next);
+  writeJsonAtomic(agentsPath(), next);
   return true;
 }

@@ -1,75 +1,136 @@
-import * as crypto from 'node:crypto';
-import type { McpServerConfig } from '@aiportal/shared';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { McpServerEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
-import { ensureMcpStarted, refreshMcpServers } from '../../tools/mcp';
 import { getToolCatalog } from '../../tools/toolRegistry';
+import {
+  addServer,
+  listServers,
+  removeServer,
+  setServerEnabled,
+  startServer,
+} from '../../tools/mcpManager';
 import { getSession } from '../../storage/sessionStore';
 import { getAgent } from '../../storage/agentStore';
-import { readJson, writeJsonAtomic } from '../../storage/jsonStore';
-import { MCP_SERVERS_PATH } from '../../storage/paths';
-import { notifyMcpServersChanged } from '../../mcpProvider';
+import { getPortalRoot } from '../../storage/paths';
 
-function readServers(): McpServerConfig[] {
-  return readJson<McpServerConfig[]>(MCP_SERVERS_PATH) ?? [];
+function proxyTemplate(name: string): string {
+  return `/**
+ * Servidor MCP "${name}" — proxy local do AI Chat Portal.
+ * Executado via: npx -y tsx mcps/${name}.ts (stdio)
+ * Adicione suas ferramentas com server.registerTool(...).
+ */
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+const server = new McpServer({ name: '${name}', version: '1.0.0' });
+
+server.registerTool(
+  'hello',
+  {
+    title: 'Hello',
+    description: 'Ferramenta de exemplo — substitua pelas suas.',
+    inputSchema: { name: z.string().describe('Quem cumprimentar') },
+  },
+  async ({ name }) => ({
+    content: [{ type: 'text', text: \`Olá, \${name}! O servidor "${name}" está funcionando.\` }],
+  }),
+);
+
+await server.connect(new StdioServerTransport());
+`;
+}
+
+/** Cria mcps/<name>.ts a partir do template e devolve a entry para o mcp.json. */
+function scaffoldProxy(name: string): McpServerEntry {
+  const root = getPortalRoot();
+  if (!root) throw new Error('Abra o repositório do portal no VS Code para criar proxies');
+  const safe = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!safe) throw new Error('Nome inválido para o proxy');
+  const dir = path.join(root, 'mcps');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${safe}.ts`);
+  if (!fs.existsSync(file)) fs.writeFileSync(file, proxyTemplate(safe), 'utf8');
+  return { type: 'stdio', command: 'npx', args: ['-y', 'tsx', `mcps/${safe}.ts`] };
 }
 
 export function registerToolRoutes(router: Router): void {
-  router.get('/api/tools', async ({ res, query }) => {
-    await ensureMcpStarted();
+  router.get('/api/tools', ({ res, query }) => {
     const sessionId = query.get('sessionId');
     const session = sessionId ? getSession(sessionId) : undefined;
     const agent = session?.agentId ? getAgent(session.agentId) : undefined;
     sendJson(res, 200, getToolCatalog(session, agent));
   });
 
-  router.post('/api/tools/refresh', async ({ res }) => {
-    await refreshMcpServers();
-    sendJson(res, 200, { ok: true });
-  });
-
   router.get('/api/mcp/servers', ({ res }) => {
-    sendJson(res, 200, readServers());
+    sendJson(res, 200, listServers());
   });
 
   router.post('/api/mcp/servers', async ({ res, body }) => {
-    const input = (body ?? {}) as Partial<McpServerConfig>;
-    if (!input.label?.trim() || (input.type !== 'stdio' && input.type !== 'http')) {
-      sendError(res, 400, 'label e type (stdio ou http) são obrigatórios');
-      return;
-    }
-    if (input.type === 'stdio' && !input.command?.trim()) {
-      sendError(res, 400, 'Servidores stdio precisam de command');
-      return;
-    }
-    if (input.type === 'http' && !input.url?.trim()) {
-      sendError(res, 400, 'Servidores http precisam de url');
-      return;
-    }
-    const server: McpServerConfig = {
-      id: crypto.randomUUID(),
-      label: input.label.trim(),
-      type: input.type,
-      command: input.command?.trim(),
-      args: input.args ?? [],
-      env: input.env ?? {},
-      url: input.url?.trim(),
-      headers: input.headers ?? {},
+    const input = (body ?? {}) as {
+      name?: string;
+      type?: 'stdio' | 'http';
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      url?: string;
+      headers?: Record<string, string>;
+      createProxy?: boolean;
     };
-    writeJsonAtomic(MCP_SERVERS_PATH, [...readServers(), server]);
-    notifyMcpServersChanged();
-    await refreshMcpServers();
-    sendJson(res, 201, server);
+    const name = input.name?.trim();
+    if (!name) {
+      sendError(res, 400, 'Informe o nome do servidor');
+      return;
+    }
+    try {
+      let entry: McpServerEntry;
+      if (input.createProxy) {
+        entry = scaffoldProxy(name);
+      } else if (input.type === 'http') {
+        if (!input.url?.trim()) throw new Error('Servidores http precisam de url');
+        entry = { type: 'http', url: input.url.trim(), headers: input.headers ?? undefined };
+      } else {
+        if (!input.command?.trim()) throw new Error('Servidores stdio precisam de command');
+        entry = {
+          type: 'stdio',
+          command: input.command.trim(),
+          args: input.args?.length ? input.args : undefined,
+          env: input.env && Object.keys(input.env).length ? input.env : undefined,
+        };
+      }
+      addServer(name, entry);
+      const info = await setServerEnabled(name, true);
+      sendJson(res, 201, info);
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
-  router.delete('/api/mcp/servers/:id', ({ res, params }) => {
-    const servers = readServers();
-    const next = servers.filter((s) => s.id !== params.id);
-    if (next.length === servers.length) {
-      sendError(res, 404, 'Servidor MCP não encontrado');
-      return;
+  router.post('/api/mcp/servers/:name/toggle', async ({ res, params, body }) => {
+    const enabled = ((body ?? {}) as { enabled?: boolean }).enabled === true;
+    try {
+      sendJson(res, 200, await setServerEnabled(params.name, enabled));
+    } catch (err) {
+      sendError(res, 404, err instanceof Error ? err.message : String(err));
     }
-    writeJsonAtomic(MCP_SERVERS_PATH, next);
-    notifyMcpServersChanged();
-    sendJson(res, 200, { ok: true });
+  });
+
+  router.post('/api/mcp/servers/:name/restart', async ({ res, params }) => {
+    try {
+      const name = params.name;
+      sendJson(res, 200, await startServer(name));
+    } catch (err) {
+      sendError(res, 404, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.delete('/api/mcp/servers/:name', async ({ res, params }) => {
+    try {
+      await removeServer(params.name);
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendError(res, 404, err instanceof Error ? err.message : String(err));
+    }
   });
 }

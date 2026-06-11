@@ -4,7 +4,7 @@ import {
   BUILTIN_TOOLS,
   READONLY_BUILTIN_TOOL_NAMES,
 } from './builtinTools';
-import { listMcpTools, mcpServerLabel } from './mcp';
+import { listRunningTools } from './mcpManager';
 
 function effectiveEnabled(session?: Session, agent?: AgentPreset): string[] | null {
   if (session?.enabledTools) return session.enabledTools;
@@ -13,8 +13,8 @@ function effectiveEnabled(session?: Session, agent?: AgentPreset): string[] | nu
 }
 
 /**
- * Catálogo completo para a UI (toggles por sessão). Builtins só aparecem
- * quando a sessão pertence a um projeto.
+ * Catálogo para a UI (toggles por sessão). Só ferramentas builtin: MCPs são
+ * controlados por servidor (liga/desliga) na página de MCPs, não tool a tool.
  */
 export function getToolCatalog(session?: Session, agent?: AgentPreset): ToolInfo[] {
   const enabled = effectiveEnabled(session, agent);
@@ -33,22 +33,13 @@ export function getToolCatalog(session?: Session, agent?: AgentPreset): ToolInfo
       });
     }
   }
-  for (const tool of listMcpTools()) {
-    infos.push({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      source: 'mcp',
-      serverLabel: mcpServerLabel(tool.name),
-      enabled: isEnabled(tool.name),
-    });
-  }
   return infos;
 }
 
 /**
  * Ferramentas efetivamente enviadas ao modelo, conforme o modo da sessão:
- * ask = nenhuma; plan = só leitura do projeto; agent = tudo que estiver habilitado.
+ * ask = nenhuma; plan = só leitura do projeto; agent = builtins habilitadas +
+ * todas as ferramentas dos servidores MCP ligados.
  */
 export function getEnabledToolDefs(
   session: Session,
@@ -72,12 +63,11 @@ export function getEnabledToolDefs(
     }
   }
   if (session.mode === 'agent') {
-    for (const tool of listMcpTools()) {
-      if (!isEnabled(tool.name)) continue;
+    for (const tool of listRunningTools()) {
       defs.push({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
+        name: tool.qualifiedName,
+        description: `[MCP ${tool.serverName}] ${tool.description}`,
+        inputSchema: (tool.inputSchema ?? undefined) as object | undefined,
       });
     }
   }

@@ -1433,3 +1433,219 @@ select:focus {
   color: var(--tool);
   white-space: nowrap;
 }
+
+/* ---------- páginas de gestão (skills, agentes, MCPs, conhecimento) ---------- */
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 28px 36px;
+}
+.page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.page__title {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  font-size: 26px;
+  margin: 0;
+}
+.page__subtitle {
+  color: var(--text-dim);
+  font-size: 13.5px;
+  margin: 6px 0 0;
+  max-width: 640px;
+}
+.page__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.page__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.page-cols {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) 1fr;
+  gap: 22px;
+  height: 100%;
+  min-height: 0;
+}
+.page-cols--three {
+  grid-template-columns: minmax(260px, 340px) minmax(220px, 300px) 1fr;
+}
+.page-cols > div {
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.page-card__title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  margin: 0 0 14px;
+}
+.page-card__grow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.page-card__grow textarea.page-card__editor {
+  flex: 1;
+  min-height: 220px;
+}
+.page-card--placeholder {
+  align-items: center;
+  justify-content: center;
+}
+
+.page-hint {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--bg-hover);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+}
+.page-hint code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.page-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.16s var(--ease);
+  position: relative;
+}
+.page-list-item:hover {
+  border-color: var(--border-strong);
+}
+.page-list-item--active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.page-list-item--static {
+  cursor: default;
+}
+.page-list-item__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+.page-list-item__actions [role='button'] {
+  font-size: 12px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.page-list-item__actions [role='button']:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* ---------- linha de servidor MCP ---------- */
+
+.mcp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.mcp-row .switch {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.mcp-row__info {
+  flex: 1;
+  min-width: 0;
+}
+.mcp-row__name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mcp-row__desc {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  word-break: break-all;
+}
+.mcp-row__error {
+  font-size: 12px;
+  color: var(--error, #e5534b);
+  margin-top: 5px;
+}
+.mcp-row__tools {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-row__actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.mcp-row__actions .btn {
+  padding: 3px 9px;
+}
+
+.mcp-status {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  padding: 1px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.mcp-status--ok {
+  color: var(--ok, #3fb950);
+  border-color: color-mix(in srgb, var(--ok, #3fb950) 40%, transparent);
+  background: color-mix(in srgb, var(--ok, #3fb950) 10%, transparent);
+}
+.mcp-status--err {
+  color: var(--error, #e5534b);
+  border-color: color-mix(in srgb, var(--error, #e5534b) 40%, transparent);
+  background: color-mix(in srgb, var(--error, #e5534b) 10%, transparent);
+}
+.mcp-status--warn {
+  color: var(--warn, #d29922);
+}

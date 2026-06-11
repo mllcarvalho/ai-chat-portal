@@ -3,11 +3,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Session, SessionMode, SessionSummary } from '@aiportal/shared';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
-import { PROJECT_META_DIR, SESSIONS_DIR } from './paths';
+import { PROJECT_META_DIR, sessionsDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 
 function sessionsDirFor(projectId: string | null): string | undefined {
-  if (!projectId) return SESSIONS_DIR;
+  if (!projectId) return sessionsDir();
   const project = getProject(projectId);
   if (!project) return undefined;
   return path.join(projectDir(project), PROJECT_META_DIR, 'sessions');
@@ -43,7 +43,7 @@ export function listSessions(projectId: string | null): SessionSummary[] {
 }
 
 function findSessionFile(id: string): string | undefined {
-  const standalone = path.join(SESSIONS_DIR, `${id}.json`);
+  const standalone = path.join(sessionsDir(), `${id}.json`);
   if (fs.existsSync(standalone)) return standalone;
   for (const project of listProjects()) {
     const file = path.join(projectDir(project), PROJECT_META_DIR, 'sessions', `${id}.json`);

@@ -3,7 +3,9 @@ import type {
   Config,
   FileEntry,
   HealthInfo,
-  McpServerConfig,
+  KnowledgeBase,
+  KnowledgeDoc,
+  McpServerInfo,
   MeInfo,
   ModelInfo,
   Project,
@@ -13,6 +15,7 @@ import type {
   Skill,
   SkillWithContent,
   ToolInfo,
+  VsCodeAgent,
 } from '@aiportal/shared';
 import { TOKEN_HEADER } from '@aiportal/shared';
 
@@ -117,11 +120,50 @@ export const api = {
       'GET',
       sessionId ? `/api/tools?sessionId=${encodeURIComponent(sessionId)}` : '/api/tools',
     ),
-  refreshTools: () => request<{ ok: boolean }>('POST', '/api/tools/refresh'),
-  listMcpServers: () => request<McpServerConfig[]>('GET', '/api/mcp/servers'),
-  createMcpServer: (input: Partial<McpServerConfig>) =>
-    request<McpServerConfig>('POST', '/api/mcp/servers', input),
-  deleteMcpServer: (id: string) => request<{ ok: boolean }>('DELETE', `/api/mcp/servers/${id}`),
+  listMcpServers: () => request<McpServerInfo[]>('GET', '/api/mcp/servers'),
+  createMcpServer: (input: {
+    name: string;
+    type?: 'stdio' | 'http';
+    command?: string;
+    args?: string[];
+    url?: string;
+    createProxy?: boolean;
+  }) => request<McpServerInfo>('POST', '/api/mcp/servers', input),
+  toggleMcpServer: (name: string, enabled: boolean) =>
+    request<McpServerInfo>('POST', `/api/mcp/servers/${encodeURIComponent(name)}/toggle`, {
+      enabled,
+    }),
+  restartMcpServer: (name: string) =>
+    request<McpServerInfo>('POST', `/api/mcp/servers/${encodeURIComponent(name)}/restart`),
+  deleteMcpServer: (name: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/mcp/servers/${encodeURIComponent(name)}`),
+
+  listVsCodeAgents: () => request<VsCodeAgent[]>('GET', '/api/vscode-agents'),
+
+  listKnowledge: (projectId?: string) =>
+    request<KnowledgeBase[]>(
+      'GET',
+      projectId ? `/api/knowledge?projectId=${encodeURIComponent(projectId)}` : '/api/knowledge',
+    ),
+  createKnowledgeBase: (input: {
+    name: string;
+    description?: string;
+    scope: 'global' | 'project';
+    projectId?: string;
+  }) => request<KnowledgeBase>('POST', '/api/knowledge', input),
+  patchKnowledgeBase: (id: string, patch: { name?: string; description?: string; enabled?: boolean }) =>
+    request<KnowledgeBase>('PATCH', `/api/knowledge/${id}`, patch),
+  deleteKnowledgeBase: (id: string) => request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}`),
+  listKnowledgeDocs: (id: string) => request<KnowledgeDoc[]>('GET', `/api/knowledge/${id}/docs`),
+  readKnowledgeDoc: (id: string, name: string) =>
+    request<{ name: string; content: string }>(
+      'GET',
+      `/api/knowledge/${id}/docs/content?name=${encodeURIComponent(name)}`,
+    ),
+  writeKnowledgeDoc: (id: string, name: string, content: string) =>
+    request<KnowledgeDoc>('PUT', `/api/knowledge/${id}/docs`, { name, content }),
+  deleteKnowledgeDoc: (id: string, name: string) =>
+    request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}/docs/${encodeURIComponent(name)}`),
 
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: { projectsRoot?: string }) =>

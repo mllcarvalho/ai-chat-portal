@@ -1,10 +1,15 @@
 import type { AgentPreset } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { createAgent, deleteAgent, listAgents, updateAgent } from '../../storage/agentStore';
+import { listVsCodeAgents } from '../../storage/vscodeAgents';
 
 export function registerAgentRoutes(router: Router): void {
   router.get('/api/agents', ({ res }) => {
     sendJson(res, 200, listAgents());
+  });
+
+  router.get('/api/vscode-agents', ({ res }) => {
+    sendJson(res, 200, listVsCodeAgents());
   });
 
   router.post('/api/agents', ({ res, body }) => {

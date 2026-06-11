@@ -1,11 +1,33 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { buildPortalUrl, clearRuntime, writeRuntime } from './authToken';
-import { registerMcpProvider } from './mcpProvider';
 import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
 import { loadConfig } from './storage/configStore';
+import { initPortalRoot } from './storage/paths';
+import { autoStartEnabled, stopAll } from './tools/mcpManager';
 import { withTimeout } from './util';
+
+/**
+ * Localiza, entre as pastas abertas no workspace, a raiz do repositório do
+ * portal (package.json com name "ai-chat-portal"). É dela que vêm os MCPs
+ * (.vscode/mcp.json) e onde os dados da UI são gravados (portal-data/).
+ */
+function findPortalRoot(): string | undefined {
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    if (folder.uri.scheme !== 'file') continue;
+    try {
+      const pkg = JSON.parse(
+        fs.readFileSync(path.join(folder.uri.fsPath, 'package.json'), 'utf8'),
+      ) as { name?: string };
+      if (pkg.name === 'ai-chat-portal') return folder.uri.fsPath;
+    } catch {
+      // pasta sem package.json
+    }
+  }
+  return undefined;
+}
 
 let portalUrl: string | undefined;
 
@@ -78,10 +100,12 @@ function maybeOfferWarmup(context: vscode.ExtensionContext): void {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  initPortalRoot(findPortalRoot());
   const config = loadConfig();
   const version = (context.extension.packageJSON as { version: string }).version;
 
-  registerMcpProvider(context);
+  void autoStartEnabled();
+  context.subscriptions.push({ dispose: () => void stopAll() });
 
   const router = buildRouter({ context, version });
   const mediaDir = path.join(context.extensionPath, 'media');

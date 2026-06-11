@@ -144,15 +144,58 @@ export interface ToolInfo {
   enabled: boolean;
 }
 
-export interface McpServerConfig {
-  id: string;
-  label: string;
-  type: 'stdio' | 'http';
+/** Entrada de servidor no .vscode/mcp.json (formato padrão do VS Code). */
+export interface McpServerEntry {
+  type?: 'stdio' | 'http' | 'sse';
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+}
+
+/** Estado de um servidor MCP gerenciado pelo portal. */
+export interface McpServerInfo {
+  name: string;
+  type: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  url?: string;
+  /** Persistido: religa sozinho quando o portal sobe. */
+  enabled: boolean;
+  status: 'stopped' | 'starting' | 'running' | 'error';
+  error?: string;
+  toolCount: number;
+  toolNames: string[];
+}
+
+/** Agente (chat mode) encontrado no VS Code — importável como AgentPreset. */
+export interface VsCodeAgent {
+  id: string;
+  name: string;
+  description?: string;
+  instructions: string;
+  source: 'project' | 'user';
+}
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description?: string;
+  scope: 'global' | 'project';
+  projectId?: string;
+  /** Bases habilitadas entram no contexto das conversas (global: todas; project: as do projeto). */
+  enabled: boolean;
+  docCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDoc {
+  name: string;
+  size: number;
+  mtime: string;
 }
 
 export interface FileEntry {

@@ -12,6 +12,7 @@ export function ProjectHome() {
   const selectSession = useSessions((s) => s.selectSession);
   const openProject = useSessions((s) => s.openProject);
   const openPanel = useUi((s) => s.openPanel);
+  const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
 
   const project = projects.find((p) => p.id === viewProjectId);
@@ -44,8 +45,11 @@ export function ProjectHome() {
           <button className="btn" onClick={() => openPanel({ kind: 'files' })}>
             📄 Arquivos
           </button>
-          <button className="btn" onClick={() => openPanel({ kind: 'skills' })}>
+          <button className="btn" onClick={() => setView('skills')}>
             ⚡ Skills do projeto
+          </button>
+          <button className="btn" onClick={() => setView('knowledge')}>
+            📚 Conhecimento
           </button>
           <button
             className="btn btn--danger"

@@ -5,3 +5,6 @@ extension/media/
 .setup-done
 .DS_Store
 *.log
+
+# dados do usuário criados pela UI do portal (sessões, skills, projetos, conhecimento)
+portal-data/

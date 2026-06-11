@@ -9,6 +9,7 @@ import { registerProjectRoutes } from './projects';
 import { registerSkillRoutes } from './skills';
 import { registerAgentRoutes } from './agents';
 import { registerToolRoutes } from './tools';
+import { registerKnowledgeRoutes } from './knowledge';
 import { registerConfigRoutes } from './config';
 
 export interface RouteDeps {
@@ -27,6 +28,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerSkillRoutes(router);
   registerAgentRoutes(router);
   registerToolRoutes(router);
+  registerKnowledgeRoutes(router);
   registerConfigRoutes(router);
   return router;
 }

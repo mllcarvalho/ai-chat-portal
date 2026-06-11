@@ -18,13 +18,20 @@ const MODE_INSTRUCTIONS: Record<Session['mode'], string> = {
     'Modo Agente: use as ferramentas disponíveis sempre que ajudarem a cumprir a tarefa, sem pedir permissão. Explique brevemente o que está fazendo.',
 };
 
+export interface KnowledgeSnippet {
+  baseName: string;
+  docName: string;
+  content: string;
+}
+
 export function buildPreamble(opts: {
   session: Session;
   project?: Project;
   agent?: AgentPreset;
   instructionSkills: SkillWithContent[];
+  knowledge?: KnowledgeSnippet[];
 }): string {
-  const { session, project, agent, instructionSkills } = opts;
+  const { session, project, agent, instructionSkills, knowledge } = opts;
   const blocks: string[] = [
     'Você é um assistente de IA do AI Chat Portal, conversando em português brasileiro com analistas de produto.',
     `Data atual: ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}.`,
@@ -45,6 +52,11 @@ export function buildPreamble(opts: {
   }
   for (const skill of instructionSkills) {
     blocks.push(`## Skill ativa: ${skill.name}\n${skill.content}`);
+  }
+  for (const snippet of knowledge ?? []) {
+    blocks.push(
+      `## Base de conhecimento: ${snippet.baseName} — ${snippet.docName}\n${snippet.content}`,
+    );
   }
   return blocks.join('\n\n');
 }
@@ -84,6 +96,7 @@ export function buildMessages(opts: {
   agent?: AgentPreset;
   instructionSkills: SkillWithContent[];
   commandSkills: SkillWithContent[];
+  knowledge?: KnowledgeSnippet[];
   maxInputTokens: number;
 }): vscode.LanguageModelChatMessage[] {
   const { session, commandSkills } = opts;
