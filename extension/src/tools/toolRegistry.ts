@@ -1,0 +1,85 @@
+import * as vscode from 'vscode';
+import type { AgentPreset, Session, ToolInfo } from '@aiportal/shared';
+import {
+  BUILTIN_TOOLS,
+  READONLY_BUILTIN_TOOL_NAMES,
+} from './builtinTools';
+import { listMcpTools, mcpServerLabel } from './mcp';
+
+function effectiveEnabled(session?: Session, agent?: AgentPreset): string[] | null {
+  if (session?.enabledTools) return session.enabledTools;
+  if (agent?.enabledTools) return agent.enabledTools;
+  return null; // todas habilitadas
+}
+
+/**
+ * Catálogo completo para a UI (toggles por sessão). Builtins só aparecem
+ * quando a sessão pertence a um projeto.
+ */
+export function getToolCatalog(session?: Session, agent?: AgentPreset): ToolInfo[] {
+  const enabled = effectiveEnabled(session, agent);
+  const isEnabled = (name: string) => enabled === null || enabled.includes(name);
+  const infos: ToolInfo[] = [];
+
+  if (!session || session.projectId) {
+    for (const tool of BUILTIN_TOOLS) {
+      infos.push({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        source: 'builtin',
+        serverLabel: 'Projeto',
+        enabled: isEnabled(tool.name),
+      });
+    }
+  }
+  for (const tool of listMcpTools()) {
+    infos.push({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      source: 'mcp',
+      serverLabel: mcpServerLabel(tool.name),
+      enabled: isEnabled(tool.name),
+    });
+  }
+  return infos;
+}
+
+/**
+ * Ferramentas efetivamente enviadas ao modelo, conforme o modo da sessão:
+ * ask = nenhuma; plan = só leitura do projeto; agent = tudo que estiver habilitado.
+ */
+export function getEnabledToolDefs(
+  session: Session,
+  agent?: AgentPreset,
+): vscode.LanguageModelChatTool[] {
+  if (session.mode === 'ask') return [];
+
+  const defs: vscode.LanguageModelChatTool[] = [];
+  const enabled = effectiveEnabled(session, agent);
+  const isEnabled = (name: string) => enabled === null || enabled.includes(name);
+
+  if (session.projectId) {
+    for (const tool of BUILTIN_TOOLS) {
+      if (session.mode === 'plan' && !READONLY_BUILTIN_TOOL_NAMES.includes(tool.name)) continue;
+      if (!isEnabled(tool.name)) continue;
+      defs.push({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      });
+    }
+  }
+  if (session.mode === 'agent') {
+    for (const tool of listMcpTools()) {
+      if (!isEnabled(tool.name)) continue;
+      defs.push({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      });
+    }
+  }
+  return defs;
+}

@@ -1,0 +1,53 @@
+{
+  "name": "ai-chat-portal-extension",
+  "displayName": "AI Chat Portal",
+  "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o AI Chat Portal",
+  "version": "0.1.1",
+  "publisher": "aichatportal",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": ["AI", "Chat"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiChatPortal.openInBrowser",
+        "title": "AI Chat Portal: Abrir no Navegador"
+      },
+      {
+        "command": "aiChatPortal.copyUrl",
+        "title": "AI Chat Portal: Copiar URL do Portal"
+      },
+      {
+        "command": "aiChatPortal.warmup",
+        "title": "AI Chat Portal: Autorizar uso do Copilot"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "aiChatPortal.userServers",
+        "label": "AI Chat Portal"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "dependencies": {
+    "@aiportal/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

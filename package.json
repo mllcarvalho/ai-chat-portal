@@ -1,0 +1,22 @@
+{
+  "name": "ai-chat-portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portal de chat com IA usando os modelos do GitHub Copilot via VS Code",
+  "workspaces": [
+    "shared",
+    "extension",
+    "web"
+  ],
+  "scripts": {
+    "start": "node scripts/setup.mjs",
+    "build": "npm run typecheck -w @aiportal/shared && npm run build -w @aiportal/web && npm run build -w ai-chat-portal-extension",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "package": "npm run build && npm run package -w ai-chat-portal-extension",
+    "dev:web": "npm run dev -w @aiportal/web",
+    "dev:ext": "npm run watch -w ai-chat-portal-extension"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

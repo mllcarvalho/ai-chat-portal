@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.vsix
+extension/media/
+.setup-done
+.DS_Store
+*.log
