@@ -6,10 +6,12 @@
   "workspaces": [
     "shared",
     "extension",
-    "web"
+    "web",
+    "installer"
   ],
   "scripts": {
     "start": "node scripts/setup.mjs",
+    "release": "node scripts/release.mjs",
     "build": "npm run typecheck -w @aiportal/shared && npm run build -w @aiportal/web && npm run build -w ai-chat-portal-extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "package": "npm run build && npm run package -w ai-chat-portal-extension",
