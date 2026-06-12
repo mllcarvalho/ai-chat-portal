@@ -22,7 +22,7 @@ npx ai-product-bmad-chat@latest
 
 ## Reabrir depois
 
-Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"AI Chat Portal: Abrir no Navegador"**.
+Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"AI Product BMAD Chat: Abrir no Navegador"**.
 
 ---
 

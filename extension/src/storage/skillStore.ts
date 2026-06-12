@@ -170,7 +170,7 @@ export function upsertSkillWithId(
 }
 
 const SKILL_CREATOR_ID = 'skill-creator';
-const SEED_VERSION = 'v3';
+const SEED_VERSION = 'v4';
 
 /*
  * Não documentar o marcador de input com as chaves literais aqui: o
@@ -178,7 +178,7 @@ const SEED_VERSION = 'v3';
  * exata já está descrita no schema da ferramenta portal_create_skill.
  * (O SKILL.md original embarcado não contém o marcador — verificado.)
  */
-const SKILL_CREATOR_ADAPTER = `Você vai criar (ou melhorar) uma skill do AI Chat Portal seguindo o skill-creator da Anthropic. Abaixo está o SKILL.md original, embarcado verbatim (fonte: github.com/anthropics/skills, Apache-2.0). Siga o método dele com estas adaptações obrigatórias deste ambiente, que prevalecem sobre o SKILL.md:
+const SKILL_CREATOR_ADAPTER = `Você vai criar (ou melhorar) uma skill do AI Product BMAD Chat seguindo o skill-creator da Anthropic. Abaixo está o SKILL.md original, embarcado verbatim (fonte: github.com/anthropics/skills, Apache-2.0). Siga o método dele com estas adaptações obrigatórias deste ambiente, que prevalecem sobre o SKILL.md:
 
 - **Registro**: o produto final NÃO é uma pasta com SKILL.md no disco. Ao terminar o rascunho, registre com a ferramenta portal_create_skill: o name e a description que você escreveria no frontmatter viram os campos name/description; o corpo do SKILL.md vira o campo content (markdown). Nunca crie a skill como arquivo solto com portal_write_file.
 - **Modelo único**: toda skill funciona das duas formas ao mesmo tempo — o conteúdo é injetado no contexto quando a skill está ativa no menu Skills E pode ser invocado por /comando no chat (campo command; se omitido, é derivado do nome). Não existe escolha de tipo.

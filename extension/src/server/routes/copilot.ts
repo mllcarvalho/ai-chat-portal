@@ -81,7 +81,7 @@ function requestGithubConsent(): void {
   consentPending = true;
   void vscode.window
     .showInformationMessage(
-      'O AI Chat Portal precisa de acesso à sua conta GitHub para mostrar os AI credits do Copilot.',
+      'O AI Product BMAD Chat precisa de acesso à sua conta GitHub para mostrar os AI credits do Copilot.',
       'Autorizar',
     )
     .then(async (choice) => {
@@ -109,7 +109,7 @@ async function githubSessionToken(): Promise<string> {
   if (!session) {
     requestGithubConsent();
     throw new Error(
-      'Autorize o AI Chat Portal a acessar sua conta GitHub na janela do VS Code (notificação no canto inferior direito)',
+      'Autorize o AI Product BMAD Chat a acessar sua conta GitHub na janela do VS Code (notificação no canto inferior direito)',
     );
   }
   return session.accessToken;

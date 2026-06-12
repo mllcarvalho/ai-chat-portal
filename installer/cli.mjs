@@ -149,7 +149,7 @@ if (!portal) {
     'O servidor do portal não respondeu.\n' +
       '  - Confira se a janela do VS Code abriu e aguarde alguns segundos\n' +
       '  - Depois rode npx ai-product-bmad-chat novamente, ou use o comando do VS Code:\n' +
-      '    "AI Chat Portal: Abrir no Navegador"',
+      '    "AI Product BMAD Chat: Abrir no Navegador"',
   );
 }
 ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);
@@ -186,4 +186,4 @@ try {
 console.log('\n\x1b[32m✦ Tudo pronto!\x1b[0m');
 console.log(`  URL do portal: ${url}`);
 console.log('  Para reabrir depois: npx ai-product-bmad-chat (instantâneo) ou, no VS Code,');
-console.log('  Cmd/Ctrl+Shift+P → "AI Chat Portal: Abrir no Navegador"\n');
+console.log('  Cmd/Ctrl+Shift+P → "AI Product BMAD Chat: Abrir no Navegador"\n');

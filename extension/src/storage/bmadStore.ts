@@ -96,7 +96,7 @@ function adapterFor(skillFolder: string): string {
         `Python NÃO está instalado: pule comandos \`python3 …\` e vá direto ao fallback manual descrito ` +
         `na skill (ex: ler e mesclar os .toml com bmad_read_file).`;
   return (
-    `> **Adaptação ao AI Chat Portal** — esta skill BMAD usa a instalação global compartilhada. ` +
+    `> **Adaptação ao AI Product BMAD Chat** — esta skill BMAD usa a instalação global compartilhada. ` +
     `Materiais do BMAD (workflows, templates, configs): leia com bmad_read_file / bmad_list_files, ` +
     `com caminhos relativos à raiz do BMAD. Mapeie os placeholders: {skill-root} → ${SKILLS_SUBDIR}/${skillFolder}; ` +
     `caminhos "bare" (ex: references/x.md) → ${SKILLS_SUBDIR}/${skillFolder}/<caminho>; ` +

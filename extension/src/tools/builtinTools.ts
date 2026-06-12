@@ -166,7 +166,7 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
   {
     name: 'portal_create_skill',
     description:
-      'Registra uma skill no AI Chat Portal (aparece no menu Skills e na página Skills). ' +
+      'Registra uma skill no AI Product BMAD Chat (aparece no menu Skills e na página Skills). ' +
       'Toda skill funciona das duas formas: injetada no contexto quando ativada E invocável por /comando no chat. ' +
       'Skills são SEMPRE markdown — nunca crie skills como arquivos soltos (.py, .md) com portal_write_file. ' +
       'Boas skills: nome curto e claro; description diz O QUE faz e QUANDO usar (é ela que guia a escolha); ' +
@@ -201,7 +201,7 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
   {
     name: 'portal_create_agent',
     description:
-      'Cria um agente (persona reutilizável) no AI Chat Portal — aparece no seletor de agente do chat ' +
+      'Cria um agente (persona reutilizável) no AI Product BMAD Chat — aparece no seletor de agente do chat ' +
       'e na página Agents. Agentes são globais: as instruções deles entram no contexto de qualquer ' +
       'conversa em que o usuário os selecionar. Use quando o usuário pedir um agente/persona ' +
       'especializado (ex: "agente revisor de contratos"). Boas instruções definem papel, tom, ' +

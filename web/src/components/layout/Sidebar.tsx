@@ -90,7 +90,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar__brand">
         <span className="sidebar__logo">
-          ai<em>·</em>chat<em>·</em>portal
+          ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
         </span>
       </div>
 

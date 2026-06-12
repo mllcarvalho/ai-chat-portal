@@ -242,7 +242,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       const response = await model.sendRequest(
         messages,
         {
-          justification: 'AI Chat Portal — chat do analista',
+          justification: 'AI Product BMAD Chat — chat do analista',
           ...(toolDefs.length
             ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
             : {}),
