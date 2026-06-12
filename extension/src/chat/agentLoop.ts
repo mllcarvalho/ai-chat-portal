@@ -180,6 +180,12 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   const commandSkills = listSkills(session.projectId ?? undefined)
     .map((s) => getSkill(s.id))
     .filter((s): s is SkillWithContent => !!s);
+  // skills vinculadas ao agente: garantidas no catálogo mesmo fora do escopo da sessão
+  for (const id of agent?.skillIds ?? []) {
+    if (commandSkills.some((s) => s.id === id)) continue;
+    const skill = getSkill(id);
+    if (skill) commandSkills.push(skill);
+  }
 
   const cts = registerRequest(requestId);
   sse.onClose(() => cts.cancel());
@@ -210,7 +216,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       instructionSkills,
       commandSkills,
       canLoadSkills: toolDefs.some((t) => t.name === 'portal_load_skill'),
-      knowledge: collectKnowledge(session.projectId),
+      knowledge: collectKnowledge(session.projectId, agent?.knowledgeBaseIds),
       contextFiles: readContextFiles(session, workRoot),
       envNote: describeEnvForPrompt(),
       maxInputTokens: model.maxInputTokens,

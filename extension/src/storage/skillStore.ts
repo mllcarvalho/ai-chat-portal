@@ -89,6 +89,7 @@ export function createSkill(input: {
   description: string;
   command?: string;
   content: string;
+  importedFrom?: string;
 }): SkillWithContent | undefined {
   const dir = skillsDirFor(input.scope, input.projectId);
   if (!dir) return undefined;
@@ -101,6 +102,7 @@ export function createSkill(input: {
     name: input.name,
     description: input.description,
     command: input.command || slugifyCommand(input.name),
+    importedFrom: input.importedFrom,
     createdAt: now,
     updatedAt: now,
   };

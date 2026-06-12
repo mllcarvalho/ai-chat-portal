@@ -152,6 +152,8 @@ export interface Skill {
   description: string;
   /** Nome do slash command (sem a barra). Derivado do nome quando não informado. */
   command?: string;
+  /** Id de origem quando criada por import — reimports atualizam em vez de duplicar. */
+  importedFrom?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -192,6 +194,18 @@ export interface AgentPreset {
   defaultMode?: SessionMode;
   /** null/ausente = todas as ferramentas. */
   enabledTools?: string[] | null;
+  /**
+   * Skills vinculadas (aditivo, nunca restringe): garantidas no catálogo das
+   * conversas do agente e incluídas no export.
+   */
+  skillIds?: string[];
+  /**
+   * Bases vinculadas (aditivo): entram no contexto das conversas do agente
+   * mesmo desativadas no toggle geral, e são incluídas no export.
+   */
+  knowledgeBaseIds?: string[];
+  /** Id de origem quando criado por import — reimports atualizam em vez de duplicar. */
+  importedFrom?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -267,6 +281,8 @@ export interface KnowledgeBase {
   /** Bases habilitadas entram no contexto das conversas (global: todas; project: as do projeto). */
   enabled: boolean;
   docCount: number;
+  /** Id de origem quando criada por import — reimports atualizam em vez de duplicar. */
+  importedFrom?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -275,6 +291,12 @@ export interface KnowledgeDoc {
   name: string;
   size: number;
   mtime: string;
+  /** URL de origem (SharePoint, GitHub Pages…) quando o doc é sincronizado de uma fonte remota. */
+  sourceUrl?: string;
+  /** Última sincronização bem-sucedida com a sourceUrl (ISO). */
+  syncedAt?: string;
+  /** Erro da última tentativa de sincronização (limpo quando sincroniza com sucesso). */
+  syncError?: string;
 }
 
 /** Snapshot dos AI credits (premium requests) da licença Copilot do usuário. */

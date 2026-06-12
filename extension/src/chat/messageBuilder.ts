@@ -91,14 +91,23 @@ export function buildPreamble(opts: {
     const activeIds = new Set(instructionSkills.map((s) => s.id));
     const catalog = (opts.commandSkills ?? []).filter((s) => !activeIds.has(s.id));
     if (catalog.length) {
+      const linkedIds = new Set(agent?.skillIds ?? []);
+      const hasLinked = catalog.some((s) => linkedIds.has(s.id));
       blocks.push(
         '## Catálogo de skills (não carregadas)\n' +
           'Estas skills existem no portal mas NÃO estão neste contexto — abaixo só comando, nome e descrição. ' +
           'Sempre que o pedido do usuário corresponder à descrição de uma skill, carregue-a com a ferramenta ' +
           'portal_load_skill ANTES de responder e siga as instruções dela. Se mais de uma servir, ' +
-          'carregue a mais específica. Não invente skills fora desta lista.\n' +
+          'carregue a mais específica. Não invente skills fora desta lista.' +
+          (hasLinked
+            ? ' Skills marcadas com [skill deste agente] foram vinculadas ao agente desta conversa — dê preferência a elas em caso de empate.'
+            : '') +
+          '\n' +
           catalog
-            .map((s) => `- ${s.command}: ${s.name}${s.description ? ` — ${s.description}` : ''}`)
+            .map(
+              (s) =>
+                `- ${s.command}: ${s.name}${s.description ? ` — ${s.description}` : ''}${linkedIds.has(s.id) ? ' [skill deste agente]' : ''}`,
+            )
             .join('\n'),
       );
     }

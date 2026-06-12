@@ -1,5 +1,8 @@
+import { slugifyCommand } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
+import { exportBaseZip, importBaseZip } from '../../storage/knowledgeZip';
 import {
+  addRemoteDoc,
   createBase,
   deleteBase,
   deleteDoc,
@@ -8,6 +11,7 @@ import {
   listDocs,
   patchBase,
   readDoc,
+  syncRemoteDocs,
   writeDoc,
 } from '../../storage/knowledgeStore';
 
@@ -95,6 +99,75 @@ export function registerKnowledgeRoutes(router: Router): void {
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : String(err));
     }
+  });
+
+  router.get('/api/knowledge/:id/export', async ({ res, params }) => {
+    const base = getBase(params.id);
+    if (!base) {
+      sendError(res, 404, 'Base não encontrada');
+      return;
+    }
+    const buffer = await exportBaseZip(params.id);
+    const name = `${slugifyCommand(base.name) || 'base'}.zip`;
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Length': buffer.length,
+      'Content-Disposition': `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    });
+    res.end(buffer);
+  });
+
+  router.post('/api/knowledge/import', async ({ res, body }) => {
+    const input = (body ?? {}) as {
+      zipBase64?: string;
+      name?: string;
+      scope?: 'global' | 'project';
+      projectId?: string;
+    };
+    if (!input.zipBase64) {
+      sendError(res, 400, 'Informe o conteúdo do zip (zipBase64)');
+      return;
+    }
+    if (input.scope === 'project' && !input.projectId) {
+      sendError(res, 400, 'Bases de projeto precisam de projectId');
+      return;
+    }
+    try {
+      const base = await importBaseZip(Buffer.from(input.zipBase64, 'base64'), {
+        scope: input.scope === 'project' ? 'project' : 'global',
+        projectId: input.projectId,
+        fallbackName: input.name,
+      });
+      sendJson(res, 201, base);
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/knowledge/:id/docs/remote', async ({ res, params, body }) => {
+    const input = (body ?? {}) as { url?: string; name?: string };
+    if (!input.url?.trim()) {
+      sendError(res, 400, 'Informe a URL do documento');
+      return;
+    }
+    if (!getBase(params.id)) {
+      sendError(res, 404, 'Base não encontrada');
+      return;
+    }
+    try {
+      sendJson(res, 201, await addRemoteDoc(params.id, input.url.trim(), input.name));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/knowledge/:id/sync', async ({ res, params, body }) => {
+    const input = (body ?? {}) as { name?: string };
+    if (!getBase(params.id)) {
+      sendError(res, 404, 'Base não encontrada');
+      return;
+    }
+    sendJson(res, 200, await syncRemoteDocs(params.id, input.name));
   });
 
   router.delete('/api/knowledge/:id/docs/:name', ({ res, params }) => {

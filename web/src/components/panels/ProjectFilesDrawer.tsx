@@ -125,6 +125,9 @@ export function ProjectFilesDrawer() {
   const [viewing, setViewing] = useState<{ path: string; content: string; truncated: boolean }>();
   /** Leitura ampliada (modal largo) do arquivo aberto. */
   const [reader, setReader] = useState(false);
+  /** Edição do arquivo aberto (vale para o drawer e para a visão ampliada). */
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [width, setWidth] = useState<number | undefined>(savedPanelWidth);
   const [resizing, setResizing] = useState(false);
@@ -149,6 +152,7 @@ export function ProjectFilesDrawer() {
   }, [reload, filesVersion]);
 
   const openFile = async (entry: FileEntry) => {
+    setEditing(false);
     try {
       const data = projectId
         ? await api.projectFileContent(projectId, entry.path)
@@ -157,6 +161,40 @@ export function ProjectFilesDrawer() {
     } catch {
       setViewing({ path: entry.path, content: '(não foi possível ler este arquivo)', truncated: false });
     }
+  };
+
+  const startEdit = () => {
+    if (!viewing) return;
+    setDraft(viewing.content);
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!viewing) return;
+    try {
+      if (projectId) await api.writeProjectFile(projectId, viewing.path, draft);
+      else if (workspaceSessionId) await api.writeSessionFile(workspaceSessionId, viewing.path, draft);
+      setViewing({ ...viewing, content: draft });
+      setEditing(false);
+      toast('Arquivo salvo.', 'ok');
+      await reload();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const closeViewer = async () => {
+    if (editing && viewing && draft !== viewing.content) {
+      const ok = await confirm({
+        title: 'Descartar alterações',
+        message: 'O arquivo tem alterações não salvas. Descartar?',
+        confirmLabel: 'Descartar',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setEditing(false);
+    setViewing(undefined);
   };
 
   const togglePin = async (entry: FileEntry) => {
@@ -312,7 +350,7 @@ export function ProjectFilesDrawer() {
         {viewing ? (
           <div className="file-viewer">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn--ghost btn--sm" onClick={() => setViewing(undefined)}>
+              <button className="btn btn--ghost btn--sm" onClick={() => void closeViewer()}>
                 ← voltar
               </button>
               <span
@@ -320,6 +358,29 @@ export function ProjectFilesDrawer() {
               >
                 {viewing.path}
               </span>
+              {editing ? (
+                <>
+                  <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
+                    💾 Salvar
+                  </button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn--sm"
+                  title={
+                    viewing.truncated
+                      ? 'Arquivo grande demais para editar aqui'
+                      : 'Editar o conteúdo do arquivo'
+                  }
+                  disabled={viewing.truncated}
+                  onClick={startEdit}
+                >
+                  ✏️ Editar
+                </button>
+              )}
               <button className="btn btn--sm" title="Abrir em visão maior" onClick={() => setReader(true)}>
                 ⤢ Ampliar
               </button>
@@ -327,7 +388,16 @@ export function ProjectFilesDrawer() {
                 ⬇ Baixar
               </button>
             </div>
-            <pre>{viewing.content}</pre>
+            {editing ? (
+              <textarea
+                className="page-card__editor"
+                style={{ flex: 1, width: '100%', minHeight: 280 }}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            ) : (
+              <pre>{viewing.content}</pre>
+            )}
             {viewing.truncated && (
               <div className="empty-state">Arquivo grande — exibindo só o início.</div>
             )}
@@ -355,7 +425,39 @@ export function ProjectFilesDrawer() {
       {reader && viewing && (
         <Modal title={viewing.path} wide onClose={() => setReader(false)}>
           <div className="file-reader">
-            {isMarkdown(viewing.path) ? (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 10 }}>
+              {editing ? (
+                <>
+                  <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
+                    💾 Salvar
+                  </button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn--sm"
+                  title={
+                    viewing.truncated
+                      ? 'Arquivo grande demais para editar aqui'
+                      : 'Editar o markdown bruto do arquivo'
+                  }
+                  disabled={viewing.truncated}
+                  onClick={startEdit}
+                >
+                  ✏️ Editar
+                </button>
+              )}
+            </div>
+            {editing ? (
+              <textarea
+                className="page-card__editor"
+                style={{ width: '100%', minHeight: '60vh' }}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            ) : isMarkdown(viewing.path) ? (
               <Markdown text={viewing.content} />
             ) : (
               <pre>{viewing.content}</pre>

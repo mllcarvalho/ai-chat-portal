@@ -59,14 +59,21 @@ async function extractDocx(file: File): Promise<string> {
     }
   ).convertToMarkdown;
   const result = toMarkdown ? await toMarkdown.call(mammoth, input) : await mammoth.extractRawText(input);
-  const text = result.value.trim();
+  // imagens embutidas viram data-URIs base64 gigantes que só poluem o texto
+  const text = result.value
+    .replace(/!\[[^\]]*\]\(data:[^)]*\)/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
   if (!text) throw new Error('O documento não tem texto.');
   return text;
 }
 
 async function extractPdf(file: File): Promise<string> {
   const pdfjs = await import('pdfjs-dist');
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  // sufixo de versão: invalida caches que guardaram o worker com MIME errado
+  // (antes do servidor conhecer .mjs) — sem ele o erro persiste por até 1h
+  const sep = pdfWorkerUrl.includes('?') ? '&' : '?';
+  pdfjs.GlobalWorkerOptions.workerSrc = `${pdfWorkerUrl}${sep}v=1`;
   const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
   const doc = await task.promise;
   try {

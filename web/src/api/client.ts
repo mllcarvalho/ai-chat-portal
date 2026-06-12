@@ -208,6 +208,10 @@ export const api = {
   patchAgent: (id: string, patch: Partial<AgentPreset>) =>
     request<AgentPreset>('PATCH', `/api/agents/${id}`, patch),
   deleteAgent: (id: string) => request<{ ok: boolean }>('DELETE', `/api/agents/${id}`),
+  exportAgentZip: (id: string, fileName: string) =>
+    downloadFromUrl(`/api/agents/${id}/export`, fileName),
+  importAgentZip: (zipBase64: string) =>
+    request<AgentPreset>('POST', '/api/agents/import', { zipBase64 }),
 
   listTools: (sessionId?: string) =>
     request<ToolInfo[]>(
@@ -258,6 +262,20 @@ export const api = {
     request<KnowledgeDoc>('PUT', `/api/knowledge/${id}/docs`, { name, content }),
   deleteKnowledgeDoc: (id: string, name: string) =>
     request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}/docs/${encodeURIComponent(name)}`),
+  exportKnowledgeBase: (id: string, fileName: string) =>
+    downloadFromUrl(`/api/knowledge/${id}/export`, fileName),
+  importKnowledgeBase: (
+    zipBase64: string,
+    input: { name?: string; scope: 'global' | 'project'; projectId?: string },
+  ) => request<KnowledgeBase>('POST', '/api/knowledge/import', { zipBase64, ...input }),
+  addRemoteKnowledgeDoc: (id: string, url: string, name?: string) =>
+    request<KnowledgeDoc>('POST', `/api/knowledge/${id}/docs/remote`, { url, name }),
+  syncKnowledgeDocs: (id: string, name?: string) =>
+    request<{ docs: KnowledgeDoc[]; errors: { name: string; error: string }[] }>(
+      'POST',
+      `/api/knowledge/${id}/sync`,
+      name ? { name } : {},
+    ),
 
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: { projectsRoot?: string }) =>

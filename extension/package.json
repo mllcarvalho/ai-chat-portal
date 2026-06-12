@@ -41,10 +41,14 @@
   },
   "dependencies": {
     "@aiportal/shared": "*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@joplin/turndown-plugin-gfm": "^1.0.67",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "jszip": "^3.10.1",
+    "turndown": "^7.2.4"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/turndown": "^5.0.6",
     "@types/vscode": "^1.104.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.24.0",

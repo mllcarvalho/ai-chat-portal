@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { KnowledgeBase, KnowledgeDoc } from '@aiportal/shared';
+import { slugifyCommand, type KnowledgeBase, type KnowledgeDoc } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
@@ -25,7 +25,11 @@ export function KnowledgePage() {
   const [newBaseName, setNewBaseName] = useState('');
   const [newBaseScope, setNewBaseScope] = useState<'global' | 'project'>('global');
   const [busy, setBusy] = useState(false);
+  const [urlFormOpen, setUrlFormOpen] = useState(false);
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [remoteName, setRemoteName] = useState('');
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     const list = await api.listKnowledge(projectId).catch(() => [] as KnowledgeBase[]);
@@ -46,6 +50,7 @@ export function KnowledgePage() {
     setSelected(base);
     setDocName('');
     setDocContent('');
+    setUrlFormOpen(false);
     setDocs(await api.listKnowledgeDocs(base.id).catch(() => []));
   };
 
@@ -62,6 +67,41 @@ export function KnowledgePage() {
       await reload();
       await select(base);
       toast('Base criada.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportBase = async (base: KnowledgeBase) => {
+    try {
+      await api.exportKnowledgeBase(base.id, `${slugifyCommand(base.name) || 'base'}.zip`);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const importBase = async (file: File) => {
+    setBusy(true);
+    try {
+      const zipBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+        reader.onerror = () => reject(new Error('Falha ao ler o arquivo'));
+        reader.readAsDataURL(file);
+      });
+      const base = await api.importKnowledgeBase(zipBase64, {
+        name: file.name.replace(/\.zip$/i, ''),
+        scope: newBaseScope,
+        projectId: newBaseScope === 'project' ? projectId : undefined,
+      });
+      await reload();
+      await select(base);
+      toast(
+        `Base "${base.name}" importada/atualizada (${base.docCount} documento${base.docCount === 1 ? '' : 's'}).`,
+        'ok',
+      );
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -152,6 +192,52 @@ export function KnowledgePage() {
     setBusy(false);
   };
 
+  const addRemoteDoc = async () => {
+    if (!selected || !remoteUrl.trim()) return;
+    setBusy(true);
+    try {
+      const doc = await api.addRemoteKnowledgeDoc(
+        selected.id,
+        remoteUrl.trim(),
+        remoteName.trim() || undefined,
+      );
+      setRemoteUrl('');
+      setRemoteName('');
+      setUrlFormOpen(false);
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+      toast(`"${doc.name}" adicionado e sincronizado.`, 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncDocs = async (name?: string) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const { docs: updated, errors } = await api.syncKnowledgeDocs(selected.id, name);
+      setDocs(updated);
+      await reload();
+      // o documento aberto no editor pode ter sido atualizado pelo sync
+      if (docName && updated.some((d) => d.name === docName && d.sourceUrl && !d.syncError)) {
+        const { content } = await api.readKnowledgeDoc(selected.id, docName);
+        setDocContent(content);
+      }
+      if (errors.length) {
+        toast(errors.map((e) => `"${e.name}": ${e.error}`).join(' · '), 'error');
+      } else {
+        toast(name ? 'Documento sincronizado.' : 'Documentos sincronizados.', 'ok');
+      }
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeDoc = async (doc: KnowledgeDoc) => {
     if (!selected) return;
     const ok = await confirm({
@@ -174,7 +260,7 @@ export function KnowledgePage() {
     <PageShell
       icon="📚"
       title="Bases de conhecimento"
-      subtitle="Documentos .md/.txt injetados no contexto das conversas. Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
+      subtitle="Documentos .md/.txt injetados no contexto das conversas — enviados do computador ou sincronizados de uma URL (GitHub Pages, markdown publicado…). Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
     >
       <div className="page-cols page-cols--three">
         <Panel title="Bases" count={bases.length}>
@@ -210,6 +296,25 @@ export function KnowledgePage() {
             >
               ＋ Criar base
             </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".zip"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void importBase(file);
+                e.target.value = '';
+              }}
+            />
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={() => importInputRef.current?.click()}
+              title="Importar uma base exportada em .zip (usa o escopo selecionado acima)"
+            >
+              📦 Importar .zip
+            </button>
           </div>
 
           {bases.map((base) => (
@@ -238,6 +343,17 @@ export function KnowledgePage() {
                 {base.description ? ` · ${base.description}` : ''}
               </span>
               <span className="page-list-item__actions">
+                <span
+                  role="button"
+                  className="mini-btn"
+                  title="Baixar a base como .zip para compartilhar"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void exportBase(base);
+                  }}
+                >
+                  Exportar
+                </span>
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
@@ -277,18 +393,41 @@ export function KnowledgePage() {
                   className="btn btn--sm"
                   disabled={busy}
                   onClick={() => uploadInputRef.current?.click()}
-                  title="Enviar arquivos do computador (.md, .txt, Excel, Word, PDF — convertidos para texto)"
+                  title="Upload — enviar arquivos do computador (.md, .txt, Excel, Word, PDF)"
+                  aria-label="Upload de arquivos"
                 >
-                  ⬆ Upload
+                  ⬆
                 </button>
+                <button
+                  className="btn btn--sm"
+                  disabled={busy}
+                  onClick={() => setUrlFormOpen((open) => !open)}
+                  title="Adicionar documento a partir de uma URL (GitHub Pages, markdown publicado…)"
+                  aria-label="Adicionar por URL"
+                >
+                  🔗
+                </button>
+                {docs.some((d) => d.sourceUrl) && (
+                  <button
+                    className="btn btn--sm"
+                    disabled={busy}
+                    onClick={() => void syncDocs()}
+                    title="Sincronizar todos os documentos com fonte remota"
+                    aria-label="Sincronizar documentos remotos"
+                  >
+                    ⟳
+                  </button>
+                )}
                 <button
                   className="btn btn--sm"
                   onClick={() => {
                     setDocName('novo-documento.md');
                     setDocContent('');
                   }}
+                  title="Novo documento em branco"
+                  aria-label="Novo documento"
                 >
-                  ＋ Novo
+                  ＋
                 </button>
               </>
             )
@@ -296,16 +435,60 @@ export function KnowledgePage() {
         >
           {selected ? (
             <>
+              {urlFormOpen && (
+                <div className="panel__form-block">
+                  <div className="field">
+                    <label>URL do documento</label>
+                    <input
+                      value={remoteUrl}
+                      onChange={(e) => setRemoteUrl(e.target.value)}
+                      placeholder="https://exemplo.github.io/docs/guia.html"
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Nome do documento (opcional)</label>
+                    <input
+                      value={remoteName}
+                      onChange={(e) => setRemoteName(e.target.value)}
+                      placeholder="derivado da URL se vazio"
+                    />
+                  </div>
+                  <button
+                    className="btn btn--primary"
+                    disabled={busy || !remoteUrl.trim()}
+                    onClick={() => void addRemoteDoc()}
+                  >
+                    ＋ Adicionar da URL
+                  </button>
+                </div>
+              )}
               {docs.map((doc) => (
                 <div
                   className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
                   key={doc.name}
                   onClick={() => void openDoc(doc)}
                   role="button"
+                  title={doc.sourceUrl}
                 >
-                  <span className="item-card__name">📄 {doc.name}</span>
-                  <span className="item-card__desc">{(doc.size / 1024).toFixed(1)} KB</span>
+                  <span className="item-card__name">{doc.sourceUrl ? '🔗' : '📄'} {doc.name}</span>
+                  <span className="item-card__desc">
+                    {(doc.size / 1024).toFixed(1)} KB
+                    {doc.sourceUrl ? ` · ${new URL(doc.sourceUrl).hostname}` : ''}
+                    {doc.syncError ? ' · ⚠ erro no último sync' : ''}
+                  </span>
                   <span className="page-list-item__actions">
+                    {doc.sourceUrl && (
+                      <span
+                        role="button"
+                        className="mini-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void syncDocs(doc.name);
+                        }}
+                      >
+                        Sincronizar
+                      </span>
+                    )}
                     <span
                       role="button"
                       className="mini-btn mini-btn--danger"
@@ -334,6 +517,18 @@ export function KnowledgePage() {
 
         {selected && docName ? (
           <Panel title="Editor" className="panel--form">
+            {(() => {
+              const opened = docs.find((d) => d.name === docName);
+              if (!opened?.sourceUrl) return null;
+              return (
+                <p className="page-hint">
+                  🔗 Sincronizado de <code>{opened.sourceUrl}</code>
+                  {opened.syncedAt ? ` em ${new Date(opened.syncedAt).toLocaleString()}` : ''}
+                  {opened.syncError ? ` · ⚠ último sync falhou: ${opened.syncError}` : ''}
+                  . Edições manuais são sobrescritas ao sincronizar.
+                </p>
+              );
+            })()}
             <div className="field">
               <label>Nome do documento</label>
               <input value={docName} onChange={(e) => setDocName(e.target.value)} />

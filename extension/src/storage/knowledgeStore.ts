@@ -5,11 +5,28 @@ import type { KnowledgeBase, KnowledgeDoc } from '@aiportal/shared';
 import { readJson, writeJsonAtomic } from './jsonStore';
 import { PROJECT_META_DIR, ensureDir, knowledgeDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
+import { docNameForUrl, fetchRemoteContent, normalizeSourceUrl } from './remoteFetch';
 
 const DOC_EXTENSIONS = ['.md', '.txt'];
 const DOC_LIMIT = 512 * 1024;
+const SOURCES_FILE = 'sources.json';
 
 type BaseMeta = Omit<KnowledgeBase, 'docCount'>;
+
+/** Fonte remota de um documento sincronizado (sources.json, indexado pelo nome do doc). */
+export interface DocSource {
+  url: string;
+  syncedAt?: string;
+  error?: string;
+}
+
+function readSources(dir: string): Record<string, DocSource> {
+  return readJson<Record<string, DocSource>>(path.join(dir, SOURCES_FILE)) ?? {};
+}
+
+function writeSources(dir: string, sources: Record<string, DocSource>): void {
+  writeJsonAtomic(path.join(dir, SOURCES_FILE), sources);
+}
 
 function baseDirFor(scope: 'global' | 'project', projectId?: string): string | undefined {
   if (scope === 'global') return knowledgeDir();
@@ -42,11 +59,20 @@ function listDocsIn(dir: string): KnowledgeDoc[] {
   } catch {
     return [];
   }
+  const sources = readSources(dir);
   const docs: KnowledgeDoc[] = [];
   for (const file of files) {
     if (!file.isFile() || !DOC_EXTENSIONS.includes(path.extname(file.name).toLowerCase())) continue;
     const stat = fs.statSync(path.join(dir, file.name));
-    docs.push({ name: file.name, size: stat.size, mtime: stat.mtime.toISOString() });
+    const source = sources[file.name];
+    docs.push({
+      name: file.name,
+      size: stat.size,
+      mtime: stat.mtime.toISOString(),
+      sourceUrl: source?.url,
+      syncedAt: source?.syncedAt,
+      syncError: source?.error,
+    });
   }
   return docs.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -84,6 +110,8 @@ export function createBase(input: {
   description?: string;
   scope: 'global' | 'project';
   projectId?: string;
+  enabled?: boolean;
+  importedFrom?: string;
 }): KnowledgeBase | undefined {
   const parent = baseDirFor(input.scope, input.projectId);
   if (!parent) return undefined;
@@ -94,7 +122,8 @@ export function createBase(input: {
     description: input.description,
     scope: input.scope,
     projectId: input.scope === 'project' ? input.projectId : undefined,
-    enabled: true,
+    enabled: input.enabled ?? true,
+    importedFrom: input.importedFrom,
     createdAt: now,
     updatedAt: now,
   };
@@ -164,11 +193,81 @@ export function deleteDoc(baseId: string, name: string): boolean {
   const dir = findBaseDir(baseId);
   if (!dir) return false;
   try {
-    fs.rmSync(path.join(dir, safeDocName(name)), { force: true });
+    const doc = safeDocName(name);
+    fs.rmSync(path.join(dir, doc), { force: true });
+    const sources = readSources(dir);
+    if (sources[doc]) {
+      delete sources[doc];
+      writeSources(dir, sources);
+    }
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * Cria um documento sincronizado de uma URL remota (GitHub Pages, markdown bruto…):
+ * baixa o conteúdo, converte HTML para markdown e registra a fonte para re-sync.
+ */
+export async function addRemoteDoc(baseId: string, rawUrl: string, name?: string): Promise<KnowledgeDoc> {
+  const dir = findBaseDir(baseId);
+  if (!dir) throw new Error('Base de conhecimento não encontrada');
+  const url = normalizeSourceUrl(rawUrl);
+  let docName = name?.trim() || docNameForUrl(url);
+  if (!/\.(md|txt)$/i.test(docName)) docName = `${docName}.md`;
+  docName = safeDocName(docName);
+  const content = await fetchRemoteContent(url);
+  const doc = writeDoc(baseId, docName, content);
+  const sources = readSources(dir);
+  const syncedAt = new Date().toISOString();
+  sources[doc.name] = { url, syncedAt };
+  writeSources(dir, sources);
+  return { ...doc, sourceUrl: url, syncedAt };
+}
+
+export interface SyncResult {
+  docs: KnowledgeDoc[];
+  errors: Array<{ name: string; error: string }>;
+}
+
+/** Re-sincroniza um documento remoto (ou todos os da base, se name não for informado). */
+export async function syncRemoteDocs(baseId: string, name?: string): Promise<SyncResult> {
+  const dir = findBaseDir(baseId);
+  if (!dir) throw new Error('Base de conhecimento não encontrada');
+  const sources = readSources(dir);
+  const names = name ? [safeDocName(name)] : Object.keys(sources);
+  const errors: SyncResult['errors'] = [];
+  for (const docName of names) {
+    const source = sources[docName];
+    if (!source) {
+      errors.push({ name: docName, error: 'Documento não tem fonte remota' });
+      continue;
+    }
+    try {
+      const content = await fetchRemoteContent(source.url);
+      writeDoc(baseId, docName, content);
+      sources[docName] = { url: source.url, syncedAt: new Date().toISOString() };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      sources[docName] = { ...source, error: message };
+      errors.push({ name: docName, error: message });
+    }
+  }
+  writeSources(dir, sources);
+  return { docs: listDocsIn(dir), errors };
+}
+
+/** Fontes remotas da base, para export/import preservar os vínculos de sync. */
+export function getDocSources(baseId: string): Record<string, DocSource> {
+  const dir = findBaseDir(baseId);
+  return dir ? readSources(dir) : {};
+}
+
+export function setDocSources(baseId: string, sources: Record<string, DocSource>): void {
+  const dir = findBaseDir(baseId);
+  if (!dir) throw new Error('Base de conhecimento não encontrada');
+  writeSources(dir, sources);
 }
 
 export interface KnowledgeSnippet {
@@ -182,10 +281,23 @@ const TOTAL_CAP = 48_000;
 
 /**
  * Conteúdo das bases habilitadas (globais + do projeto da sessão) para injetar
- * no contexto, com teto por documento e total.
+ * no contexto, com teto por documento e total. extraBaseIds (bases vinculadas
+ * ao agente da sessão) entram mesmo desativadas no toggle geral.
  */
-export function collectKnowledge(projectId?: string | null): KnowledgeSnippet[] {
+export function collectKnowledge(
+  projectId?: string | null,
+  extraBaseIds?: string[],
+): KnowledgeSnippet[] {
   const bases = listBases(projectId ?? undefined).filter((b) => b.enabled);
+  const included = new Set(bases.map((b) => b.id));
+  for (const id of extraBaseIds ?? []) {
+    if (included.has(id)) continue;
+    const base = getBase(id);
+    if (base) {
+      bases.push(base);
+      included.add(id);
+    }
+  }
   const snippets: KnowledgeSnippet[] = [];
   let total = 0;
   for (const base of bases) {
