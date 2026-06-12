@@ -9,7 +9,7 @@
  * via npx não precisa de git nem do código-fonte.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, readFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -87,6 +87,23 @@ if (!existsSync(vsix)) {
       '  - Via npx: rode npx ai-product-bmad-chat@latest\n' +
       '  - No repositório: rode npm run release para gerá-lo',
   );
+}
+
+// em Macs corporativos ~/.vscode às vezes fica com dono root e a instalação falha em silêncio
+if (!isWindows) {
+  const vscodeDir = join(homedir(), '.vscode');
+  for (const dir of [vscodeDir, join(vscodeDir, 'extensions')]) {
+    if (!existsSync(dir)) continue;
+    try {
+      accessSync(dir, constants.W_OK);
+    } catch {
+      fail(
+        `Sem permissão de escrita em ${dir} — o VS Code não consegue instalar extensões.\n` +
+          '  Recupere a posse da pasta e rode o comando de novo:\n' +
+          '    sudo chown -R "$(whoami)" ~/.vscode',
+      );
+    }
+  }
 }
 
 log('Instalando a extensão no VS Code…');
