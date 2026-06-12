@@ -174,9 +174,9 @@ if (!portal) {
 if (!portal) {
   fail(
     'O servidor do portal não respondeu.\n' +
-      '  - Confira se a janela do VS Code abriu e aguarde alguns segundos\n' +
-      '  - Depois rode npm start novamente, ou use o comando do VS Code:\n' +
-      '    "AI Product BMAD Chat: Abrir no Navegador"',
+      '  - Causa mais comum: o VS Code já estava aberto e não carregou a extensão recém-instalada.\n' +
+      '    Feche TODAS as janelas do VS Code e rode npm start de novo.\n' +
+      '  - Se persistir, abra o VS Code e rode o comando "AI Product BMAD Chat: Abrir no Navegador"',
   );
 }
 ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);

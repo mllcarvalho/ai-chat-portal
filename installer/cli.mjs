@@ -139,6 +139,7 @@ if (!portal) {
   log('Abrindo uma janela do VS Code para ativar o portal…');
   code(['-n']);
   log('Aguardando o servidor do portal subir (até 90s)…');
+  log('(se o VS Code já estava aberto, pode ser preciso fechar todas as janelas e rodar de novo)');
   for (let i = 0; i < 90 && !portal; i++) {
     await sleep(1000);
     portal = await findLivePortal();
@@ -147,9 +148,10 @@ if (!portal) {
 if (!portal) {
   fail(
     'O servidor do portal não respondeu.\n' +
-      '  - Confira se a janela do VS Code abriu e aguarde alguns segundos\n' +
-      '  - Depois rode npx ai-product-bmad-chat novamente, ou use o comando do VS Code:\n' +
-      '    "AI Product BMAD Chat: Abrir no Navegador"',
+      '  - Causa mais comum: o VS Code já estava aberto e não carregou a extensão recém-instalada.\n' +
+      '    Feche TODAS as janelas do VS Code e rode npx ai-product-bmad-chat de novo.\n' +
+      '  - Se persistir, abra o VS Code e confira se "AI Product BMAD Chat" aparece na aba\n' +
+      '    Extensions; depois rode o comando "AI Product BMAD Chat: Abrir no Navegador"',
   );
 }
 ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);
