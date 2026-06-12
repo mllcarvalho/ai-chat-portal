@@ -24,6 +24,24 @@ export function createAgent(
   return agent;
 }
 
+/** Cria ou atualiza um preset com id fixo (integrações idempotentes, ex: BMAD). */
+export function upsertAgentWithId(
+  id: string,
+  input: Omit<AgentPreset, 'id' | 'createdAt' | 'updatedAt'>,
+): AgentPreset {
+  const agents = readAll();
+  const now = new Date().toISOString();
+  const idx = agents.findIndex((a) => a.id === id);
+  if (idx >= 0) {
+    agents[idx] = { ...agents[idx], ...input, updatedAt: now };
+    writeJsonAtomic(agentsPath(), agents);
+    return agents[idx];
+  }
+  const agent: AgentPreset = { ...input, id, createdAt: now, updatedAt: now };
+  writeJsonAtomic(agentsPath(), [...agents, agent]);
+  return agent;
+}
+
 export function updateAgent(
   id: string,
   patch: Partial<Omit<AgentPreset, 'id' | 'createdAt' | 'updatedAt'>>,

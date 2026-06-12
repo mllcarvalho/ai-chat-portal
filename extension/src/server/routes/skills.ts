@@ -3,13 +3,17 @@ import {
   createSkill,
   deleteSkill,
   getSkill,
+  listAllSkills,
   listSkills,
   updateSkill,
 } from '../../storage/skillStore';
 
 export function registerSkillRoutes(router: Router): void {
+  // Sem projectId devolve o catálogo completo (globais + todos os projetos);
+  // com projectId, apenas globais + as daquele projeto.
   router.get('/api/skills', ({ res, query }) => {
-    sendJson(res, 200, listSkills(query.get('projectId') || undefined));
+    const projectId = query.get('projectId') || undefined;
+    sendJson(res, 200, projectId ? listSkills(projectId) : listAllSkills());
   });
 
   router.get('/api/skills/:id', ({ res, params }) => {
@@ -23,7 +27,6 @@ export function registerSkillRoutes(router: Router): void {
 
   router.post('/api/skills', ({ res, body }) => {
     const input = (body ?? {}) as {
-      kind?: 'instruction' | 'command';
       scope?: 'global' | 'project';
       projectId?: string;
       name?: string;
@@ -31,12 +34,8 @@ export function registerSkillRoutes(router: Router): void {
       command?: string;
       content?: string;
     };
-    if (!input.name?.trim() || !input.kind || !input.scope) {
-      sendError(res, 400, 'name, kind e scope são obrigatórios');
-      return;
-    }
-    if (input.kind === 'command' && !input.command?.trim()) {
-      sendError(res, 400, 'Comandos slash precisam do campo command (nome sem a barra)');
+    if (!input.name?.trim() || !input.scope) {
+      sendError(res, 400, 'name e scope são obrigatórios');
       return;
     }
     if (input.scope === 'project' && !input.projectId) {
@@ -44,12 +43,11 @@ export function registerSkillRoutes(router: Router): void {
       return;
     }
     const skill = createSkill({
-      kind: input.kind,
       scope: input.scope,
       projectId: input.projectId,
       name: input.name.trim(),
       description: input.description?.trim() ?? '',
-      command: input.command?.trim().replace(/^\//, ''),
+      command: input.command?.trim().replace(/^\//, '') || undefined,
       content: input.content ?? '',
     });
     if (!skill) {

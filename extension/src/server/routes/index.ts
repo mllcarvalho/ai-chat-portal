@@ -11,10 +11,16 @@ import { registerAgentRoutes } from './agents';
 import { registerToolRoutes } from './tools';
 import { registerKnowledgeRoutes } from './knowledge';
 import { registerConfigRoutes } from './config';
+import { registerBmadRoutes } from './bmad';
+import { registerCopilotRoutes } from './copilot';
 
 export interface RouteDeps {
   context: vscode.ExtensionContext;
   version: string;
+  /** Identifica o build carregado (mtime do bundle); usado na eleição entre janelas. */
+  buildId: number;
+  /** Encerra o servidor desta janela (chamado quando outra janela assume o portal). */
+  requestShutdown: () => void;
 }
 
 export function buildRouter(deps: RouteDeps): Router {
@@ -30,5 +36,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerToolRoutes(router);
   registerKnowledgeRoutes(router);
   registerConfigRoutes(router);
+  registerBmadRoutes(router);
+  registerCopilotRoutes(router);
   return router;
 }

@@ -1,36 +1,39 @@
 :root {
-  /* Paleta carvão-quente com acento cobre — nada de slate azulado genérico */
-  --bg-0: #100f0d;
-  --bg-1: #16140f;
-  --bg-2: #1d1a14;
-  --bg-3: #252118;
-  --bg-hover: #2b2619;
+  /* Paleta Itaú Unibanco: branco com texto azul-marinho, acento laranja e azul.
+     O laranja da marca (#ec7000) vale para preenchimentos; em texto usamos um
+     tom mais profundo (--accent-strong) para manter contraste no fundo claro. */
+  --bg-0: #f6f7f9;
+  --bg-1: #ffffff;
+  --bg-2: #f2f4f7;
+  --bg-3: #e9edf3;
+  --bg-hover: #eef1f5;
 
-  --border: #2c2820;
-  --border-strong: #3d3727;
+  --border: #e2e6ec;
+  --border-strong: #c7d0db;
 
-  --text: #ece7db;
-  --text-dim: #a39a85;
-  --text-faint: #6e6757;
+  --text: #16294b;
+  --text-dim: #4d5e80;
+  --text-faint: #7e8ba3;
 
-  --accent: #e0a458;
-  --accent-strong: #f2bc70;
-  --accent-soft: rgba(224, 164, 88, 0.14);
-  --accent-border: rgba(224, 164, 88, 0.35);
+  --accent: #e06200;
+  --accent-strong: #ad4f00;
+  --accent-soft: rgba(236, 112, 0, 0.1);
+  --accent-border: rgba(236, 112, 0, 0.45);
 
-  /* tool cards: estética de terminal, verde-água */
-  --tool: #72c4b3;
-  --tool-soft: rgba(114, 196, 179, 0.1);
-  --tool-border: rgba(114, 196, 179, 0.28);
+  /* tool cards: azul Itaú */
+  --tool: #1d4fa0;
+  --tool-soft: rgba(29, 79, 160, 0.07);
+  --tool-border: rgba(29, 79, 160, 0.3);
 
-  --ok: #8fc97e;
-  --danger: #e07a6a;
-  --danger-soft: rgba(224, 122, 106, 0.12);
+  --ok: #178246;
+  --warning: #a87900;
+  --danger: #c93a2c;
+  --danger-soft: rgba(201, 58, 44, 0.09);
 
   /* modos */
-  --mode-ask: #8ab4d8;
-  --mode-plan: #e0a458;
-  --mode-agent: #8fc97e;
+  --mode-ask: #1d4fa0;
+  --mode-plan: #e06200;
+  --mode-agent: #178246;
 
   --font-display: 'Bricolage Grotesque', sans-serif;
   --font-body: 'Instrument Sans', sans-serif;
@@ -40,7 +43,7 @@
   --radius: 11px;
   --radius-lg: 16px;
 
-  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 12px 40px rgba(22, 41, 75, 0.16), 0 2px 8px rgba(22, 41, 75, 0.08);
   --sidebar-w: 288px;
 
   --ease: cubic-bezier(0.25, 0.8, 0.3, 1);

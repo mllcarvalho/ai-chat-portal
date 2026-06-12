@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -12,6 +12,11 @@ function SessionItem({ session }: { session: SessionSummary }) {
   const removeSession = useSessions((s) => s.removeSession);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(session.title);
+  // 1º clique no ✕ arma a confirmação inline; o 2º exclui (desarma sozinho)
+  const [confirming, setConfirming] = useState(false);
+  const confirmTimer = useRef<number>();
+
+  useEffect(() => () => window.clearTimeout(confirmTimer.current), []);
 
   if (editing) {
     return (
@@ -50,16 +55,21 @@ function SessionItem({ session }: { session: SessionSummary }) {
     >
       <span className="session-item__title">{session.title}</span>
       <span
-        className="session-item__menu"
-        title="Excluir conversa"
+        className={`session-item__menu${confirming ? ' session-item__menu--confirm' : ''}`}
+        title={confirming ? 'Clique de novo para excluir' : 'Excluir conversa'}
         onClick={(e) => {
           e.stopPropagation();
-          if (window.confirm(`Excluir a conversa "${session.title}"?`)) {
-            void removeSession(session.id);
+          if (!confirming) {
+            setConfirming(true);
+            window.clearTimeout(confirmTimer.current);
+            confirmTimer.current = window.setTimeout(() => setConfirming(false), 3000);
+            return;
           }
+          window.clearTimeout(confirmTimer.current);
+          void removeSession(session.id);
         }}
       >
-        ✕
+        {confirming ? 'Excluir?' : '✕'}
       </span>
     </button>
   );
@@ -114,20 +124,22 @@ export function Sidebar() {
               <button
                 className={`project-item__chevron${expanded[project.id] ? ' project-item__chevron--open' : ''}`}
                 onClick={() => toggleProject(project.id)}
-                aria-label="Expandir projeto"
+                aria-label={expanded[project.id] ? 'Recolher projeto' : 'Expandir projeto'}
               >
                 ▶
               </button>
+              {/* clicar no nome abre a tela do projeto E alterna a expansão das conversas */}
               <button
                 className="project-item__name"
                 onClick={() => {
                   setView('chat');
+                  toggleProject(project.id);
                   openProject(project.id);
                 }}
                 title={project.name}
                 style={{ textAlign: 'left' }}
               >
-                📁 {project.name}
+                {expanded[project.id] ? '📂' : '📁'} {project.name}
               </button>
               <button
                 className="session-item__menu"

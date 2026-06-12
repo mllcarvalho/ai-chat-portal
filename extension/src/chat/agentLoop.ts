@@ -1,7 +1,9 @@
 import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
+import * as fs from 'node:fs';
 import type {
   AgentPreset,
+  ChatAttachment,
   ChatErrorCode,
   ChatFinishReason,
   ChatMessage,
@@ -9,27 +11,69 @@ import type {
   Project,
   Session,
   SkillWithContent,
+  TokenUsage,
 } from '@aiportal/shared';
 import type { SseStream } from '../server/sse';
 import { getAgent } from '../storage/agentStore';
+import { ensureDir, sessionWorkspaceDir } from '../storage/paths';
 import { getProject, projectDir } from '../storage/projectStore';
 import { saveSession, toSummary } from '../storage/sessionStore';
-import { getSkill } from '../storage/skillStore';
-import { dispatchBuiltinTool, isBuiltinTool } from '../tools/builtinTools';
+import { getSkill, listSkills } from '../storage/skillStore';
+import {
+  PROJECT_ONLY_TOOL_NAMES,
+  dispatchBuiltinTool,
+  isBuiltinTool,
+  resolveInProject,
+} from '../tools/builtinTools';
+import { describeEnvForPrompt } from '../tools/envCheck';
 import { callMcpTool } from '../tools/mcpManager';
+import { executeCommand } from '../tools/runCommand';
 import { getEnabledToolDefs } from '../tools/toolRegistry';
 import { collectKnowledge } from '../storage/knowledgeStore';
-import { buildMessages } from './messageBuilder';
+import { buildMessages, type ContextFile } from './messageBuilder';
 import { registerRequest, releaseRequest } from './activeRequests';
+import { waitForApproval } from './approvals';
+import { creditsRemaining } from '../server/routes/copilot';
 import { withTimeout } from '../util';
 
 const MAX_ROUNDS = 20;
 const TOOL_RESULT_CLAMP = 64 * 1024;
+/** Limite por arquivo fixado no contexto da sessão. */
+const CONTEXT_FILE_CLAMP = 64 * 1024;
+/** Ferramentas que dependem da pasta de trabalho existir no disco. */
+const WORKSPACE_FS_TOOLS = ['portal_write_file', 'portal_read_file', 'portal_list_files'];
+
+/** Lê os arquivos fixados no contexto da sessão; ignora os que sumiram do disco. */
+function readContextFiles(session: Session, workRoot: string): ContextFile[] {
+  if (!session.contextFiles?.length) return [];
+  const result: ContextFile[] = [];
+  for (const rel of session.contextFiles) {
+    try {
+      const file = resolveInProject(workRoot, rel);
+      const content = fs.readFileSync(file, 'utf8');
+      result.push({ path: rel, content: clamp(content, CONTEXT_FILE_CLAMP) });
+    } catch {
+      // arquivo removido/inacessível — segue sem ele
+    }
+  }
+  return result;
+}
+
+/** Estimativa local usada quando countTokens falha (~3.5 chars/token). */
+function estimateTokens(message: vscode.LanguageModelChatMessage): number {
+  let chars = 0;
+  for (const part of message.content) {
+    if (part instanceof vscode.LanguageModelTextPart) chars += part.value.length;
+    else chars += JSON.stringify(part).length;
+  }
+  return Math.ceil(chars / 3.5);
+}
 
 export interface ChatRunArgs {
   session: Session;
   text: string;
   modelId?: string;
+  attachments?: ChatAttachment[];
   requestId: string;
   sse: SseStream;
 }
@@ -99,15 +143,20 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   const { session, sse, requestId } = args;
 
   // 1. persiste a mensagem do usuário imediatamente
+  const userParts: MessagePart[] = [];
+  if (args.text) userParts.push({ type: 'text', text: args.text });
+  for (const att of args.attachments ?? []) {
+    userParts.push({ type: 'attachment', name: att.name, content: att.content });
+  }
   const userMessage: ChatMessage = {
     id: crypto.randomUUID(),
     role: 'user',
-    parts: [{ type: 'text', text: args.text }],
+    parts: userParts,
     createdAt: new Date().toISOString(),
   };
   session.messages.push(userMessage);
   if (session.title === 'Nova conversa' && session.messages.length === 1) {
-    const firstLine = args.text.split('\n')[0];
+    const firstLine = args.text.split('\n')[0] || args.attachments?.[0]?.name || 'Nova conversa';
     session.title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
   }
   saveSession(session);
@@ -119,16 +168,28 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   const project: Project | undefined = session.projectId
     ? getProject(session.projectId)
     : undefined;
-  const skills = session.activeSkillIds
+  // toda conversa tem uma pasta de trabalho: a do projeto, ou um workspace
+  // próprio da sessão (criado sob demanda na primeira escrita/comando)
+  const workRoot = project ? projectDir(project) : sessionWorkspaceDir(session.id);
+  // toda skill vale das duas formas: ativada injeta o conteúdo no contexto…
+  const instructionSkills = session.activeSkillIds
     .map((id) => getSkill(id))
     .filter((s): s is SkillWithContent => !!s);
-  const commandSkills = skills.filter((s) => s.kind === 'command');
-  const instructionSkills = skills.filter((s) => s.kind === 'instruction');
+  // …e qualquer skill visível para a sessão (globais + do projeto) pode ser
+  // invocada por /comando, não só as ativadas — espelha o menu da UI
+  const commandSkills = listSkills(session.projectId ?? undefined)
+    .map((s) => getSkill(s.id))
+    .filter((s): s is SkillWithContent => !!s);
 
   const cts = registerRequest(requestId);
   sse.onClose(() => cts.cancel());
 
+  // snapshot dos AI credits antes da 1ª requisição (corre em paralelo: o fetch
+  // resolve muito antes de a primeira rodada do modelo ser cobrada)
+  const creditsBefore = creditsRemaining();
+
   const assistantParts: MessagePart[] = [];
+  const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, requests: 0 };
   let finishReason: ChatFinishReason = 'stop';
   let chatError: { code: ChatErrorCode; message: string } | undefined;
 
@@ -148,11 +209,30 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       agent,
       instructionSkills,
       commandSkills,
+      canLoadSkills: toolDefs.some((t) => t.name === 'portal_load_skill'),
       knowledge: collectKnowledge(session.projectId),
+      contextFiles: readContextFiles(session, workRoot),
+      envNote: describeEnvForPrompt(),
       maxInputTokens: model.maxInputTokens,
     });
 
+    // tokens por mensagem já contada (o array messages só recebe appends)
+    const messageTokens: number[] = [];
+    const countNewMessages = async (): Promise<number> => {
+      for (let i = messageTokens.length; i < messages.length; i++) {
+        try {
+          messageTokens.push(await model.countTokens(messages[i], cts.token));
+        } catch {
+          messageTokens.push(estimateTokens(messages[i]));
+        }
+      }
+      return messageTokens.reduce((a, b) => a + b, 0);
+    };
+
     for (let round = 0; round < MAX_ROUNDS; round++) {
+      // cada rodada reenvia o histórico inteiro — soma o custo real de entrada
+      usage.inputTokens += await countNewMessages();
+      usage.requests++;
       const response = await model.sendRequest(
         messages,
         {
@@ -187,6 +267,18 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
         });
       }
 
+      // saída da rodada: texto + tool calls geradas pelo modelo
+      if (roundText) {
+        try {
+          usage.outputTokens += await model.countTokens(roundText, cts.token);
+        } catch {
+          usage.outputTokens += Math.ceil(roundText.length / 3.5);
+        }
+      }
+      for (const call of roundCalls) {
+        usage.outputTokens += Math.ceil(JSON.stringify(call.input ?? {}).length / 3.5);
+      }
+
       if (cts.token.isCancellationRequested) {
         finishReason = 'cancelled';
         break;
@@ -200,13 +292,49 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       // executa as tools sequencialmente e devolve os resultados ao modelo
       const resultParts: vscode.LanguageModelToolResultPart[] = [];
       for (const call of roundCalls) {
+        if (cts.token.isCancellationRequested) {
+          finishReason = 'cancelled';
+          break;
+        }
         const started = Date.now();
         let ok = true;
         let content: string;
         try {
-          if (isBuiltinTool(call.name)) {
-            if (!project) throw new Error('Ferramentas de arquivo exigem um projeto');
-            const outcome = dispatchBuiltinTool(call.name, call.input, projectDir(project));
+          if (call.name === 'portal_run_command') {
+            // comando de shell: pausa o stream até o usuário aprovar na UI
+            const input = (call.input ?? {}) as { command?: unknown; timeoutSeconds?: unknown };
+            const command = typeof input.command === 'string' ? input.command.trim() : '';
+            if (!command) throw new Error('Campo "command" é obrigatório');
+            sse.send('approval_request', {
+              callId: call.callId,
+              toolName: call.name,
+              command,
+              cwd: workRoot,
+            });
+            const verdict = await waitForApproval(requestId, call.callId, cts.token);
+            if (verdict === 'approved') {
+              ensureDir(workRoot);
+              const outcome = await executeCommand(
+                command,
+                workRoot,
+                cts.token,
+                typeof input.timeoutSeconds === 'number' ? input.timeoutSeconds : undefined,
+              );
+              ok = outcome.ok;
+              content = outcome.content;
+            } else {
+              ok = false;
+              content =
+                verdict === 'timeout'
+                  ? 'A aprovação expirou sem resposta do usuário. Não tente o comando de novo; siga pela alternativa manual quando existir.'
+                  : 'O usuário negou a execução deste comando. Não insista; siga pela alternativa manual quando existir.';
+            }
+          } else if (isBuiltinTool(call.name)) {
+            if (!project && PROJECT_ONLY_TOOL_NAMES.includes(call.name)) {
+              throw new Error('Esta ferramenta exige uma conversa de projeto');
+            }
+            if (WORKSPACE_FS_TOOLS.includes(call.name)) ensureDir(workRoot);
+            const outcome = dispatchBuiltinTool(call.name, call.input, workRoot, project?.id ?? '');
             ok = outcome.ok;
             content = outcome.content;
           } else {
@@ -260,19 +388,50 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   }
 
   // 2. persiste a resposta (mesmo parcial/com erro)
+  let savedAssistant: ChatMessage | undefined;
   if (assistantParts.length || chatError) {
-    const assistantMessage: ChatMessage = {
+    savedAssistant = {
       id: assistantMessageId,
       role: 'assistant',
       parts: assistantParts,
       modelId: args.modelId ?? session.modelId,
+      ...(usage.requests ? { usage } : {}),
       createdAt: new Date().toISOString(),
       ...(chatError ? { error: chatError } : {}),
     };
-    session.messages.push(assistantMessage);
+    session.messages.push(savedAssistant);
   }
   saveSession(session);
 
-  sse.send('done', { finishReason, updatedSession: toSummary(session) });
+  sse.send('done', {
+    finishReason,
+    updatedSession: toSummary(session),
+    ...(usage.requests ? { usage } : {}),
+  });
+
+  // custo real da resposta: delta dos credits da licença entre início e fim.
+  // A contabilização do GitHub leva alguns segundos, então o done sai antes e
+  // o stream fica aberto só para o usage_update. Sem delta dentro da janela
+  // (ilimitado, modelo incluído ou cobrança < 0,1), segue sem credits.
+  if (usage.requests) {
+    const before = await creditsBefore;
+    if (before !== undefined) {
+      for (const waitMs of [0, 1500, 2500, 4000]) {
+        if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        const after = await creditsRemaining();
+        if (after !== undefined && after < before) {
+          usage.credits = Math.round((before - after) * 1000) / 1000;
+          break;
+        }
+      }
+      if (usage.credits !== undefined) {
+        if (savedAssistant) {
+          savedAssistant.usage = usage;
+          saveSession(session);
+        }
+        sse.send('usage_update', { messageId: assistantMessageId, usage });
+      }
+    }
+  }
   sse.close();
 }

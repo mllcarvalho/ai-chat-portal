@@ -31,6 +31,12 @@ export interface ModelInfo {
   maxInputTokens: number;
   /** Se o consentimento do Copilot já foi dado para este modelo (undefined = desconhecido). */
   canSend?: boolean;
+  /** Modelo premium: desconta AI credits por requisição (undefined = desconhecido). */
+  premium?: boolean;
+  /** AI credits descontados por requisição (multiplicador de premium request). */
+  multiplier?: number;
+  /** Faixa de preço do model picker ("high"/"medium"/...), quando a API não dá o multiplicador. */
+  priceCategory?: string;
 }
 
 export interface MeInfo {
@@ -39,17 +45,33 @@ export interface MeInfo {
   avatarUrl: string;
 }
 
+/** Dependências externas detectadas na inicialização (null = não encontrada). */
+export interface EnvStatus {
+  /** Versão do Node no PATH (obrigatório para BMAD e MCPs stdio). */
+  node: string | null;
+  /** Shell usado pelo portal_run_command: caminho no Windows (Git Bash), label no Mac/Linux. */
+  bash: string | null;
+  /** Comando python disponível (ex: "python3 3.12.4"); null = comandos python serão pulados. */
+  python: string | null;
+}
+
 export interface HealthInfo {
   ok: boolean;
   version: string;
+  /** Identifica o build carregado (mtime do bundle); usado na eleição entre janelas. */
+  buildId?: number;
+  /** Se a janela que serve tem o repo do portal aberto (dados em portal-data/). */
+  hasPortalRoot?: boolean;
   copilotChatInstalled: boolean;
   modelCount: number;
   account?: { id: string; label: string };
   needsConsent: boolean;
+  env?: EnvStatus;
 }
 
 export type MessagePart =
   | { type: 'text'; text: string }
+  | { type: 'attachment'; name: string; content: string }
   | { type: 'tool_call'; callId: string; toolName: string; input: unknown }
   | {
       type: 'tool_result';
@@ -60,12 +82,29 @@ export type MessagePart =
       durationMs: number;
     };
 
+/** Consumo de tokens de uma resposta (mensagens assistant). */
+export interface TokenUsage {
+  /** Tokens enviados ao modelo, somados em todas as rodadas da resposta. */
+  inputTokens: number;
+  /** Tokens gerados pelo modelo (texto + tool calls). */
+  outputTokens: number;
+  /** Nº de requisições ao Copilot (1 por rodada de ferramentas). */
+  requests: number;
+  /**
+   * AI credits realmente cobrados nesta resposta: delta dos credits restantes
+   * da licença entre o início e o fim da mensagem (undefined = não medido,
+   * ex.: plano ilimitado, modelo incluído ou atraso na contabilização).
+   */
+  credits?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   parts: MessagePart[];
   /** Modelo que gerou a resposta (mensagens assistant). */
   modelId?: string;
+  usage?: TokenUsage;
   createdAt: string;
   error?: { code: string; message: string };
 }
@@ -81,6 +120,8 @@ export interface Session {
   activeSkillIds: string[];
   /** null = todas as ferramentas habilitadas. */
   enabledTools: string[] | null;
+  /** Arquivos do projeto fixados no contexto (caminhos relativos à raiz). */
+  contextFiles?: string[];
   messages: ChatMessage[];
   createdAt: string;
   updatedAt: string;
@@ -103,21 +144,41 @@ export interface Project {
 
 export interface Skill {
   id: string;
-  /** instruction = injetada no contexto; command = slash command com template. */
-  kind: 'instruction' | 'command';
+  /** @deprecated Legado: toda skill vale como instrução E como comando. Ignorado. */
+  kind?: 'instruction' | 'command';
   scope: 'global' | 'project';
   projectId?: string;
   name: string;
   description: string;
-  /** Nome do slash command (sem a barra), só para kind 'command'. */
+  /** Nome do slash command (sem a barra). Derivado do nome quando não informado. */
   command?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+/** Slug de comando slash a partir do nome da skill (ex: "Tom executivo" → "tom-executivo"). */
+export function slugifyCommand(name: string): string {
+  const slug = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+  return slug || 'skill';
+}
+
 export interface SkillWithContent extends Skill {
   /** Markdown da instrução ou template do comando ({{input}} é substituído). */
   content: string;
+}
+
+/** Prefixo dos ids de skills/agentes registrados pela integração BMAD. */
+export const BMAD_ASSET_PREFIX = 'bmad-global-';
+
+/** Skill/agente registrado automaticamente pela integração BMAD (não criado pelo usuário). */
+export function isBmadAsset(id: string): boolean {
+  return id.startsWith(BMAD_ASSET_PREFIX);
 }
 
 export interface AgentPreset {
@@ -179,6 +240,24 @@ export interface VsCodeAgent {
   source: 'project' | 'user';
 }
 
+/** Persona BMAD registrada como preset de agente. */
+export interface BmadAgentInfo {
+  presetId: string;
+  name: string;
+  description?: string;
+  icon?: string;
+}
+
+/** Estado da instalação BMAD de um projeto. */
+export interface BmadStatus {
+  installed: boolean;
+  installing: boolean;
+  error?: string;
+  agents: BmadAgentInfo[];
+  /** Skills de workflow (/bmad-*) registradas no projeto. */
+  skillCount: number;
+}
+
 export interface KnowledgeBase {
   id: string;
   name: string;
@@ -196,6 +275,21 @@ export interface KnowledgeDoc {
   name: string;
   size: number;
   mtime: string;
+}
+
+/** Snapshot dos AI credits (premium requests) da licença Copilot do usuário. */
+export interface CopilotQuota {
+  plan?: string;
+  /** Data em que a cota renova (YYYY-MM-DD). */
+  resetDate?: string;
+  premium?: {
+    entitlement: number;
+    remaining: number;
+    percentRemaining: number;
+    unlimited: boolean;
+    overageCount: number;
+    overagePermitted: boolean;
+  };
 }
 
 export interface FileEntry {

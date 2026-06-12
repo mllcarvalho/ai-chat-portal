@@ -48,6 +48,28 @@ export function knowledgeDir(): string {
   return path.join(dataRoot(), 'knowledge');
 }
 
+/**
+ * Workspaces das conversas avulsas: cada sessão sem projeto ganha uma pasta
+ * própria aqui na primeira escrita/comando, usada como raiz pelas ferramentas
+ * de arquivo e pelo portal_run_command (mesmo papel da pasta do projeto).
+ */
+export function sessionWorkspacesDir(): string {
+  return path.join(dataRoot(), 'workspaces');
+}
+
+export function sessionWorkspaceDir(sessionId: string): string {
+  return path.join(sessionWorkspacesDir(), sessionId);
+}
+
+/** Instalação global do BMAD (compartilhada por todos os projetos). */
+export function bmadRootDir(): string {
+  return path.join(dataRoot(), 'bmad');
+}
+
+export function isBmadInstalled(): boolean {
+  return fs.existsSync(path.join(bmadRootDir(), '_bmad'));
+}
+
 export function agentsPath(): string {
   return path.join(dataRoot(), 'agents.json');
 }

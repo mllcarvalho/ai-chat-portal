@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { KnowledgeBase, KnowledgeDoc } from '@aiportal/shared';
 import { api } from '../../api/client';
+import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
-import { PageShell } from './PageShell';
+import { Select } from '../common/Select';
+import { EmptyState, PageShell, Panel } from './PageShell';
 
 export function KnowledgePage() {
   const toast = useUi((s) => s.toast);
+  const confirm = useUi((s) => s.confirm);
   const session = useSessions((s) => s.current);
   const viewProjectId = useSessions((s) => s.viewProjectId);
   const projects = useSessions((s) => s.projects);
@@ -22,6 +25,7 @@ export function KnowledgePage() {
   const [newBaseName, setNewBaseName] = useState('');
   const [newBaseScope, setNewBaseScope] = useState<'global' | 'project'>('global');
   const [busy, setBusy] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const reload = async () => {
     const list = await api.listKnowledge(projectId).catch(() => [] as KnowledgeBase[]);
@@ -72,7 +76,13 @@ export function KnowledgePage() {
   };
 
   const removeBase = async (base: KnowledgeBase) => {
-    if (!window.confirm(`Excluir a base "${base.name}" e todos os seus documentos?`)) return;
+    const ok = await confirm({
+      title: 'Excluir base',
+      message: `Excluir a base "${base.name}" e todos os seus documentos?`,
+      confirmLabel: 'Excluir',
+      danger: true,
+    });
+    if (!ok) return;
     await api.deleteKnowledgeBase(base.id);
     if (selected?.id === base.id) {
       setSelected(undefined);
@@ -110,9 +120,47 @@ export function KnowledgePage() {
     }
   };
 
+  const uploadDocs = async (files: FileList) => {
+    if (!selected) return;
+    setBusy(true);
+    let okCount = 0;
+    for (const file of Array.from(files)) {
+      try {
+        let name = file.name;
+        let content: string;
+        if (isConvertibleDocument(name)) {
+          content = await extractDocumentText(file);
+          // o servidor só armazena .md/.txt — o documento vira markdown
+          name = name.replace(/\.[^.]+$/, '.md');
+        } else if (/\.(md|txt)$/i.test(name)) {
+          content = await file.text();
+        } else {
+          toast(`"${name}" ignorado — use .md, .txt, Excel, Word ou PDF.`, 'info');
+          continue;
+        }
+        await api.writeKnowledgeDoc(selected.id, name, content);
+        okCount++;
+      } catch (err) {
+        toast(`"${file.name}": ${(err as Error).message}`, 'error');
+      }
+    }
+    if (okCount) {
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+      toast(`${okCount} documento${okCount === 1 ? '' : 's'} enviado${okCount === 1 ? '' : 's'}.`, 'ok');
+    }
+    setBusy(false);
+  };
+
   const removeDoc = async (doc: KnowledgeDoc) => {
     if (!selected) return;
-    if (!window.confirm(`Excluir o documento "${doc.name}"?`)) return;
+    const ok = await confirm({
+      title: 'Excluir documento',
+      message: `Excluir o documento "${doc.name}"?`,
+      confirmLabel: 'Excluir',
+      danger: true,
+    });
+    if (!ok) return;
     await api.deleteKnowledgeDoc(selected.id, doc.name);
     if (docName === doc.name) {
       setDocName('');
@@ -124,13 +172,13 @@ export function KnowledgePage() {
 
   return (
     <PageShell
+      icon="📚"
       title="Bases de conhecimento"
       subtitle="Documentos .md/.txt injetados no contexto das conversas. Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
     >
       <div className="page-cols page-cols--three">
-        <div>
-          <div className="page-card" style={{ marginBottom: 14 }}>
-            <h3 className="page-card__title">Nova base</h3>
+        <Panel title="Bases" count={bases.length}>
+          <div className="panel__form-block">
             <div className="field">
               <label>Nome</label>
               <input
@@ -141,22 +189,26 @@ export function KnowledgePage() {
             </div>
             <div className="field">
               <label>Escopo</label>
-              <select
+              <Select
                 value={newBaseScope}
-                onChange={(e) => setNewBaseScope(e.target.value as 'global' | 'project')}
-              >
-                <option value="global">Global</option>
-                <option value="project" disabled={!projectId}>
-                  {projectName ? `Projeto: ${projectName}` : 'Projeto atual (abra um projeto)'}
-                </option>
-              </select>
+                onChange={(value) => setNewBaseScope(value as 'global' | 'project')}
+                options={[
+                  { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                  {
+                    value: 'project',
+                    label: projectName ? `📁 Projeto: ${projectName}` : '📁 Projeto atual',
+                    hint: projectId ? undefined : 'Abra um projeto primeiro',
+                    disabled: !projectId,
+                  },
+                ]}
+              />
             </div>
             <button
               className="btn btn--primary"
               disabled={busy || !newBaseName.trim()}
               onClick={() => void createBase()}
             >
-              Criar base
+              ＋ Criar base
             </button>
           </div>
 
@@ -188,6 +240,7 @@ export function KnowledgePage() {
               <span className="page-list-item__actions">
                 <span
                   role="button"
+                  className="mini-btn mini-btn--danger"
                   onClick={(e) => {
                     e.stopPropagation();
                     void removeBase(base);
@@ -199,26 +252,50 @@ export function KnowledgePage() {
             </div>
           ))}
           {bases.length === 0 && (
-            <div className="empty-state">Nenhuma base ainda. Crie a primeira acima.</div>
+            <EmptyState icon="📚" title="Nenhuma base ainda" hint="Crie a primeira acima." />
           )}
-        </div>
+        </Panel>
 
-        <div>
+        <Panel
+          title={selected ? `Documentos · ${selected.name}` : 'Documentos'}
+          count={selected ? docs.length : undefined}
+          actions={
+            selected && (
+              <>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  multiple
+                  accept=".md,.txt,.xlsx,.xlsm,.xls,.docx,.pdf"
+                  hidden
+                  onChange={(e) => {
+                    if (e.target.files?.length) void uploadDocs(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  className="btn btn--sm"
+                  disabled={busy}
+                  onClick={() => uploadInputRef.current?.click()}
+                  title="Enviar arquivos do computador (.md, .txt, Excel, Word, PDF — convertidos para texto)"
+                >
+                  ⬆ Upload
+                </button>
+                <button
+                  className="btn btn--sm"
+                  onClick={() => {
+                    setDocName('novo-documento.md');
+                    setDocContent('');
+                  }}
+                >
+                  ＋ Novo
+                </button>
+              </>
+            )
+          }
+        >
           {selected ? (
             <>
-              <div className="sidebar__section-title" style={{ padding: '0 0 6px' }}>
-                Documentos · {selected.name}
-              </div>
-              <button
-                className="btn"
-                style={{ marginBottom: 10 }}
-                onClick={() => {
-                  setDocName('novo-documento.md');
-                  setDocContent('');
-                }}
-              >
-                ＋ Novo documento
-              </button>
               {docs.map((doc) => (
                 <div
                   className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
@@ -231,6 +308,7 @@ export function KnowledgePage() {
                   <span className="page-list-item__actions">
                     <span
                       role="button"
+                      className="mini-btn mini-btn--danger"
                       onClick={(e) => {
                         e.stopPropagation();
                         void removeDoc(doc);
@@ -241,29 +319,35 @@ export function KnowledgePage() {
                   </span>
                 </div>
               ))}
-              {docs.length === 0 && <div className="empty-state">Base vazia.</div>}
+              {docs.length === 0 && (
+                <EmptyState icon="📄" title="Base vazia" hint="Crie o primeiro documento acima." />
+              )}
             </>
           ) : (
-            <div className="empty-state">Selecione uma base para ver os documentos.</div>
+            <EmptyState
+              icon="👈"
+              title="Nenhuma base selecionada"
+              hint="Selecione uma base para ver os documentos."
+            />
           )}
-        </div>
+        </Panel>
 
-        <div>
-          {selected && docName ? (
-            <div className="page-card">
-              <div className="field">
-                <label>Nome do documento</label>
-                <input value={docName} onChange={(e) => setDocName(e.target.value)} />
-              </div>
-              <div className="field page-card__grow">
-                <label>Conteúdo (markdown)</label>
-                <textarea
-                  className="page-card__editor"
-                  value={docContent}
-                  onChange={(e) => setDocContent(e.target.value)}
-                  placeholder="Cole aqui o conteúdo que o assistente deve conhecer…"
-                />
-              </div>
+        {selected && docName ? (
+          <Panel title="Editor" className="panel--form">
+            <div className="field">
+              <label>Nome do documento</label>
+              <input value={docName} onChange={(e) => setDocName(e.target.value)} />
+            </div>
+            <div className="field page-card__grow">
+              <label>Conteúdo (markdown)</label>
+              <textarea
+                className="page-card__editor"
+                value={docContent}
+                onChange={(e) => setDocContent(e.target.value)}
+                placeholder="Cole aqui o conteúdo que o assistente deve conhecer…"
+              />
+            </div>
+            <div className="form-actions">
               <button
                 className="btn btn--primary"
                 disabled={busy || !docName.trim()}
@@ -272,12 +356,16 @@ export function KnowledgePage() {
                 Salvar documento
               </button>
             </div>
-          ) : (
-            <div className="empty-state page-card page-card--placeholder">
-              Abra ou crie um documento para editar.
-            </div>
-          )}
-        </div>
+          </Panel>
+        ) : (
+          <Panel className="panel--placeholder">
+            <EmptyState
+              icon="✏️"
+              title="Nenhum documento aberto"
+              hint="Abra ou crie um documento para editar."
+            />
+          </Panel>
+        )}
       </div>
     </PageShell>
   );

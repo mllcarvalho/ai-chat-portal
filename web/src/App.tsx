@@ -15,6 +15,8 @@ import { ProjectFilesDrawer } from './components/panels/ProjectFilesDrawer';
 import { NewProjectModal } from './components/panels/NewProjectModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { Toasts } from './components/common/Toasts';
+import { ConfirmDialog } from './components/common/ConfirmDialog';
+import { EnvBanner } from './components/layout/EnvBanner';
 
 export function App() {
   const health = useCatalog((s) => s.health);
@@ -39,13 +41,17 @@ export function App() {
   if (!health?.ok) return <OnboardingScreen />;
 
   return (
-    <div className="app-shell">
-      <Sidebar />
-      <MainArea />
-      {panel.kind === 'files' && <ProjectFilesDrawer />}
-      {panel.kind === 'newProject' && <NewProjectModal />}
-      {panel.kind === 'settings' && <SettingsModal />}
-      <Toasts />
+    <div className="app-root">
+      <EnvBanner />
+      <div className="app-shell">
+        <Sidebar />
+        <MainArea />
+        {panel.kind === 'files' && <ProjectFilesDrawer />}
+        {panel.kind === 'newProject' && <NewProjectModal />}
+        {panel.kind === 'settings' && <SettingsModal />}
+        <ConfirmDialog />
+        <Toasts />
+      </div>
     </div>
   );
 }

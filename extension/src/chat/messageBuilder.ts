@@ -24,14 +24,27 @@ export interface KnowledgeSnippet {
   content: string;
 }
 
+/** Arquivo do projeto fixado no contexto da sessão. */
+export interface ContextFile {
+  path: string;
+  content: string;
+}
+
 export function buildPreamble(opts: {
   session: Session;
   project?: Project;
   agent?: AgentPreset;
   instructionSkills: SkillWithContent[];
+  /** Skills visíveis na sessão — viram o catálogo carregável por portal_load_skill. */
+  commandSkills?: SkillWithContent[];
+  /** Se a ferramenta portal_load_skill está disponível nesta rodada. */
+  canLoadSkills?: boolean;
   knowledge?: KnowledgeSnippet[];
+  contextFiles?: ContextFile[];
+  /** Nota sobre shell/python da máquina (só entra no modo agent). */
+  envNote?: string;
 }): string {
-  const { session, project, agent, instructionSkills, knowledge } = opts;
+  const { session, project, agent, instructionSkills, knowledge, contextFiles, envNote } = opts;
   const blocks: string[] = [
     'Você é um assistente de IA do AI Chat Portal, conversando em português brasileiro com analistas de produto.',
     `Data atual: ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}.`,
@@ -47,21 +60,63 @@ export function buildPreamble(opts: {
     if (session.mode !== 'ask') {
       blocks.push(
         `Esta conversa pertence ao projeto "${project.name}". Os arquivos gerados devem ficar na pasta do projeto: use as ferramentas portal_write_file, portal_read_file e portal_list_files com caminhos relativos à raiz do projeto.`,
+        'Quando o usuário pedir para criar uma skill, use a ferramenta portal_create_skill — skills do portal são markdown registradas no menu Skills, nunca arquivos soltos criados com portal_write_file.',
       );
     }
+  } else if (session.mode !== 'ask') {
+    blocks.push(
+      'Esta conversa não pertence a um projeto, mas tem uma pasta de trabalho própria (o workspace da conversa): ' +
+        'use portal_write_file, portal_read_file e portal_list_files com caminhos relativos a essa pasta. ' +
+        'O usuário vê e baixa esses arquivos pelo painel Arquivos da conversa.',
+    );
+  }
+  if (session.mode !== 'ask') {
+    blocks.push(
+      'Quando o usuário pedir para criar um agente (uma persona reutilizável do portal), use a ' +
+        'ferramenta portal_create_agent — agentes são globais e ficam no seletor de agente do chat.',
+      'Ao continuar a resposta depois de receber resultados de ferramentas, retome de onde parou: ' +
+        'nunca repita saudações, apresentações nem informações que você já escreveu nesta mesma ' +
+        'resposta. Anuncie uma ação só depois de executá-la, nunca antes de chamar a ferramenta.',
+    );
+  }
+  if (envNote && session.mode === 'agent') {
+    blocks.push(envNote);
   }
   for (const skill of instructionSkills) {
     blocks.push(`## Skill ativa: ${skill.name}\n${skill.content}`);
+  }
+  // catálogo leve (nome + descrição) das skills NÃO ativas, para o modelo
+  // carregar sob demanda com portal_load_skill quando o pedido casar
+  if (opts.canLoadSkills) {
+    const activeIds = new Set(instructionSkills.map((s) => s.id));
+    const catalog = (opts.commandSkills ?? []).filter((s) => !activeIds.has(s.id));
+    if (catalog.length) {
+      blocks.push(
+        '## Catálogo de skills (não carregadas)\n' +
+          'Estas skills existem no portal mas NÃO estão neste contexto — abaixo só comando, nome e descrição. ' +
+          'Sempre que o pedido do usuário corresponder à descrição de uma skill, carregue-a com a ferramenta ' +
+          'portal_load_skill ANTES de responder e siga as instruções dela. Se mais de uma servir, ' +
+          'carregue a mais específica. Não invente skills fora desta lista.\n' +
+          catalog
+            .map((s) => `- ${s.command}: ${s.name}${s.description ? ` — ${s.description}` : ''}`)
+            .join('\n'),
+      );
+    }
   }
   for (const snippet of knowledge ?? []) {
     blocks.push(
       `## Base de conhecimento: ${snippet.baseName} — ${snippet.docName}\n${snippet.content}`,
     );
   }
+  for (const file of contextFiles ?? []) {
+    blocks.push(
+      `## Arquivo do projeto fixado no contexto: ${file.path}\n\`\`\`\n${file.content}\n\`\`\``,
+    );
+  }
   return blocks.join('\n\n');
 }
 
-/** Expande "/comando resto" usando skills do tipo command. */
+/** Expande "/comando resto" usando o campo command das skills visíveis. */
 export function expandSlashCommand(text: string, commandSkills: SkillWithContent[]): string {
   const match = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text.trim());
   if (!match) return text;
@@ -81,6 +136,14 @@ function userText(message: ChatMessage): string {
     .join('\n');
 }
 
+/** Anexos da mensagem viram blocos <anexo> logo após o texto do usuário. */
+function attachmentBlocks(message: ChatMessage): string {
+  return message.parts
+    .filter((p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment')
+    .map((p) => `<anexo nome="${p.name}">\n${p.content}\n</anexo>`)
+    .join('\n\n');
+}
+
 function approxChars(message: ChatMessage): number {
   return JSON.stringify(message.parts).length;
 }
@@ -96,7 +159,10 @@ export function buildMessages(opts: {
   agent?: AgentPreset;
   instructionSkills: SkillWithContent[];
   commandSkills: SkillWithContent[];
+  canLoadSkills?: boolean;
   knowledge?: KnowledgeSnippet[];
+  contextFiles?: ContextFile[];
+  envNote?: string;
   maxInputTokens: number;
 }): vscode.LanguageModelChatMessage[] {
   const { session, commandSkills } = opts;
@@ -124,7 +190,9 @@ export function buildMessages(opts: {
   for (const message of session.messages.slice(startIdx)) {
     if (message.role === 'user') {
       const text = expandSlashCommand(userText(message), commandSkills);
-      if (text) result.push(vscode.LanguageModelChatMessage.User(text));
+      const attachments = attachmentBlocks(message);
+      const combined = [text, attachments].filter(Boolean).join('\n\n');
+      if (combined) result.push(vscode.LanguageModelChatMessage.User(combined));
       continue;
     }
     // assistant: texto + tool calls, depois os resultados como User

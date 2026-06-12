@@ -1,4 +1,4 @@
-import type { SessionSummary } from './types';
+import type { SessionSummary, TokenUsage } from './types';
 
 /** Header de autenticação exigido em todas as rotas /api/*. */
 export const TOKEN_HEADER = 'X-Portal-Token';
@@ -6,11 +6,18 @@ export const TOKEN_HEADER = 'X-Portal-Token';
 export const DEFAULT_PORT = 4717;
 export const PORT_RANGE = 10;
 
+/** Arquivo de texto anexado a uma mensagem; entra no contexto junto com ela. */
+export interface ChatAttachment {
+  name: string;
+  content: string;
+}
+
 export interface ChatRequestBody {
   sessionId: string;
   text: string;
   /** Sobrescreve o modelo da sessão só para esta mensagem. */
   modelId?: string;
+  attachments?: ChatAttachment[];
 }
 
 export type ChatErrorCode =
@@ -27,6 +34,12 @@ export interface ChatSseEvents {
   meta: { requestId: string; userMessageId: string; assistantMessageId: string };
   text: { delta: string };
   tool_call: { callId: string; toolName: string; input: unknown };
+  /**
+   * Comando aguardando aprovação do usuário. O stream fica pausado até
+   * POST /api/chat/:requestId/approval { callId, approved } (ou timeout = negado);
+   * o desfecho chega no tool_result do mesmo callId.
+   */
+  approval_request: { callId: string; toolName: string; command: string; cwd: string };
   tool_result: {
     callId: string;
     toolName: string;
@@ -34,7 +47,13 @@ export interface ChatSseEvents {
     content: string;
     durationMs: number;
   };
-  done: { finishReason: ChatFinishReason; updatedSession?: SessionSummary };
+  done: { finishReason: ChatFinishReason; updatedSession?: SessionSummary; usage?: TokenUsage };
+  /**
+   * Chega DEPOIS de `done`: AI credits reais da resposta, medidos pelo delta da
+   * cota da licença (a contabilização do GitHub leva alguns segundos). O stream
+   * só fecha depois deste evento (ou do timeout da medição).
+   */
+  usage_update: { messageId: string; usage: TokenUsage };
   error: { code: ChatErrorCode; message: string };
 }
 

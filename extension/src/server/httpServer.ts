@@ -26,12 +26,18 @@ export interface PortalServer {
 interface ServerOpts {
   config: Config;
   version: string;
+  /** Identifica o build carregado; janelas com build mais novo assumem o portal. */
+  buildId: number;
+  /** Se esta janela tem o repo do portal aberto (preferida na eleição). */
+  hasPortalRoot: boolean;
   /** Pasta com o build da web UI (extension/media). */
   mediaDir: string;
 }
 
-function isAllowedOrigin(origin: string, port: number, config: Config): boolean {
-  if (origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`) return true;
+function isAllowedOrigin(origin: string, config: Config): boolean {
+  // qualquer origem local: o portal pode migrar de porta quando outra janela
+  // assume (failover do web); o token continua protegendo a API
+  if (/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin)) return true;
   return (config.devOrigins ?? []).includes(origin);
 }
 
@@ -70,7 +76,7 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
 
     const origin = req.headers.origin;
     if (origin) {
-      if (!isAllowedOrigin(origin, port, opts.config)) {
+      if (!isAllowedOrigin(origin, opts.config)) {
         sendError(res, 403, 'Origem não permitida');
         return;
       }
@@ -104,33 +110,58 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
   };
 }
 
-async function portalAlreadyRunning(port: number, version: string): Promise<boolean> {
+interface PeerPortal {
+  buildId: number;
+  hasPortalRoot: boolean;
+  version: string;
+}
+
+/** Consulta /api/health em uma porta; undefined se não há portal vivo ali. */
+async function probePortal(port: number): Promise<PeerPortal | undefined> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
       signal: AbortSignal.timeout(1500),
     });
-    if (!res.ok) return false;
+    if (!res.ok) return undefined;
     const health = (await res.json()) as HealthInfo;
-    return health.version === version;
+    if (typeof health.version !== 'string') return undefined;
+    return {
+      buildId: health.buildId ?? 0,
+      hasPortalRoot: health.hasPortalRoot ?? false,
+      version: health.version,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Eleição entre janelas: cede para o peer se ele roda um build mais novo, ou
+ * roda o mesmo build e tem o repo do portal (ou esta janela também não tem).
+ * Builds antigos (sem buildId no health) perdem sempre.
+ */
+function shouldYieldTo(peer: PeerPortal, opts: ServerOpts): boolean {
+  if (peer.buildId !== opts.buildId) return peer.buildId > opts.buildId;
+  return peer.hasPortalRoot || !opts.hasPortalRoot;
+}
+
+/** Pede a um peer desatualizado que encerre o servidor dele (builds novos honram). */
+async function requestPeerShutdown(port: number, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/shutdown`, {
+      method: 'POST',
+      headers: { [TOKEN_HEADER]: token },
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
   } catch {
     return false;
   }
 }
 
-/**
- * Sobe o servidor em 127.0.0.1 tentando portas a partir da configurada.
- * Retorna undefined se outra janela do VS Code já está servindo o portal.
- */
-export async function startServer(router: Router, opts: ServerOpts): Promise<PortalServer | undefined> {
-  let port = opts.config.port;
-  const handlerPort = { value: 0 };
-  const server = http.createServer(makeHandler(router, opts, () => handlerPort.value));
-
-  for (let attempt = 0; attempt <= PORT_RANGE; attempt++, port++) {
-    if (await portalAlreadyRunning(port, opts.version)) {
-      console.log(`[ai-chat-portal] portal já ativo em outra janela (porta ${port})`);
-      return undefined;
-    }
+async function tryListen(server: http.Server, port: number, attempts: number): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 300));
     try {
       await new Promise<void>((resolve, reject) => {
         const onError = (err: NodeJS.ErrnoException) => reject(err);
@@ -140,11 +171,51 @@ export async function startServer(router: Router, opts: ServerOpts): Promise<Por
           resolve();
         });
       });
+      return true;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+    }
+  }
+  return false;
+}
+
+/**
+ * Sobe o servidor em 127.0.0.1 tentando portas a partir da configurada.
+ * Em cada porta ocupada por outro portal, decide pela eleição: cede (retorna
+ * undefined) se o peer é tão bom ou melhor; senão pede o shutdown dele e
+ * assume a porta (ou a próxima livre, se o peer roda um build sem /api/shutdown).
+ */
+export async function startServer(router: Router, opts: ServerOpts): Promise<PortalServer | undefined> {
+  let port = opts.config.port;
+  const handlerPort = { value: 0 };
+  const server = http.createServer(makeHandler(router, opts, () => handlerPort.value));
+
+  for (let attempt = 0; attempt <= PORT_RANGE; attempt++, port++) {
+    const peer = await probePortal(port);
+    let evicting = false;
+    if (peer) {
+      if (shouldYieldTo(peer, opts)) {
+        console.log(`[ai-chat-portal] portal já ativo em outra janela (porta ${port})`);
+        return undefined;
+      }
+      evicting = await requestPeerShutdown(port, opts.config.token);
+      console.log(
+        `[ai-chat-portal] portal desatualizado na porta ${port}; ` +
+          (evicting ? 'assumindo o lugar dele' : 'sem /api/shutdown, usando outra porta'),
+      );
+      if (!evicting) continue;
+    }
+    if (await tryListen(server, port, evicting ? 8 : 1)) {
       handlerPort.value = port;
       console.log(`[ai-chat-portal] servidor em http://127.0.0.1:${port}`);
       return { server, port };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+    }
+    // a porta foi tomada entre o probe e o listen (outra janela ativando junto):
+    // se quem ganhou a corrida é um portal tão bom quanto, cede
+    const racer = await probePortal(port);
+    if (racer && shouldYieldTo(racer, opts)) {
+      console.log(`[ai-chat-portal] portal já ativo em outra janela (porta ${port})`);
+      return undefined;
     }
   }
   console.error('[ai-chat-portal] nenhuma porta livre encontrada');

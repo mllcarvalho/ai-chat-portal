@@ -14,7 +14,10 @@ interface SessionsState {
   loadProjects: () => Promise<void>;
   loadSessions: (projectId?: string | null) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
-  newSession: (projectId?: string | null) => Promise<Session>;
+  newSession: (
+    projectId?: string | null,
+    init?: { agentId?: string; title?: string },
+  ) => Promise<Session>;
   renameSession: (id: string, title: string) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
   patchCurrent: (patch: Partial<Session>) => Promise<void>;
@@ -52,8 +55,8 @@ export const useSessions = create<SessionsState>((set, get) => ({
     set({ current: session, viewProjectId: undefined });
   },
 
-  newSession: async (projectId) => {
-    const session = await api.createSession({ projectId: projectId ?? null });
+  newSession: async (projectId, init) => {
+    const session = await api.createSession({ projectId: projectId ?? null, ...init });
     await get().loadSessions(projectId ?? null);
     set({ current: session, viewProjectId: undefined });
     if (projectId) set({ expandedProjects: { ...get().expandedProjects, [projectId]: true } });

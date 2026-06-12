@@ -14,7 +14,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "package": "npm run build && npm run package -w ai-chat-portal-extension",
     "dev:web": "npm run dev -w @aiportal/web",
-    "dev:ext": "npm run watch -w ai-chat-portal-extension"
+    "dev:ext": "npm run watch -w ai-chat-portal-extension",
+    "update-skill-creator": "curl -sf -o extension/assets/skill-creator/SKILL.md https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/SKILL.md && curl -sf -o extension/assets/skill-creator/LICENSE.txt https://raw.githubusercontent.com/anthropics/skills/main/skills/skill-creator/LICENSE.txt && echo 'Atualizado. Lembre de subir o SEED_VERSION em extension/src/storage/skillStore.ts.'"
   },
   "engines": {
     "node": ">=18"

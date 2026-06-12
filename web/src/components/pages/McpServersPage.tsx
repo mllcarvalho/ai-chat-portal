@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import type { McpServerInfo } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
-import { PageShell } from './PageShell';
+import { Select } from '../common/Select';
+import { EmptyState, PageShell, Panel } from './PageShell';
 
 type CreateKind = 'stdio' | 'http' | 'proxy';
 
@@ -44,8 +45,7 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
   };
 
   return (
-    <div className="page-card">
-      <h3 className="page-card__title">Novo servidor MCP</h3>
+    <Panel title="Novo servidor" className="panel--form">
       <div className="row">
         <div className="field">
           <label>Nome</label>
@@ -53,11 +53,15 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
         </div>
         <div className="field">
           <label>Tipo</label>
-          <select value={kind} onChange={(e) => setKind(e.target.value as CreateKind)}>
-            <option value="stdio">stdio — comando local</option>
-            <option value="http">http — URL remota</option>
-            <option value="proxy">proxy TypeScript — gera mcps/&lt;nome&gt;.ts</option>
-          </select>
+          <Select
+            value={kind}
+            onChange={(value) => setKind(value as CreateKind)}
+            options={[
+              { value: 'stdio', label: 'stdio', hint: 'Comando local' },
+              { value: 'http', label: 'http', hint: 'URL remota' },
+              { value: 'proxy', label: 'proxy TypeScript', hint: 'Gera mcps/<nome>.ts no repo' },
+            ]}
+          />
         </div>
       </div>
       {kind === 'stdio' && (
@@ -83,10 +87,12 @@ function CreateForm({ onCreated }: { onCreated: () => void }) {
           chamadas de API, consultas, scripts… o que precisar.
         </p>
       )}
-      <button className="btn btn--primary" disabled={busy || !canSubmit} onClick={() => void submit()}>
-        {busy ? 'Criando…' : 'Criar servidor'}
-      </button>
-    </div>
+      <div className="form-actions">
+        <button className="btn btn--primary" disabled={busy || !canSubmit} onClick={() => void submit()}>
+          {busy ? 'Criando…' : 'Criar servidor'}
+        </button>
+      </div>
+    </Panel>
   );
 }
 
@@ -105,6 +111,7 @@ function statusLabel(server: McpServerInfo): { text: string; cls: string } {
 
 export function McpServersPage() {
   const toast = useUi((s) => s.toast);
+  const confirm = useUi((s) => s.confirm);
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [pending, setPending] = useState<string | undefined>();
 
@@ -130,7 +137,13 @@ export function McpServersPage() {
   };
 
   const remove = async (server: McpServerInfo) => {
-    if (!window.confirm(`Remover "${server.name}" do .vscode/mcp.json?`)) return;
+    const ok = await confirm({
+      title: 'Remover servidor MCP',
+      message: `Remover "${server.name}" do .vscode/mcp.json?`,
+      confirmLabel: 'Remover',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteMcpServer(server.name);
       await reload();
@@ -141,15 +154,22 @@ export function McpServersPage() {
 
   return (
     <PageShell
+      icon="🔧"
       title="Servidores MCP"
       subtitle="Definidos em .vscode/mcp.json do projeto. Ligue e desligue por aqui — as ferramentas dos servidores ligados ficam disponíveis no modo Agent."
     >
       <div className="page-cols">
-        <div>
+        <Panel title="Servidores" count={servers.length}>
           {servers.length === 0 && (
-            <div className="empty-state">
-              Nenhum servidor MCP no .vscode/mcp.json ainda. Crie um ao lado.
-            </div>
+            <EmptyState
+              icon="🔧"
+              title="Nenhum servidor MCP ainda"
+              hint={
+                <>
+                  Nada no <code>.vscode/mcp.json</code> por enquanto. Crie um servidor ao lado.
+                </>
+              }
+            />
           )}
           {servers.map((server) => {
             const status = statusLabel(server);
@@ -185,21 +205,21 @@ export function McpServersPage() {
                 <div className="mcp-row__actions">
                   {server.enabled && (
                     <button
-                      className="btn btn--ghost"
+                      className="icon-btn"
                       title="Reiniciar servidor"
                       onClick={() => void api.restartMcpServer(server.name).then(reload)}
                     >
                       ↻
                     </button>
                   )}
-                  <button className="btn btn--ghost" title="Remover" onClick={() => void remove(server)}>
+                  <button className="icon-btn icon-btn--danger" title="Remover" onClick={() => void remove(server)}>
                     ✕
                   </button>
                 </div>
               </div>
             );
           })}
-        </div>
+        </Panel>
         <CreateForm onCreated={() => void reload()} />
       </div>
     </PageShell>

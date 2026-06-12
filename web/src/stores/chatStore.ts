@@ -1,41 +1,64 @@
 import { create } from 'zustand';
-import type { ChatMessage, MessagePart } from '@aiportal/shared';
+import type { ChatAttachment, ChatMessage, MessagePart } from '@aiportal/shared';
 import { api } from '../api/client';
 import { streamChat } from '../api/sseChat';
 import { useSessions } from './sessionsStore';
+import { useCatalog } from './catalogStore';
 import { useUi } from './uiStore';
+
+/** Comando do portal_run_command aguardando aprovar/negar na UI. */
+export interface PendingApproval {
+  callId: string;
+  toolName: string;
+  command: string;
+  cwd: string;
+}
 
 interface ChatState {
   isStreaming: boolean;
   requestId?: string;
   /** Partes da resposta em construção (renderizadas ao vivo). */
   streamingParts: MessagePart[];
-  send: (text: string) => Promise<void>;
+  /** O stream fica pausado no servidor enquanto isto não for respondido. */
+  pendingApproval?: PendingApproval;
+  send: (text: string, attachments?: ChatAttachment[]) => Promise<void>;
+  respondApproval: (approved: boolean) => void;
   stop: () => void;
 }
 
 let abortController: AbortController | undefined;
 
+/** Ferramentas que podem criar/alterar arquivos da pasta de trabalho. */
+const FILE_MUTATING_TOOLS = ['portal_write_file', 'portal_run_command'];
+
 export const useChat = create<ChatState>((set, get) => ({
   isStreaming: false,
   streamingParts: [],
 
-  send: async (text) => {
+  send: async (text, attachments = []) => {
     const sessions = useSessions.getState();
     const session = sessions.current;
     if (!session || get().isStreaming) return;
 
     // mensagem do usuário aparece imediatamente
+    const userParts: MessagePart[] = [];
+    if (text) userParts.push({ type: 'text', text });
+    for (const att of attachments) {
+      userParts.push({ type: 'attachment', name: att.name, content: att.content });
+    }
     const userMessage: ChatMessage = {
       id: `local-${Date.now()}`,
       role: 'user',
-      parts: [{ type: 'text', text }],
+      parts: userParts,
       createdAt: new Date().toISOString(),
     };
     sessions.mutateCurrent((s) => ({ ...s, messages: [...s.messages, userMessage] }));
 
     set({ isStreaming: true, streamingParts: [], requestId: undefined });
-    abortController = new AbortController();
+    const myController = new AbortController();
+    abortController = myController;
+    // id da mensagem do assistente no servidor (para casar o usage_update)
+    let serverAssistantId: string | undefined;
 
     const appendText = (delta: string) => {
       const parts = [...get().streamingParts];
@@ -52,9 +75,12 @@ export const useChat = create<ChatState>((set, get) => ({
 
     try {
       await streamChat(
-        { sessionId: session.id, text },
+        { sessionId: session.id, text, ...(attachments.length ? { attachments } : {}) },
         {
-          onMeta: (meta) => set({ requestId: meta.requestId }),
+          onMeta: (meta) => {
+            serverAssistantId = meta.assistantMessageId;
+            set({ requestId: meta.requestId });
+          },
           onText: (data) => appendText(data.delta),
           onToolCall: (data) =>
             set({
@@ -63,8 +89,23 @@ export const useChat = create<ChatState>((set, get) => ({
                 { type: 'tool_call', callId: data.callId, toolName: data.toolName, input: data.input },
               ],
             }),
-          onToolResult: (data) =>
+          onApprovalRequest: (data) =>
             set({
+              pendingApproval: {
+                callId: data.callId,
+                toolName: data.toolName,
+                command: data.command,
+                cwd: data.cwd,
+              },
+            }),
+          onToolResult: (data) => {
+            if (data.ok && FILE_MUTATING_TOOLS.includes(data.toolName)) {
+              useUi.getState().bumpFilesVersion();
+            }
+            // desfecho do comando chegou (aprovado/negado/expirado): limpa o pedido
+            const pending = get().pendingApproval;
+            set({
+              ...(pending?.callId === data.callId ? { pendingApproval: undefined } : {}),
               streamingParts: [
                 ...get().streamingParts,
                 {
@@ -76,7 +117,8 @@ export const useChat = create<ChatState>((set, get) => ({
                   durationMs: data.durationMs,
                 },
               ],
-            }),
+            });
+          },
           onError: (err) => {
             errorInfo = err;
           },
@@ -84,9 +126,11 @@ export const useChat = create<ChatState>((set, get) => ({
             const finished = get().streamingParts;
             if (finished.length || errorInfo) {
               const assistantMessage: ChatMessage = {
-                id: `local-${Date.now()}-a`,
+                id: serverAssistantId ?? `local-${Date.now()}-a`,
                 role: 'assistant',
                 parts: finished,
+                ...(session.modelId ? { modelId: session.modelId } : {}),
+                ...(done.usage ? { usage: done.usage } : {}),
                 createdAt: new Date().toISOString(),
                 ...(errorInfo ? { error: errorInfo } : {}),
               };
@@ -95,11 +139,30 @@ export const useChat = create<ChatState>((set, get) => ({
                 .mutateCurrent((s) => ({ ...s, messages: [...s.messages, assistantMessage] }));
             }
             if (done.updatedSession) useSessions.getState().refreshSummary(done.updatedSession);
+            if (done.usage) void useCatalog.getState().loadQuota(true);
             if (done.finishReason === 'max_rounds') {
               useUi
                 .getState()
                 .toast('A conversa atingiu o limite de rodadas de ferramentas.', 'info');
             }
+            // a resposta acabou: libera a UI já — o stream segue aberto só
+            // esperando o usage_update (credits reais medidos na cota)
+            set({
+              isStreaming: false,
+              streamingParts: [],
+              requestId: undefined,
+              pendingApproval: undefined,
+            });
+          },
+          onUsageUpdate: (data) => {
+            useSessions.getState().mutateCurrent((s) => ({
+              ...s,
+              messages: s.messages.map((m) =>
+                m.id === data.messageId ? { ...m, usage: data.usage } : m,
+              ),
+            }));
+            // o delta confirma que a cota mudou — atualiza o saldo do header
+            void useCatalog.getState().loadQuota(true);
           },
         },
         abortController.signal,
@@ -109,8 +172,17 @@ export const useChat = create<ChatState>((set, get) => ({
         errorInfo = { code: 'internal', message: (err as Error).message };
       }
     } finally {
-      set({ isStreaming: false, streamingParts: [], requestId: undefined });
-      abortController = undefined;
+      // só limpa se ainda formos o stream ativo: o usage_update mantém a
+      // conexão aberta após o done, e um novo send pode já ter começado
+      if (abortController === myController) {
+        set({
+          isStreaming: false,
+          streamingParts: [],
+          requestId: undefined,
+          pendingApproval: undefined,
+        });
+        abortController = undefined;
+      }
     }
 
     if (errorInfo) {
@@ -120,6 +192,16 @@ export const useChat = create<ChatState>((set, get) => ({
         void api.warmup().catch(() => undefined);
       }
     }
+  },
+
+  respondApproval: (approved) => {
+    const { requestId, pendingApproval } = get();
+    if (!requestId || !pendingApproval) return;
+    // limpa já: o desfecho real chega no tool_result deste callId
+    set({ pendingApproval: undefined });
+    api.respondApproval(requestId, pendingApproval.callId, approved).catch((err) => {
+      useUi.getState().toast((err as Error).message, 'error');
+    });
   },
 
   stop: () => {
@@ -137,6 +219,11 @@ export const useChat = create<ChatState>((set, get) => ({
       useSessions.getState().mutateCurrent((s) => ({ ...s, messages: [...s.messages, partial] }));
     }
     abortController?.abort();
-    set({ isStreaming: false, streamingParts: [], requestId: undefined });
+    set({
+      isStreaming: false,
+      streamingParts: [],
+      requestId: undefined,
+      pendingApproval: undefined,
+    });
   },
 }));

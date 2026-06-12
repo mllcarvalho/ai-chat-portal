@@ -1,5 +1,7 @@
 import type { Session, SessionMode } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
+import { sessionWorkspaceDir } from '../../storage/paths';
+import { getProject, projectDir } from '../../storage/projectStore';
 import {
   createSession,
   deleteSession,
@@ -7,6 +9,7 @@ import {
   listSessions,
   saveSession,
 } from '../../storage/sessionStore';
+import { registerFileRoutes } from './files';
 
 const MODES: SessionMode[] = ['ask', 'plan', 'agent'];
 
@@ -52,7 +55,10 @@ export function registerSessionRoutes(router: Router): void {
       return;
     }
     const patch = (body ?? {}) as Partial<
-      Pick<Session, 'title' | 'modelId' | 'agentId' | 'activeSkillIds' | 'enabledTools' | 'mode'>
+      Pick<
+        Session,
+        'title' | 'modelId' | 'agentId' | 'activeSkillIds' | 'enabledTools' | 'mode' | 'contextFiles'
+      >
     >;
     if (patch.mode && !MODES.includes(patch.mode)) {
       sendError(res, 400, 'Modo inválido (use ask, plan ou agent)');
@@ -68,6 +74,11 @@ export function registerSessionRoutes(router: Router): void {
     if (patch.enabledTools !== undefined) {
       session.enabledTools = Array.isArray(patch.enabledTools) ? patch.enabledTools : null;
     }
+    if (patch.contextFiles !== undefined) {
+      session.contextFiles = Array.isArray(patch.contextFiles)
+        ? patch.contextFiles.filter((p): p is string => typeof p === 'string')
+        : [];
+    }
     saveSession(session);
     sendJson(res, 200, session);
   });
@@ -76,4 +87,18 @@ export function registerSessionRoutes(router: Router): void {
     const ok = deleteSession(params.id);
     sendJson(res, ok ? 200 : 404, { ok });
   });
+
+  // pasta de trabalho da conversa: a do projeto, ou o workspace da sessão avulsa
+  registerFileRoutes(
+    router,
+    '/api/sessions/:id/files',
+    (id) => {
+      const session = getSession(id);
+      if (!session) return undefined;
+      if (!session.projectId) return sessionWorkspaceDir(id);
+      const project = getProject(session.projectId);
+      return project ? projectDir(project) : undefined;
+    },
+    'Sessão não encontrada',
+  );
 }

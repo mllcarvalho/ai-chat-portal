@@ -6,8 +6,11 @@ export interface ChatStreamHandlers {
   onMeta: (data: ChatSseEvents['meta']) => void;
   onText: (data: ChatSseEvents['text']) => void;
   onToolCall: (data: ChatSseEvents['tool_call']) => void;
+  onApprovalRequest: (data: ChatSseEvents['approval_request']) => void;
   onToolResult: (data: ChatSseEvents['tool_result']) => void;
   onDone: (data: ChatSseEvents['done']) => void;
+  /** Chega depois do done: credits reais medidos na cota da licença. */
+  onUsageUpdate: (data: ChatSseEvents['usage_update']) => void;
   onError: (data: ChatSseEvents['error']) => void;
 }
 
@@ -67,11 +70,17 @@ export async function streamChat(
       case 'tool_call':
         handlers.onToolCall(data as ChatSseEvents['tool_call']);
         break;
+      case 'approval_request':
+        handlers.onApprovalRequest(data as ChatSseEvents['approval_request']);
+        break;
       case 'tool_result':
         handlers.onToolResult(data as ChatSseEvents['tool_result']);
         break;
       case 'done':
         handlers.onDone(data as ChatSseEvents['done']);
+        break;
+      case 'usage_update':
+        handlers.onUsageUpdate(data as ChatSseEvents['usage_update']);
         break;
       case 'error':
         handlers.onError(data as ChatSseEvents['error']);

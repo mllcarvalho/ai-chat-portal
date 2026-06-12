@@ -9,6 +9,8 @@ export function SettingsModal() {
   const health = useCatalog((s) => s.health);
   const me = useCatalog((s) => s.me);
   const toast = useUi((s) => s.toast);
+  const hideToolCards = useUi((s) => s.hideToolCards);
+  const setHideToolCards = useUi((s) => s.setHideToolCards);
   const [config, setConfig] = useState<Omit<Config, 'token'>>();
   const [projectsRoot, setProjectsRoot] = useState('');
 
@@ -38,6 +40,24 @@ export function SettingsModal() {
         <button className="btn" style={{ alignSelf: 'flex-start', marginTop: 6 }} onClick={() => void save()}>
           Salvar
         </button>
+      </div>
+
+      <div className="field">
+        <label>Chat</label>
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 'normal' }}
+        >
+          <input
+            type="checkbox"
+            checked={hideToolCards}
+            onChange={(e) => setHideToolCards(e.target.checked)}
+          />
+          Ocultar detalhes técnicos das respostas (chamadas de ferramentas)
+        </label>
+        <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
+          Os cards tipo portal_write_file somem do chat. Pedidos de aprovação de comandos continuam
+          aparecendo sempre.
+        </span>
       </div>
 
       <div className="field">

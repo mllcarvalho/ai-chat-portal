@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type {
   AgentPreset,
+  CopilotQuota,
   HealthInfo,
   MeInfo,
   ModelInfo,
@@ -16,11 +17,17 @@ interface CatalogState {
   skills: Skill[];
   agents: AgentPreset[];
   tools: ToolInfo[];
+  /** null = consultado e indisponível (sem conta, rede, plano sem cota). */
+  quota?: CopilotQuota | null;
+  /** Motivo da indisponibilidade (mensagem do servidor), quando quota === null. */
+  quotaError?: string;
   loadHealth: () => Promise<HealthInfo | undefined>;
   loadAll: () => Promise<void>;
-  loadSkills: (projectId?: string) => Promise<void>;
+  /** Catálogo completo: skills globais + de todos os projetos (filtragem é no cliente). */
+  loadSkills: () => Promise<void>;
   loadAgents: () => Promise<void>;
   loadTools: (sessionId?: string) => Promise<void>;
+  loadQuota: (fresh?: boolean) => Promise<void>;
 }
 
 export const useCatalog = create<CatalogState>((set) => ({
@@ -55,8 +62,8 @@ export const useCatalog = create<CatalogState>((set) => ({
     });
   },
 
-  loadSkills: async (projectId) => {
-    set({ skills: await api.listSkills(projectId) });
+  loadSkills: async () => {
+    set({ skills: await api.listSkills() });
   },
 
   loadAgents: async () => {
@@ -65,5 +72,13 @@ export const useCatalog = create<CatalogState>((set) => ({
 
   loadTools: async (sessionId) => {
     set({ tools: await api.listTools(sessionId) });
+  },
+
+  loadQuota: async (fresh = false) => {
+    try {
+      set({ quota: await api.copilotQuota(fresh), quotaError: undefined });
+    } catch (err) {
+      set({ quota: null, quotaError: err instanceof Error ? err.message : undefined });
+    }
   },
 }));

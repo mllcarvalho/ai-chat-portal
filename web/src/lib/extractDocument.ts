@@ -1,0 +1,92 @@
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+/**
+ * Conversão de documentos binários (Excel, Word, PDF) em texto, feita no
+ * navegador na hora do upload/anexo. O resto do portal só trafega texto, então
+ * tudo a jusante (anexos, bases de conhecimento, arquivos de contexto) fica
+ * intocado. As bibliotecas pesadas carregam sob demanda via import() dinâmico.
+ */
+
+const SHEET_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
+const CONVERTIBLE_EXTENSIONS = [...SHEET_EXTENSIONS, '.docx', '.pdf'];
+
+/** Rótulo dos formatos conversíveis, para mensagens da UI. */
+export const CONVERTIBLE_LABEL = 'Excel (.xlsx/.xls), Word (.docx) ou PDF';
+
+function extOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot < 0 ? '' : name.slice(dot).toLowerCase();
+}
+
+export function isConvertibleDocument(name: string): boolean {
+  return CONVERTIBLE_EXTENSIONS.includes(extOf(name));
+}
+
+/** Extrai o texto de um documento conversível; lança Error com mensagem amigável. */
+export async function extractDocumentText(file: File): Promise<string> {
+  const ext = extOf(file.name);
+  if (ext === '.doc') {
+    throw new Error('Formato .doc (Word antigo) não é suportado — salve como .docx.');
+  }
+  if (SHEET_EXTENSIONS.includes(ext)) return extractSheet(file);
+  if (ext === '.docx') return extractDocx(file);
+  if (ext === '.pdf') return extractPdf(file);
+  throw new Error(`Formato não suportado: ${ext || file.name}`);
+}
+
+/** Uma seção markdown por aba, com o conteúdo em CSV. */
+async function extractSheet(file: File): Promise<string> {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.read(await file.arrayBuffer());
+  const sections: string[] = [];
+  for (const name of workbook.SheetNames) {
+    const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name]).trim();
+    if (!csv) continue;
+    sections.push(`## Aba: ${name}\n\n\`\`\`csv\n${csv}\n\`\`\``);
+  }
+  if (!sections.length) throw new Error('A planilha não tem conteúdo.');
+  return sections.join('\n\n');
+}
+
+async function extractDocx(file: File): Promise<string> {
+  const mammoth = (await import('mammoth')).default;
+  const input = { arrayBuffer: await file.arrayBuffer() };
+  // convertToMarkdown existe no runtime mas saiu dos types (deprecado no
+  // mammoth); preserva títulos/listas/tabelas — se sumir, cai no texto puro
+  const toMarkdown = (
+    mammoth as unknown as {
+      convertToMarkdown?: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+    }
+  ).convertToMarkdown;
+  const result = toMarkdown ? await toMarkdown.call(mammoth, input) : await mammoth.extractRawText(input);
+  const text = result.value.trim();
+  if (!text) throw new Error('O documento não tem texto.');
+  return text;
+}
+
+async function extractPdf(file: File): Promise<string> {
+  const pdfjs = await import('pdfjs-dist');
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+  const task = pdfjs.getDocument({ data: await file.arrayBuffer() });
+  const doc = await task.promise;
+  try {
+    const pages: string[] = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const content = await (await doc.getPage(n)).getTextContent();
+      let text = '';
+      for (const item of content.items) {
+        if (!('str' in item)) continue;
+        text += item.str;
+        if (item.hasEOL) text += '\n';
+      }
+      text = text.trim();
+      if (text) pages.push(doc.numPages > 1 ? `--- Página ${n} ---\n\n${text}` : text);
+    }
+    if (!pages.length) {
+      throw new Error('O PDF não tem texto extraível (provavelmente é digitalizado/imagem).');
+    }
+    return pages.join('\n\n');
+  } finally {
+    void task.destroy();
+  }
+}

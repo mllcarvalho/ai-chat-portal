@@ -1,11 +1,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { buildPortalUrl, clearRuntime, writeRuntime } from './authToken';
+import { buildPortalUrl, clearRuntime, readRuntime, writeRuntime } from './authToken';
 import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
+import { registerBmadAssets } from './storage/bmadStore';
 import { loadConfig } from './storage/configStore';
-import { initPortalRoot } from './storage/paths';
+import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths';
+import { seedDefaultSkills } from './storage/skillStore';
+import { checkEnvironment } from './tools/envCheck';
 import { autoStartEnabled, stopAll } from './tools/mcpManager';
 import { withTimeout } from './util';
 
@@ -30,6 +33,25 @@ function findPortalRoot(): string | undefined {
 }
 
 let portalUrl: string | undefined;
+
+/**
+ * Identifica o build carregado nesta janela (mtime do bundle instalado).
+ * Janelas comparam buildIds via /api/health: a de build mais novo assume o
+ * portal e pede o shutdown das demais, mesmo sem bump de versão.
+ */
+function computeBuildId(context: vscode.ExtensionContext): number {
+  try {
+    const main = (context.extension.packageJSON as { main?: string }).main ?? 'dist/extension.js';
+    return Math.round(fs.statSync(path.join(context.extensionPath, main)).mtimeMs);
+  } catch {
+    return 0;
+  }
+}
+
+/** URL canônica do portal: o runtime.json é escrito por quem está servindo agora. */
+function canonicalPortalUrl(): string | undefined {
+  return readRuntime()?.portalUrl ?? portalUrl;
+}
 
 async function doWarmup(context: vscode.ExtensionContext): Promise<void> {
   const models = await withTimeout(
@@ -101,44 +123,104 @@ function maybeOfferWarmup(context: vscode.ExtensionContext): void {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   initPortalRoot(findPortalRoot());
+  let skillCreatorMd: string | undefined;
+  try {
+    skillCreatorMd = fs.readFileSync(
+      path.join(context.extensionPath, 'assets', 'skill-creator', 'SKILL.md'),
+      'utf8',
+    );
+  } catch {
+    // VSIX sem o asset: segue sem o comando /criar-skill
+  }
+  seedDefaultSkills(skillCreatorMd);
+  // detecta node/bash/python e SÓ ENTÃO registra o BMAD: o adaptador das
+  // skills depende do ambiente (rodar comandos vs fallback manual)
+  void checkEnvironment().then((env) => {
+    if (!env.node) {
+      void vscode.window.showWarningMessage(
+        'AI Chat Portal: Node.js não foi encontrado no PATH. A instalação do BMAD (npx) e servidores MCP stdio não vão funcionar.',
+      );
+    }
+    try {
+      if (isBmadInstalled()) registerBmadAssets();
+    } catch {
+      // melhor-esforço; o painel BMAD re-registra na primeira consulta
+    }
+  });
   const config = loadConfig();
   const version = (context.extension.packageJSON as { version: string }).version;
 
   void autoStartEnabled();
   context.subscriptions.push({ dispose: () => void stopAll() });
 
-  const router = buildRouter({ context, version });
+  const buildId = computeBuildId(context);
+  // chamado pela rota /api/shutdown quando outra janela assume o portal
+  const shutdownRef = { close: () => {} };
+  const router = buildRouter({
+    context,
+    version,
+    buildId,
+    requestShutdown: () => shutdownRef.close(),
+  });
   const mediaDir = path.join(context.extensionPath, 'media');
-  const result = await startServer(router, { config, version, mediaDir });
 
-  if (result) {
+  let serving = false;
+  const tryBecomeServer = async (): Promise<void> => {
+    if (serving) return;
+    serving = true;
+    const result = await startServer(router, {
+      config,
+      version,
+      buildId,
+      hasPortalRoot: !!getPortalRoot(),
+      mediaDir,
+    });
+    if (!result) {
+      serving = false;
+      return;
+    }
     portalUrl = buildPortalUrl(result.port, config.token);
     writeRuntime(result.port, config.token, version);
-    context.subscriptions.push({
-      dispose: () => {
-        result.server.close();
-        clearRuntime();
-      },
-    });
-  }
+    shutdownRef.close = () => {
+      shutdownRef.close = () => {};
+      result.server.closeAllConnections();
+      result.server.close();
+      clearRuntime();
+      portalUrl = undefined;
+      serving = false;
+    };
+  };
+
+  await tryBecomeServer();
+  // janelas que cederam ficam de prontidão: se o portal canônico sumir
+  // (janela fechada/recarregada), a primeira que notar assume
+  const watchdog = setInterval(() => void tryBecomeServer(), 30000);
+  context.subscriptions.push({
+    dispose: () => {
+      clearInterval(watchdog);
+      shutdownRef.close();
+    },
+  });
 
   context.subscriptions.push(
     vscode.commands.registerCommand('aiChatPortal.openInBrowser', () => {
-      if (portalUrl) {
-        void vscode.env.openExternal(vscode.Uri.parse(portalUrl));
+      const url = canonicalPortalUrl();
+      if (url) {
+        void vscode.env.openExternal(vscode.Uri.parse(url));
       } else {
         void vscode.window.showWarningMessage(
-          'AI Chat Portal: o servidor está ativo em outra janela do VS Code.',
+          'AI Chat Portal: nenhum servidor ativo no momento.',
         );
       }
     }),
     vscode.commands.registerCommand('aiChatPortal.copyUrl', async () => {
-      if (portalUrl) {
-        await vscode.env.clipboard.writeText(portalUrl);
+      const url = canonicalPortalUrl();
+      if (url) {
+        await vscode.env.clipboard.writeText(url);
         void vscode.window.showInformationMessage('URL do portal copiada.');
       } else {
         void vscode.window.showWarningMessage(
-          'AI Chat Portal: o servidor está ativo em outra janela do VS Code.',
+          'AI Chat Portal: nenhum servidor ativo no momento.',
         );
       }
     }),

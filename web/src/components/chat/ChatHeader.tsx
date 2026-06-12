@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { SessionMode } from '@aiportal/shared';
+import type { SessionMode, TokenUsage } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
 import { useUi } from '../../stores/uiStore';
 import { Dropdown } from '../common/Dropdown';
+import { formatCredits, formatMultiplier, formatPriceCategory, formatTokens } from './MessageBubble';
 
 const MODE_LABEL: Record<SessionMode, string> = {
   ask: 'Ask',
@@ -29,25 +30,61 @@ export function ChatHeader() {
   const setMode = useSessions((s) => s.setMode);
   const models = useCatalog((s) => s.models);
   const agents = useCatalog((s) => s.agents);
-  const skills = useCatalog((s) => s.skills);
-  const loadSkills = useCatalog((s) => s.loadSkills);
+  const loadAgents = useCatalog((s) => s.loadAgents);
+  const quota = useCatalog((s) => s.quota);
+  const quotaError = useCatalog((s) => s.quotaError);
+  const loadQuota = useCatalog((s) => s.loadQuota);
+  const loadAll = useCatalog((s) => s.loadAll);
+  const panel = useUi((s) => s.panel);
   const openPanel = useUi((s) => s.openPanel);
+  const closePanel = useUi((s) => s.closePanel);
   const setView = useUi((s) => s.setView);
   const [title, setTitle] = useState(session?.title ?? '');
 
   useEffect(() => {
     setTitle(session?.title ?? '');
-    if (session) void loadSkills(session.projectId ?? undefined);
-  }, [session?.id, session?.title, session?.projectId, loadSkills, session]);
+  }, [session?.id, session?.title]);
+
+  useEffect(() => {
+    void loadQuota();
+  }, [loadQuota]);
+
+  const agent = agents.find((a) => a.id === session?.agentId);
+
+  // presets podem ser registrados depois do boot (ex: BMAD) — recarrega o catálogo
+  useEffect(() => {
+    if (session?.agentId && !agent) void loadAgents();
+  }, [session?.agentId, agent, loadAgents]);
 
   if (!session) return null;
 
   const model = models.find((m) => m.id === session.modelId) ?? models[0];
-  const agent = agents.find((a) => a.id === session.agentId);
-  const instructionSkills = skills.filter(
-    (s) => s.kind === 'instruction' && (s.scope === 'global' || s.projectId === session.projectId),
+
+  // total da conversa: soma o usage de todas as respostas
+  const totals = session.messages.reduce<TokenUsage>(
+    (acc, m) => {
+      if (m.usage) {
+        acc.inputTokens += m.usage.inputTokens;
+        acc.outputTokens += m.usage.outputTokens;
+        acc.requests += m.usage.requests;
+      }
+      return acc;
+    },
+    { inputTokens: 0, outputTokens: 0, requests: 0 },
   );
-  const activeCount = session.activeSkillIds.length;
+  const totalTokens = totals.inputTokens + totals.outputTokens;
+  const premium = quota?.premium;
+  const creditsUsed =
+    premium && !premium.unlimited ? Math.max(0, premium.entitlement - premium.remaining) : undefined;
+  // credits da conversa: soma o custo real medido por resposta; para mensagens
+  // antigas sem medição, estima por requisições × multiplicador (quando havia)
+  const conversationCredits = session.messages.reduce<number | undefined>((acc, m) => {
+    if (!m.usage) return acc;
+    if (m.usage.credits !== undefined) return (acc ?? 0) + m.usage.credits;
+    const msgModel = models.find((x) => x.id === m.modelId) ?? models[0];
+    if (msgModel?.multiplier === undefined) return acc;
+    return (acc ?? 0) + m.usage.requests * msgModel.multiplier;
+  }, undefined);
 
   return (
     <header className="chat-header">
@@ -99,6 +136,11 @@ export function ChatHeader() {
         trigger={(_, toggle) => (
           <button className="pill-btn" onClick={toggle} title="Modelo do Copilot">
             ◆ {model?.name ?? 'modelo'}
+            {model?.multiplier !== undefined
+              ? ` · ${formatMultiplier(model.multiplier)}`
+              : model?.priceCategory
+                ? ` · ${formatPriceCategory(model.priceCategory)}`
+                : ''}
           </button>
         )}
       >
@@ -114,6 +156,25 @@ export function ChatHeader() {
             >
               <span>
                 {m.name}
+                {m.multiplier !== undefined ? (
+                  <span
+                    className={`model-mult${m.multiplier === 0 ? ' model-mult--free' : ''}`}
+                    title={
+                      m.multiplier === 0
+                        ? 'Incluído no plano — não desconta AI credits'
+                        : `Desconta ${formatMultiplier(m.multiplier)} AI credits por requisição`
+                    }
+                  >
+                    {formatMultiplier(m.multiplier)}
+                  </span>
+                ) : m.priceCategory ? (
+                  <span
+                    className="model-mult"
+                    title="Faixa de preço do Copilot — o custo em AI credits varia pelos tokens usados"
+                  >
+                    {formatPriceCategory(m.priceCategory)}
+                  </span>
+                ) : null}
                 <span className="dropdown__item-sub">
                   {m.family} · {Math.round(m.maxInputTokens / 1000)}k tokens
                 </span>
@@ -175,67 +236,129 @@ export function ChatHeader() {
         )}
       </Dropdown>
 
-      {/* Skills ativas */}
+      {/* Uso de tokens + AI credits */}
       <Dropdown
         trigger={(_, toggle) => (
           <button
-            className={`pill-btn${activeCount ? ' pill-btn--active' : ''}`}
+            className="pill-btn"
             onClick={toggle}
-            title="Skills de instrução ativas nesta conversa"
+            title="Uso de tokens da conversa e AI credits do Copilot"
           >
-            ⚡ Skills{activeCount ? ` (${activeCount})` : ''}
+            ⚡ {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
+            {creditsUsed !== undefined && premium
+              ? ` · ${formatCredits(creditsUsed)}/${premium.entitlement}`
+              : ''}
           </button>
         )}
       >
-        {(close) => (
-          <>
-            {instructionSkills.length === 0 && (
-              <div className="empty-state">Nenhuma skill de instrução.</div>
-            )}
-            {instructionSkills.map((skill) => {
-              const active = session.activeSkillIds.includes(skill.id);
-              return (
-                <button
-                  key={skill.id}
-                  className={`dropdown__item${active ? ' dropdown__item--sel' : ''}`}
-                  onClick={() => {
-                    const next = active
-                      ? session.activeSkillIds.filter((id) => id !== skill.id)
-                      : [...session.activeSkillIds, skill.id];
-                    void patchCurrent({ activeSkillIds: next });
-                  }}
-                >
-                  <span>
-                    {active ? '☑' : '☐'} {skill.name}
-                    {skill.description && (
-                      <span className="dropdown__item-sub">{skill.description}</span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
+        {() => (
+          <div className="usage-pop">
+            <div className="usage-pop__section">
+              <div className="dropdown__label">Esta conversa</div>
+              <div className="usage-pop__row">
+                <span>Tokens de entrada</span>
+                <strong>{formatTokens(totals.inputTokens)}</strong>
+              </div>
+              <div className="usage-pop__row">
+                <span>Tokens de saída</span>
+                <strong>{formatTokens(totals.outputTokens)}</strong>
+              </div>
+              <div className="usage-pop__row">
+                <span>Requisições ao Copilot</span>
+                <strong>{totals.requests}</strong>
+              </div>
+              {conversationCredits !== undefined && (
+                <div className="usage-pop__row">
+                  <span>AI credits da conversa</span>
+                  <strong>{formatCredits(conversationCredits)}</strong>
+                </div>
+              )}
+            </div>
             <div className="dropdown__sep" />
-            <button
-              className="dropdown__item"
-              onClick={() => {
-                setView('skills');
-                close();
-              }}
-            >
-              Gerenciar skills…
-            </button>
-          </>
+            <div className="usage-pop__section">
+              <div className="dropdown__label">AI credits (premium requests)</div>
+              {premium ? (
+                premium.unlimited ? (
+                  <div className="usage-pop__row">
+                    <span>Plano {quota?.plan ?? '—'}</span>
+                    <strong>ilimitado</strong>
+                  </div>
+                ) : (
+                  <>
+                    <div className="usage-pop__row">
+                      <span>Usados</span>
+                      <strong>
+                        {formatCredits(creditsUsed ?? 0)} /{' '}
+                        {premium.entitlement.toLocaleString('pt-BR')}
+                      </strong>
+                    </div>
+                    <div className="usage-pop__bar" aria-hidden>
+                      <span
+                        style={{
+                          width: `${Math.min(100, Math.max(0, 100 - premium.percentRemaining))}%`,
+                        }}
+                      />
+                    </div>
+                    <div className="usage-pop__row usage-pop__row--dim">
+                      <span>Restantes</span>
+                      <span>
+                        {premium.remaining.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                      </span>
+                    </div>
+                    {quota?.resetDate && (
+                      <div className="usage-pop__row usage-pop__row--dim">
+                        <span>Renova em</span>
+                        <span>{quota.resetDate}</span>
+                      </div>
+                    )}
+                    {premium.overageCount > 0 && (
+                      <div className="usage-pop__row usage-pop__row--dim">
+                        <span>Excedente usado</span>
+                        <span>{premium.overageCount}</span>
+                      </div>
+                    )}
+                  </>
+                )
+              ) : (
+                <div className="usage-pop__row usage-pop__row--dim">
+                  <span>
+                    {quota === null
+                      ? (quotaError ?? 'Indisponível no momento')
+                      : 'Carregando…'}
+                  </span>
+                </div>
+              )}
+              <button
+                className="dropdown__item"
+                onClick={() => {
+                  // recarrega modelos junto: os multiplicadores vêm de /api/models
+                  void loadQuota(true);
+                  void loadAll();
+                }}
+              >
+                ↻ Atualizar credits
+              </button>
+            </div>
+            <div className="usage-pop__note">
+              Cada rodada de ferramentas é 1 requisição. Os AI credits por resposta são medidos
+              direto na licença (saldo antes − depois); o preço varia pelo modelo e pelos tokens
+              usados.
+            </div>
+          </div>
         )}
       </Dropdown>
 
-      <button className="pill-btn" onClick={() => setView('mcps')} title="Servidores MCP">
-        🔧 MCPs
+      <button
+        className={`pill-btn${panel.kind === 'files' ? ' pill-btn--active' : ''}`}
+        onClick={() => (panel.kind === 'files' ? closePanel() : openPanel({ kind: 'files' }))}
+        title={
+          session.projectId
+            ? 'Arquivos do projeto (painel lateral)'
+            : 'Arquivos do workspace desta conversa (painel lateral)'
+        }
+      >
+        📄 Arquivos
       </button>
-      {session.projectId && (
-        <button className="pill-btn" onClick={() => openPanel({ kind: 'files' })} title="Arquivos do projeto">
-          📄 Arquivos
-        </button>
-      )}
     </header>
   );
 }

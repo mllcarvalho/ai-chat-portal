@@ -16,15 +16,44 @@ interface Toast {
   tone: 'info' | 'error' | 'ok';
 }
 
+export interface ConfirmOptions {
+  title?: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  /** Ação destrutiva: botão de confirmar em vermelho. */
+  danger?: boolean;
+}
+
+const HIDE_TOOL_CARDS_KEY = 'aiportal.hideToolCards';
+
 interface UiState {
   view: MainView;
   panel: PanelKind;
   toasts: Toast[];
+  /**
+   * Oculta os cards técnicos de ferramentas (portal_write_file etc.) no chat.
+   * Pedidos de aprovação aparecem sempre, independente desta preferência.
+   */
+  hideToolCards: boolean;
+  setHideToolCards: (hide: boolean) => void;
+  /** Incrementa quando uma ferramenta mexe nos arquivos — o painel Arquivos recarrega sozinho. */
+  filesVersion: number;
+  bumpFilesVersion: () => void;
+  /** Confirmação pendente (renderizada pelo ConfirmDialog). */
+  confirmState?: ConfirmOptions & { resolve: (ok: boolean) => void };
+  /** Texto a inserir no composer (ex: comando slash escolhido num menu). */
+  composerSeed?: string;
   setView: (view: MainView) => void;
   openPanel: (panel: PanelKind) => void;
   closePanel: () => void;
+  seedComposer: (text: string) => void;
+  clearComposerSeed: () => void;
   toast: (text: string, tone?: Toast['tone']) => void;
   dismissToast: (id: number) => void;
+  /** Substituto do window.confirm com o layout do portal. */
+  confirm: (opts: ConfirmOptions) => Promise<boolean>;
+  resolveConfirm: (ok: boolean) => void;
 }
 
 let toastSeq = 1;
@@ -33,7 +62,16 @@ export const useUi = create<UiState>((set, get) => ({
   view: 'chat',
   panel: { kind: 'none' },
   toasts: [],
+  hideToolCards: localStorage.getItem(HIDE_TOOL_CARDS_KEY) === '1',
+  setHideToolCards: (hide) => {
+    localStorage.setItem(HIDE_TOOL_CARDS_KEY, hide ? '1' : '0');
+    set({ hideToolCards: hide });
+  },
+  filesVersion: 0,
+  bumpFilesVersion: () => set({ filesVersion: get().filesVersion + 1 }),
   setView: (view) => set({ view }),
+  seedComposer: (text) => set({ composerSeed: text, view: 'chat' }),
+  clearComposerSeed: () => set({ composerSeed: undefined }),
   openPanel: (panel) => set({ panel }),
   closePanel: () => set({ panel: { kind: 'none' } }),
   toast: (text, tone = 'info') => {
@@ -42,4 +80,15 @@ export const useUi = create<UiState>((set, get) => ({
     setTimeout(() => get().dismissToast(id), 5000);
   },
   dismissToast: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
+  confirm: (opts) =>
+    new Promise<boolean>((resolve) => {
+      // só uma confirmação por vez; a anterior é cancelada
+      get().confirmState?.resolve(false);
+      set({ confirmState: { ...opts, resolve } });
+    }),
+  resolveConfirm: (ok) => {
+    const pending = get().confirmState;
+    set({ confirmState: undefined });
+    pending?.resolve(ok);
+  },
 }));

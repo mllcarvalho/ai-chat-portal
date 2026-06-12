@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Skill, SkillWithContent } from '@aiportal/shared';
+import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
-import { PageShell } from './PageShell';
+import { Select } from '../common/Select';
+import { EmptyState, PageShell, Panel } from './PageShell';
 
 interface Draft {
   id?: string;
-  kind: 'instruction' | 'command';
   scope: 'global' | 'project';
+  projectId?: string;
   name: string;
   description: string;
   command: string;
@@ -17,13 +19,36 @@ interface Draft {
 }
 
 const EMPTY: Draft = {
-  kind: 'instruction',
   scope: 'global',
   name: '',
   description: '',
   command: '',
   content: '',
 };
+
+/** 'all' | 'global' | 'bmad' | id de projeto */
+type ScopeFilter = string;
+
+/**
+ * Arquivo .md de skill: frontmatter opcional (name/description/command — o
+ * formato gerado pelo botão Baixar) + corpo markdown. Sem frontmatter, o
+ * arquivo inteiro vira o conteúdo.
+ */
+function parseSkillFile(raw: string): {
+  name?: string;
+  description?: string;
+  command?: string;
+  content: string;
+} {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
+  if (!fm) return { content: raw.trim() };
+  const fields: Record<string, string> = {};
+  for (const line of fm[1].split(/\r?\n/)) {
+    const m = /^(name|description|command)\s*:\s*(.*)$/.exec(line.trim());
+    if (m) fields[m[1]] = m[2].trim().replace(/^(['"])(.*)\1$/, '$2');
+  }
+  return { ...fields, content: raw.slice(fm[0].length).trim() };
+}
 
 export function SkillsPage() {
   const skills = useCatalog((s) => s.skills);
@@ -32,23 +57,90 @@ export function SkillsPage() {
   const viewProjectId = useSessions((s) => s.viewProjectId);
   const projects = useSessions((s) => s.projects);
   const toast = useUi((s) => s.toast);
+  const confirm = useUi((s) => s.confirm);
+  const [filter, setFilter] = useState<ScopeFilter>('all');
   const [draft, setDraft] = useState<Draft | undefined>();
   const [busy, setBusy] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  const projectId = session?.projectId ?? viewProjectId ?? undefined;
-  const projectName = projects.find((p) => p.id === projectId)?.name;
+  const contextProjectId = session?.projectId ?? viewProjectId ?? undefined;
+  const projectName = (id?: string) => projects.find((p) => p.id === id)?.name ?? 'projeto';
+  // quando o filtro aponta para um projeto (não é um dos agregadores fixos)
+  const filterProjectId =
+    filter !== 'all' && filter !== 'global' && filter !== 'bmad' ? filter : undefined;
 
   useEffect(() => {
-    void loadSkills(projectId);
-  }, [loadSkills, projectId]);
+    void loadSkills();
+  }, [loadSkills]);
+
+  const hasBmad = useMemo(() => skills.some((s) => isBmadAsset(s.id)), [skills]);
+
+  // as skills BMAD (auto-registradas) só aparecem no agregador delas,
+  // para não poluir "Todos" e "Globais"
+  const filtered = useMemo(() => {
+    if (filter === 'bmad') return skills.filter((s) => isBmadAsset(s.id));
+    const own = skills.filter((s) => !isBmadAsset(s.id));
+    if (filter === 'all') return own;
+    if (filter === 'global') return own.filter((s) => s.scope === 'global');
+    return own.filter((s) => s.projectId === filter);
+  }, [skills, filter]);
+
+  const newDraft = () =>
+    setDraft({
+      ...EMPTY,
+      // pré-seleciona o escopo conforme o filtro/contexto atual
+      scope: filterProjectId ? 'project' : 'global',
+      projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
+    });
+
+  // importa um .md: o conteúdo vai para o editor e o usuário completa
+  // nome, comando, escopo e descrição antes de salvar
+  const importFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseSkillFile(String(reader.result ?? ''));
+      if (!parsed.content) {
+        toast('O arquivo está vazio.', 'error');
+        return;
+      }
+      setDraft({
+        scope: filterProjectId ? 'project' : 'global',
+        projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
+        name: parsed.name ?? file.name.replace(/\.(md|markdown|txt)$/i, ''),
+        description: parsed.description ?? '',
+        command: parsed.command ?? '',
+        content: parsed.content,
+      });
+      toast('Conteúdo importado — revise os campos e salve.', 'ok');
+    };
+    reader.onerror = () => toast('Não foi possível ler o arquivo.', 'error');
+    reader.readAsText(file);
+  };
+
+  // baixa a skill como .md com frontmatter (re-importável pelo botão Importar)
+  const download = async (skill: Skill) => {
+    try {
+      const full = await api.getSkill(skill.id);
+      const command = full.command ?? slugifyCommand(full.name);
+      const md = `---\nname: ${full.name}\ndescription: ${full.description}\ncommand: ${command}\n---\n\n${full.content}\n`;
+      const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${command}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
 
   const edit = async (skill: Skill) => {
     try {
       const full = await api.getSkill(skill.id);
       setDraft({
         id: full.id,
-        kind: full.kind,
         scope: full.scope,
+        projectId: full.projectId,
         name: full.name,
         description: full.description,
         command: full.command ?? '',
@@ -60,10 +152,16 @@ export function SkillsPage() {
   };
 
   const remove = async (skill: Skill) => {
-    if (!window.confirm(`Excluir a skill "${skill.name}"?`)) return;
+    const ok = await confirm({
+      title: 'Excluir skill',
+      message: `Excluir a skill "${skill.name}"?`,
+      confirmLabel: 'Excluir',
+      danger: true,
+    });
+    if (!ok) return;
     await api.deleteSkill(skill.id);
     if (draft?.id === skill.id) setDraft(undefined);
-    await loadSkills(projectId);
+    await loadSkills();
   };
 
   const save = async () => {
@@ -71,19 +169,18 @@ export function SkillsPage() {
     setBusy(true);
     try {
       const payload: Partial<SkillWithContent> = {
-        kind: draft.kind,
         scope: draft.scope,
-        projectId: draft.scope === 'project' ? projectId : undefined,
+        projectId: draft.scope === 'project' ? draft.projectId : undefined,
         name: draft.name.trim(),
         description: draft.description.trim(),
-        command: draft.kind === 'command' ? draft.command.trim().replace(/^\//, '') : undefined,
+        command: draft.command.trim().replace(/^\//, '') || undefined,
         content: draft.content,
       };
       if (draft.id) await api.patchSkill(draft.id, payload);
       else await api.createSkill(payload);
       toast('Skill salva.', 'ok');
       setDraft(undefined);
-      await loadSkills(projectId);
+      await loadSkills();
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -93,36 +190,104 @@ export function SkillsPage() {
 
   return (
     <PageShell
+      icon="⚡"
       title="Skills"
-      subtitle="Instruções reutilizáveis injetadas no contexto e comandos slash (ex: /resumir)."
+      subtitle="Instruções reutilizáveis em markdown. Toda skill pode ser ativada no contexto da conversa ou invocada por /comando."
       actions={
-        <button className="btn btn--primary" onClick={() => setDraft({ ...EMPTY })}>
-          ＋ Nova skill
-        </button>
+        <>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".md,.markdown,.txt"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importFile(file);
+              e.target.value = '';
+            }}
+          />
+          <button className="btn" onClick={() => fileInput.current?.click()}>
+            ⬆ Importar .md
+          </button>
+          <button className="btn btn--primary" onClick={newDraft}>
+            ＋ Nova skill
+          </button>
+        </>
       }
     >
       <div className="page-cols">
-        <div>
-          {skills.length === 0 && (
-            <div className="empty-state">
-              Crie skills para reaproveitar instruções ou comandos slash.
-            </div>
+        <Panel
+          title="Biblioteca"
+          count={filtered.length}
+          actions={
+            <Select
+              compact
+              align="right"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: 'all', label: hasBmad ? 'Todos (sem BMAD)' : 'Todos os escopos' },
+                { value: 'global', label: '🌐 Globais' },
+                ...(hasBmad ? [{ value: 'bmad', label: '🅱️ BMAD' }] : []),
+                ...projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` })),
+              ]}
+            />
+          }
+        >
+          {filtered.length === 0 && (
+            <EmptyState
+              icon="⚡"
+              title={filter === 'all' ? 'Nenhuma skill ainda' : 'Nada neste escopo'}
+              hint={
+                <>
+                  Skills são instruções reutilizáveis (markdown): ative no menu Skills da conversa
+                  ou invoque por <code>/comando</code>. Você também pode pedir no chat com{' '}
+                  <code>/criar-skill</code>.
+                </>
+              }
+              action={
+                <button className="btn btn--primary" onClick={newDraft}>
+                  ＋ Criar primeira skill
+                </button>
+              }
+            />
           )}
-          {skills.map((skill) => (
+          {filtered.map((skill) => (
             <button
               className={`page-list-item${draft?.id === skill.id ? ' page-list-item--active' : ''}`}
               key={skill.id}
               onClick={() => void edit(skill)}
             >
-              <span className={`item-card__tag${skill.kind === 'command' ? ' item-card__tag--cmd' : ''}`}>
-                {skill.kind === 'command' ? `/${skill.command}` : 'instrução'}
-                {skill.scope === 'project' ? ' · projeto' : ''}
+              <span className="page-list-item__meta">
+                <span className="item-card__tag item-card__tag--cmd">
+                  /{skill.command ?? slugifyCommand(skill.name)}
+                </span>
+                <span
+                  className={`scope-badge${skill.scope === 'project' ? ' scope-badge--project' : ''}`}
+                >
+                  {isBmadAsset(skill.id)
+                    ? '🅱️ BMAD'
+                    : skill.scope === 'project'
+                      ? `📁 ${projectName(skill.projectId)}`
+                      : '🌐 Global'}
+                </span>
               </span>
               <span className="item-card__name">{skill.name}</span>
               <span className="item-card__desc">{skill.description || '—'}</span>
               <span className="page-list-item__actions">
                 <span
                   role="button"
+                  className="mini-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void download(skill);
+                  }}
+                >
+                  ⬇ Baixar
+                </span>
+                <span
+                  role="button"
+                  className="mini-btn mini-btn--danger"
                   onClick={(e) => {
                     e.stopPropagation();
                     void remove(skill);
@@ -133,36 +298,10 @@ export function SkillsPage() {
               </span>
             </button>
           ))}
-        </div>
+        </Panel>
+
         {draft ? (
-          <div className="page-card">
-            <h3 className="page-card__title">{draft.id ? 'Editar skill' : 'Nova skill'}</h3>
-            <div className="row">
-              <div className="field">
-                <label>Tipo</label>
-                <select
-                  value={draft.kind}
-                  disabled={!!draft.id}
-                  onChange={(e) => setDraft({ ...draft, kind: e.target.value as Draft['kind'] })}
-                >
-                  <option value="instruction">Instrução (injetada no contexto)</option>
-                  <option value="command">Comando slash (template)</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>Escopo</label>
-                <select
-                  value={draft.scope}
-                  disabled={!!draft.id}
-                  onChange={(e) => setDraft({ ...draft, scope: e.target.value as Draft['scope'] })}
-                >
-                  <option value="global">Global</option>
-                  <option value="project" disabled={!projectId}>
-                    {projectName ? `Projeto: ${projectName}` : 'Projeto atual'}
-                  </option>
-                </select>
-              </div>
-            </div>
+          <Panel title={draft.id ? 'Editar skill' : 'Nova skill'} className="panel--form">
             <div className="row">
               <div className="field">
                 <label>Nome</label>
@@ -172,13 +311,51 @@ export function SkillsPage() {
                   placeholder="ex: Tom executivo"
                 />
               </div>
-              {draft.kind === 'command' && (
+              <div className="field">
+                <label>Comando slash</label>
+                <input
+                  value={draft.command}
+                  onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+                  placeholder={draft.name.trim() ? `/${slugifyCommand(draft.name)}` : '/comando (auto)'}
+                />
+              </div>
+            </div>
+            <div className="row">
+              <div className="field">
+                <label>Escopo</label>
+                <Select
+                  value={draft.scope}
+                  disabled={!!draft.id}
+                  onChange={(value) => {
+                    const scope = value as Draft['scope'];
+                    setDraft({
+                      ...draft,
+                      scope,
+                      projectId:
+                        scope === 'project'
+                          ? draft.projectId ?? contextProjectId ?? projects[0]?.id
+                          : draft.projectId,
+                    });
+                  }}
+                  options={[
+                    { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                    {
+                      value: 'project',
+                      label: '📁 Projeto',
+                      hint: 'Só nas conversas do projeto',
+                      disabled: projects.length === 0,
+                    },
+                  ]}
+                />
+              </div>
+              {draft.scope === 'project' && (
                 <div className="field">
-                  <label>Comando (sem a barra)</label>
-                  <input
-                    value={draft.command}
-                    onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-                    placeholder="ex: resumir"
+                  <label>Projeto</label>
+                  <Select
+                    value={draft.projectId ?? ''}
+                    disabled={!!draft.id}
+                    onChange={(value) => setDraft({ ...draft, projectId: value })}
+                    options={projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` }))}
                   />
                 </div>
               )}
@@ -192,41 +369,37 @@ export function SkillsPage() {
               />
             </div>
             <div className="field page-card__grow">
-              <label>
-                {draft.kind === 'command'
-                  ? 'Template (use {{input}} para o texto digitado após o comando)'
-                  : 'Instruções (markdown)'}
-              </label>
+              <label>Conteúdo (markdown — use {'{{input}}'} para o texto digitado após o /comando)</label>
               <textarea
                 className="page-card__editor"
                 value={draft.content}
                 onChange={(e) => setDraft({ ...draft, content: e.target.value })}
-                placeholder={
-                  draft.kind === 'command'
-                    ? 'Resuma o texto a seguir em 5 bullets:\n\n{{input}}'
-                    : 'Sempre responda em formato de relatório executivo…'
-                }
+                placeholder={'Resuma o texto a seguir em 5 bullets:\n\n{{input}}'}
               />
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className="btn btn--ghost" onClick={() => setDraft(undefined)}>
+            <div className="form-actions">
+              <button className="btn" onClick={() => setDraft(undefined)}>
                 Cancelar
               </button>
               <button
                 className="btn btn--primary"
                 disabled={
-                  busy || !draft.name.trim() || (draft.kind === 'command' && !draft.command.trim())
+                  busy || !draft.name.trim() || (draft.scope === 'project' && !draft.projectId)
                 }
                 onClick={() => void save()}
               >
                 Salvar skill
               </button>
             </div>
-          </div>
+          </Panel>
         ) : (
-          <div className="empty-state page-card page-card--placeholder">
-            Selecione uma skill ao lado para editar, ou crie uma nova.
-          </div>
+          <Panel className="panel--placeholder">
+            <EmptyState
+              icon="✏️"
+              title="Nenhuma skill selecionada"
+              hint="Selecione uma skill ao lado para editar, ou crie uma nova."
+            />
+          </Panel>
         )}
       </div>
     </PageShell>

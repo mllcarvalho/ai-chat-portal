@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Session, SessionMode, SessionSummary } from '@aiportal/shared';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
-import { PROJECT_META_DIR, sessionsDir } from './paths';
+import { PROJECT_META_DIR, sessionWorkspaceDir, sessionsDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 
 function sessionsDirFor(projectId: string | null): string | undefined {
@@ -96,5 +96,11 @@ export function deleteSession(id: string): boolean {
   const file = findSessionFile(id);
   if (!file) return false;
   deleteFile(file);
+  // o workspace é o rascunho da conversa: morre junto com ela
+  try {
+    fs.rmSync(sessionWorkspaceDir(id), { recursive: true, force: true });
+  } catch {
+    // melhor-esforço (ex: arquivo aberto no Windows); a pasta órfã não atrapalha
+  }
   return true;
 }
