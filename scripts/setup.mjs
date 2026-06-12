@@ -29,6 +29,9 @@ function run(cmd, opts = {}) {
 
 // ---------- 1. localizar o binário `code` ----------
 
+/** No Windows o spawn com shell não cita argumentos — caminhos com espaço quebram sem isso. */
+const winQuote = (s) => (isWindows && /\s/.test(s) ? `"${s}"` : s);
+
 function findCode() {
   const candidates = isWindows
     ? [
@@ -46,7 +49,7 @@ function findCode() {
       ];
   for (const candidate of candidates) {
     try {
-      const result = spawnSync(candidate, ['--version'], {
+      const result = spawnSync(winQuote(candidate), ['--version'], {
         stdio: 'pipe',
         shell: isWindows,
       });
@@ -60,7 +63,10 @@ function findCode() {
 
 function code(args) {
   // no Windows o binário é um .cmd e precisa de shell
-  const result = spawnSync(codeBin, args, { stdio: 'inherit', shell: isWindows });
+  const result = spawnSync(winQuote(codeBin), args.map(winQuote), {
+    stdio: 'inherit',
+    shell: isWindows,
+  });
   if (result.status !== 0) fail(`Falha ao executar: code ${args.join(' ')}`);
 }
 

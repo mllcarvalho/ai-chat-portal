@@ -2,7 +2,7 @@
   "name": "ai-chat-portal-extension",
   "displayName": "AI Product BMAD Chat",
   "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o AI Product BMAD Chat",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "aichatportal",
   "private": true,
   "license": "MIT",

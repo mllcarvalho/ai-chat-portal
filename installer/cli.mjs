@@ -27,6 +27,9 @@ const fail = (msg) => {
 
 // ---------- 1. localizar o binário `code` ----------
 
+/** No Windows o spawn com shell não cita argumentos — caminhos com espaço quebram sem isso. */
+const winQuote = (s) => (isWindows && /\s/.test(s) ? `"${s}"` : s);
+
 function findCode() {
   const candidates = isWindows
     ? [
@@ -44,7 +47,7 @@ function findCode() {
       ];
   for (const candidate of candidates) {
     try {
-      const result = spawnSync(candidate, ['--version'], {
+      const result = spawnSync(winQuote(candidate), ['--version'], {
         stdio: 'pipe',
         shell: isWindows,
       });
@@ -58,7 +61,10 @@ function findCode() {
 
 function code(args) {
   // no Windows o binário é um .cmd e precisa de shell
-  const result = spawnSync(codeBin, args, { stdio: 'inherit', shell: isWindows });
+  const result = spawnSync(winQuote(codeBin), args.map(winQuote), {
+    stdio: 'inherit',
+    shell: isWindows,
+  });
   if (result.status !== 0) fail(`Falha ao executar: code ${args.join(' ')}`);
 }
 
@@ -85,14 +91,29 @@ if (!existsSync(vsix)) {
 
 log('Instalando a extensão no VS Code…');
 code(['--install-extension', vsix, '--force']);
+
+// o CLI do VS Code pode falhar em silêncio (exit 0) — confirma na lista
+let installed = '';
+try {
+  installed = execFileSync(winQuote(codeBin), ['--list-extensions'], {
+    shell: isWindows,
+    encoding: 'utf8',
+  });
+} catch {
+  // sem a lista, segue sem os checks
+}
+if (installed && !/aichatportal\.ai-chat-portal-extension/i.test(installed)) {
+  fail(
+    'A extensão não apareceu na lista do VS Code após a instalação.\n' +
+      '  - Rode manualmente para ver o erro real:\n' +
+      `    code --install-extension "${vsix}"\n` +
+      '  - Confira se há mais de um VS Code na máquina (Insiders, fork etc.)',
+  );
+}
 ok('Extensão instalada');
 
 // garante o Copilot Chat
-const installed = execFileSync(codeBin, ['--list-extensions'], {
-  shell: isWindows,
-  encoding: 'utf8',
-});
-if (!/github\.copilot-chat/i.test(installed)) {
+if (installed && !/github\.copilot-chat/i.test(installed)) {
   log('GitHub Copilot Chat não encontrado — instalando…');
   code(['--install-extension', 'GitHub.copilot-chat']);
 }
