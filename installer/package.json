@@ -4,7 +4,7 @@
   "description": "Chat com os modelos do GitHub Copilot no navegador — instala a extensão do portal no VS Code e abre tudo pronto",
   "license": "MIT",
   "bin": {
-    "ai-product-bmad-chat": "./cli.mjs"
+    "ai-product-bmad-chat": "cli.mjs"
   },
   "files": [
     "cli.mjs",
