@@ -26,4 +26,4 @@ Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` →
 
 ---
 
-Código-fonte: <https://github.com/mllcarvalho/ai-chat-portal>
+Feito por **Matheus Llobregat** ([@mllcarvalho](https://github.com/mllcarvalho)) · Código-fonte: <https://github.com/mllcarvalho/ai-chat-portal>

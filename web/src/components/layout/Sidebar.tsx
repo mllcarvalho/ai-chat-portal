@@ -92,6 +92,7 @@ export function Sidebar() {
         <span className="sidebar__logo">
           ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
         </span>
+        <span className="sidebar__byline">by Matheus Llobregat</span>
       </div>
 
       <button

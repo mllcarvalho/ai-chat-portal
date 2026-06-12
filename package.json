@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Portal de chat com IA usando os modelos do GitHub Copilot via VS Code",
+  "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "workspaces": [
     "shared",
     "extension",

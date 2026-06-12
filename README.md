@@ -91,3 +91,7 @@ O `release.mjs` builda tudo, gera o `.vsix`, embute no pacote `installer/` (sinc
 - **"Confirme a permissão na janela do VS Code"** — na primeira mensagem o VS Code pede autorização para a extensão usar o Copilot; clique em **Autorizar** na notificação.
 - **Sem token de acesso** — abra o portal pelo comando "AI Product BMAD Chat: Abrir no Navegador" (a URL carrega o token).
 - **`npx` não encontrado** — instale o Node.js 18+ em <https://nodejs.org> (o npx vem junto).
+
+---
+
+Feito por **Matheus Llobregat** ([@mllcarvalho](https://github.com/mllcarvalho)).
