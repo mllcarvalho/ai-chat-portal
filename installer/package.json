@@ -5,9 +5,10 @@
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "license": "MIT",
   "bin": {
-    "ai-product-bmad-chat": "cli.mjs"
+    "ai-product-bmad-chat": "cli.cjs"
   },
   "files": [
+    "cli.cjs",
     "cli.mjs",
     "ai-product-bmad-chat.vsix"
   ],
