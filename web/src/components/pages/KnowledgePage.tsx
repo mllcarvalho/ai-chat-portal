@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
@@ -25,6 +26,7 @@ export function KnowledgePage() {
   const [newBaseName, setNewBaseName] = useState('');
   const [newBaseScope, setNewBaseScope] = useState<'global' | 'project'>('global');
   const [busy, setBusy] = useState(false);
+  const [baseModal, setBaseModal] = useState(false);
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteName, setRemoteName] = useState('');
@@ -64,6 +66,7 @@ export function KnowledgePage() {
         projectId: newBaseScope === 'project' ? projectId : undefined,
       });
       setNewBaseName('');
+      setBaseModal(false);
       await reload();
       await select(base);
       toast('Base criada.', 'ok');
@@ -96,6 +99,7 @@ export function KnowledgePage() {
         scope: newBaseScope,
         projectId: newBaseScope === 'project' ? projectId : undefined,
       });
+      setBaseModal(false);
       await reload();
       await select(base);
       toast(
@@ -261,62 +265,35 @@ export function KnowledgePage() {
       icon="📚"
       title="Bases de conhecimento"
       subtitle="Documentos .md/.txt injetados no contexto das conversas — enviados do computador ou sincronizados de uma URL (GitHub Pages, markdown publicado…). Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
+      actions={
+        <>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".zip"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void importBase(file);
+              e.target.value = '';
+            }}
+          />
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => setBaseModal(true)}
+            title="Importar uma base exportada em .zip"
+          >
+            📦 Importar .zip
+          </button>
+          <button className="btn btn--primary" onClick={() => setBaseModal(true)}>
+            ＋ Nova base
+          </button>
+        </>
+      }
     >
       <div className="page-cols page-cols--three">
         <Panel title="Bases" count={bases.length}>
-          <div className="panel__form-block">
-            <div className="field">
-              <label>Nome</label>
-              <input
-                value={newBaseName}
-                onChange={(e) => setNewBaseName(e.target.value)}
-                placeholder="ex: Glossário do produto"
-              />
-            </div>
-            <div className="field">
-              <label>Escopo</label>
-              <Select
-                value={newBaseScope}
-                onChange={(value) => setNewBaseScope(value as 'global' | 'project')}
-                options={[
-                  { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
-                  {
-                    value: 'project',
-                    label: projectName ? `📁 Projeto: ${projectName}` : '📁 Projeto atual',
-                    hint: projectId ? undefined : 'Abra um projeto primeiro',
-                    disabled: !projectId,
-                  },
-                ]}
-              />
-            </div>
-            <button
-              className="btn btn--primary"
-              disabled={busy || !newBaseName.trim()}
-              onClick={() => void createBase()}
-            >
-              ＋ Criar base
-            </button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".zip"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void importBase(file);
-                e.target.value = '';
-              }}
-            />
-            <button
-              className="btn"
-              disabled={busy}
-              onClick={() => importInputRef.current?.click()}
-              title="Importar uma base exportada em .zip (usa o escopo selecionado acima)"
-            >
-              📦 Importar .zip
-            </button>
-          </div>
-
           {bases.map((base) => (
             <div
               className={`page-list-item${selected?.id === base.id ? ' page-list-item--active' : ''}`}
@@ -368,7 +345,16 @@ export function KnowledgePage() {
             </div>
           ))}
           {bases.length === 0 && (
-            <EmptyState icon="📚" title="Nenhuma base ainda" hint="Crie a primeira acima." />
+            <EmptyState
+              icon="📚"
+              title="Nenhuma base ainda"
+              hint="Use “Nova base” no topo para criar a primeira."
+              action={
+                <button className="btn btn--primary" onClick={() => setBaseModal(true)}>
+                  ＋ Nova base
+                </button>
+              }
+            />
           )}
         </Panel>
 
@@ -562,6 +548,57 @@ export function KnowledgePage() {
           </Panel>
         )}
       </div>
+
+      {baseModal && (
+        <Modal title="Nova base de conhecimento" onClose={() => setBaseModal(false)}>
+          <div className="field">
+            <label>Nome</label>
+            <input
+              value={newBaseName}
+              autoFocus
+              onChange={(e) => setNewBaseName(e.target.value)}
+              placeholder="ex: Glossário do produto"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newBaseName.trim()) void createBase();
+              }}
+            />
+          </div>
+          <div className="field">
+            <label>Escopo</label>
+            <Select
+              value={newBaseScope}
+              onChange={(value) => setNewBaseScope(value as 'global' | 'project')}
+              options={[
+                { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                {
+                  value: 'project',
+                  label: projectName ? `📁 Projeto: ${projectName}` : '📁 Projeto atual',
+                  hint: projectId ? undefined : 'Abra um projeto primeiro',
+                  disabled: !projectId,
+                },
+              ]}
+            />
+          </div>
+          <button
+            className="btn btn--primary"
+            disabled={busy || !newBaseName.trim()}
+            onClick={() => void createBase()}
+            style={{ width: '100%', justifyContent: 'center' }}
+          >
+            ＋ Criar base
+          </button>
+          <div className="panel__divider">ou importe uma base existente</div>
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => importInputRef.current?.click()}
+            title="Importar uma base exportada em .zip (usa o escopo selecionado acima)"
+            style={{ width: '100%', justifyContent: 'center' }}
+          >
+            📦 Importar .zip
+          </button>
+        </Modal>
+      )}
     </PageShell>
   );
 }

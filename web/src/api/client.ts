@@ -7,6 +7,7 @@ import type {
   HealthInfo,
   KnowledgeBase,
   KnowledgeDoc,
+  McpProxyConfig,
   McpServerInfo,
   MeInfo,
   ModelInfo,
@@ -22,6 +23,9 @@ import type {
 import { DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 
 const TOKEN_KEY = 'aiportal.token';
+
+/** Config de proxy MCP enviada ao backend (clientSecret só vai, nunca volta). */
+export type McpProxyInput = McpProxyConfig & { clientSecret?: string };
 
 export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) ?? '';
@@ -235,6 +239,10 @@ export const api = {
     request<McpServerInfo>('POST', `/api/mcp/servers/${encodeURIComponent(name)}/restart`),
   deleteMcpServer: (name: string) =>
     request<{ ok: boolean }>('DELETE', `/api/mcp/servers/${encodeURIComponent(name)}`),
+  saveMcpProxy: (input: McpProxyInput) =>
+    request<McpServerInfo>('POST', '/api/mcp/proxies', input),
+  testMcpProxy: (input: McpProxyInput) =>
+    request<{ ok: boolean; tools: string[] }>('POST', '/api/mcp/proxies/test', input),
 
   listVsCodeAgents: () => request<VsCodeAgent[]>('GET', '/api/vscode-agents'),
 

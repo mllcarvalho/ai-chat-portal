@@ -230,13 +230,31 @@ export interface McpServerEntry {
   headers?: Record<string, string>;
 }
 
+/**
+ * Config de um proxy MCP via OAuth2 client_credentials: o portal obtém um
+ * access_token no tokenUrl e conecta no gateway remoto (Streamable HTTP) com
+ * Bearer. O client_secret nunca trafega de volta ao front e é guardado no
+ * SecretStorage do VS Code (cifrado em repouso) — por isso não aparece aqui.
+ */
+export interface McpProxyConfig {
+  name: string;
+  tokenUrl: string;
+  gatewayUrl: string;
+  clientId: string;
+  scope?: string;
+}
+
 /** Estado de um servidor MCP gerenciado pelo portal. */
 export interface McpServerInfo {
   name: string;
   type: 'stdio' | 'http';
+  /** Origem da config: servidor do mcp.json ou proxy OAuth2 do portal. */
+  kind: 'mcpjson' | 'proxy';
   command?: string;
   args?: string[];
   url?: string;
+  /** Config do proxy (sem o secret), para exibir/pré-preencher edição. */
+  proxy?: McpProxyConfig;
   /** Persistido: religa sozinho quando o portal sobe. */
   enabled: boolean;
   status: 'stopped' | 'starting' | 'running' | 'error';

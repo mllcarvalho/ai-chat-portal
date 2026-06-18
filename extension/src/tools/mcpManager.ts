@@ -6,13 +6,22 @@ import {
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import type { McpServerEntry, McpServerInfo } from '@aiportal/shared';
+import type { McpProxyConfig, McpServerEntry, McpServerInfo } from '@aiportal/shared';
 import { readJson, writeJsonAtomic } from '../storage/jsonStore';
+import {
+  deleteProxy,
+  getProxySecret,
+  isProxy,
+  listProxies,
+  saveProxy,
+} from '../storage/mcpProxyStore';
 import { getPortalRoot, mcpStatePath } from '../storage/paths';
 import { withTimeout } from '../util';
 
 const START_TIMEOUT = 20_000;
 const CALL_TIMEOUT = 120_000;
+/** Reconecta o proxy quando faltar menos que isto para o token expirar. */
+const TOKEN_SKEW_MS = 60_000;
 
 interface McpToolDef {
   name: string;
@@ -21,11 +30,16 @@ interface McpToolDef {
 }
 
 interface ServerState {
+  /** Entry sintética para http/stdio; nos proxies descreve só o gateway. */
   entry: McpServerEntry;
+  source: 'mcpjson' | 'proxy';
+  proxy?: McpProxyConfig;
   status: McpServerInfo['status'];
   error?: string;
   client?: Client;
   tools: McpToolDef[];
+  /** Estado do token OAuth (proxies). */
+  tokenExpiresAt?: number;
 }
 
 interface McpState {
@@ -71,28 +85,126 @@ function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'server';
 }
 
-/** Sincroniza o mapa em memória com o mcp.json (para quando o arquivo muda). */
+/** Sincroniza o mapa em memória com o mcp.json e os proxies (quando mudam em disco). */
 function syncFromDisk(): void {
   const entries = readMcpJson();
   for (const [name, entry] of Object.entries(entries)) {
     const existing = servers.get(name);
     if (!existing) {
-      servers.set(name, { entry, status: 'stopped', tools: [] });
-    } else if (JSON.stringify(existing.entry) !== JSON.stringify(entry)) {
+      servers.set(name, { entry, source: 'mcpjson', status: 'stopped', tools: [] });
+    } else if (existing.source === 'mcpjson' && JSON.stringify(existing.entry) !== JSON.stringify(entry)) {
       // config mudou: derruba para a próxima ligada usar a config nova
       if (existing.status === 'running') void stopServer(name);
-      servers.set(name, { entry, status: 'stopped', tools: [] });
+      servers.set(name, { entry, source: 'mcpjson', status: 'stopped', tools: [] });
     }
   }
+
+  const proxies = listProxies();
+  const proxyNames = new Set(proxies.map((p) => p.name));
+  for (const proxy of proxies) {
+    const entry: McpServerEntry = { type: 'http', url: proxy.gatewayUrl };
+    const existing = servers.get(proxy.name);
+    if (!existing) {
+      servers.set(proxy.name, { entry, source: 'proxy', proxy, status: 'stopped', tools: [] });
+    } else if (existing.source === 'proxy' && JSON.stringify(existing.proxy) !== JSON.stringify(proxy)) {
+      if (existing.status === 'running') void stopServer(proxy.name);
+      servers.set(proxy.name, { entry, source: 'proxy', proxy, status: 'stopped', tools: [] });
+    }
+  }
+
   for (const name of [...servers.keys()]) {
-    if (!entries[name]) {
+    const state = servers.get(name)!;
+    const gone = state.source === 'proxy' ? !proxyNames.has(name) : !entries[name];
+    if (gone) {
       void stopServer(name);
       servers.delete(name);
     }
   }
 }
 
-async function connect(name: string, entry: McpServerEntry): Promise<Client> {
+// ---------- OAuth2 client_credentials ----------
+
+interface TokenResponse {
+  access_token?: string;
+  expires_in?: number;
+}
+
+async function fetchToken(
+  cfg: McpProxyConfig,
+  secret: string,
+): Promise<{ token: string; expiresAt: number }> {
+  const params = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: cfg.clientId,
+    client_secret: secret,
+  });
+  if (cfg.scope) params.set('scope', cfg.scope);
+  let resp: Response;
+  try {
+    resp = await fetch(cfg.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+  } catch (err) {
+    throw new Error(`Falha de rede ao obter token: ${err instanceof Error ? err.message : err}`);
+  }
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`OAuth ${resp.status} ${resp.statusText}${body ? `: ${body.slice(0, 200)}` : ''}`);
+  }
+  const data = (await resp.json().catch(() => ({}))) as TokenResponse;
+  if (!data.access_token) throw new Error('Resposta do Token URL sem access_token');
+  const ttl = typeof data.expires_in === 'number' && data.expires_in > 0 ? data.expires_in : 3600;
+  return { token: data.access_token, expiresAt: Date.now() + ttl * 1000 };
+}
+
+/** Abre um Client conectado ao gateway com o Bearer atual do proxy. */
+async function openProxyClient(
+  cfg: McpProxyConfig,
+  secret: string,
+): Promise<{ client: Client; expiresAt: number }> {
+  const { token, expiresAt } = await fetchToken(cfg, secret);
+  const client = new Client({ name: 'ai-chat-portal', version: '1.0' });
+  const transport = new StreamableHTTPClientTransport(new URL(cfg.gatewayUrl), {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  await client.connect(transport);
+  return { client, expiresAt };
+}
+
+async function connectProxy(name: string, state: ServerState): Promise<Client> {
+  const cfg = state.proxy;
+  if (!cfg) throw new Error('Config do proxy ausente');
+  const secret = await getProxySecret(name);
+  if (secret === undefined) throw new Error('Client Secret não encontrado no SecretStorage');
+  const { client, expiresAt } = await openProxyClient(cfg, secret);
+  state.tokenExpiresAt = expiresAt;
+  return client;
+}
+
+/** Renova o token de um proxy reconectando o client. */
+async function reconnectProxy(name: string, state: ServerState): Promise<void> {
+  const old = state.client;
+  state.client = undefined;
+  if (old) {
+    try {
+      await old.close();
+    } catch {
+      // ignora
+    }
+  }
+  state.client = await connectProxy(name, state);
+}
+
+function isAuthError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return /401|unauthorized|forbidden|invalid[_ ]token|token.*expired|expired.*token/.test(msg);
+}
+
+// ---------- conexão (stdio / http / proxy) ----------
+
+async function connect(entry: McpServerEntry): Promise<Client> {
   const client = new Client({ name: 'ai-chat-portal', version: '1.0' });
   if (entryType(entry) === 'stdio') {
     if (!entry.command) throw new Error('Servidor stdio sem "command" no mcp.json');
@@ -127,14 +239,14 @@ async function connect(name: string, entry: McpServerEntry): Promise<Client> {
 export async function startServer(name: string): Promise<McpServerInfo> {
   syncFromDisk();
   const state = servers.get(name);
-  if (!state) throw new Error(`Servidor MCP "${name}" não está no .vscode/mcp.json`);
+  if (!state) throw new Error(`Servidor MCP "${name}" não está configurado`);
   if (state.status === 'running') return toInfo(name, state);
 
   state.status = 'starting';
   state.error = undefined;
   try {
     const client = await withTimeout(
-      connect(name, state.entry),
+      state.source === 'proxy' ? connectProxy(name, state) : connect(state.entry),
       START_TIMEOUT,
       undefined,
     );
@@ -164,6 +276,7 @@ export async function stopServer(name: string): Promise<McpServerInfo | undefine
   state.tools = [];
   state.status = 'stopped';
   state.error = undefined;
+  state.tokenExpiresAt = undefined;
   if (client) {
     try {
       await client.close();
@@ -198,9 +311,11 @@ function toInfo(name: string, state: ServerState): McpServerInfo {
   return {
     name,
     type: entryType(entry),
+    kind: state.source,
     command: entry.command,
     args: entry.args,
     url: entry.url,
+    proxy: state.proxy,
     enabled: readState().enabled[name] ?? false,
     status: state.status,
     error: state.error,
@@ -218,7 +333,7 @@ export function listServers(): McpServerInfo[] {
 
 export function addServer(name: string, entry: McpServerEntry): void {
   const entries = readMcpJson();
-  if (entries[name]) throw new Error(`Já existe um servidor chamado "${name}"`);
+  if (entries[name] || isProxy(name)) throw new Error(`Já existe um servidor chamado "${name}"`);
   entries[name] = entry;
   writeMcpJson(entries);
   syncFromDisk();
@@ -226,14 +341,67 @@ export function addServer(name: string, entry: McpServerEntry): void {
 
 export async function removeServer(name: string): Promise<void> {
   await stopServer(name);
-  const entries = readMcpJson();
-  if (!entries[name]) throw new Error(`Servidor MCP "${name}" não encontrado`);
-  delete entries[name];
-  writeMcpJson(entries);
+  if (isProxy(name)) {
+    await deleteProxy(name);
+  } else {
+    const entries = readMcpJson();
+    if (!entries[name]) throw new Error(`Servidor MCP "${name}" não encontrado`);
+    delete entries[name];
+    writeMcpJson(entries);
+  }
   const state = readState();
   delete state.enabled[name];
   writeState(state);
   syncFromDisk();
+}
+
+// ---------- proxies OAuth2 ----------
+
+/** Cria/atualiza um proxy e o liga. secret undefined em edição mantém o atual. */
+export async function saveProxyServer(
+  config: McpProxyConfig,
+  secret?: string,
+): Promise<McpServerInfo> {
+  const entries = readMcpJson();
+  if (entries[config.name] && !isProxy(config.name)) {
+    throw new Error(`Já existe um servidor (não-proxy) chamado "${config.name}"`);
+  }
+  await saveProxy(config, secret);
+  syncFromDisk();
+  return setServerEnabled(config.name, true);
+}
+
+/** Testa a config (token + listTools) sem persistir nem ligar. Devolve os nomes das tools. */
+export async function testProxyConnection(
+  config: McpProxyConfig,
+  secret?: string,
+): Promise<string[]> {
+  let realSecret = secret;
+  if (realSecret === undefined || realSecret === '') {
+    realSecret = await getProxySecret(config.name);
+  }
+  if (!realSecret) throw new Error('Informe o Client Secret');
+  const client = new Client({ name: 'ai-chat-portal-test', version: '1.0' });
+  const tools = await withTimeout(
+    (async () => {
+      const { token } = await fetchToken(config, realSecret!);
+      const transport = new StreamableHTTPClientTransport(new URL(config.gatewayUrl), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      });
+      await client.connect(transport);
+      const result = await client.listTools();
+      return result.tools.map((t) => t.name);
+    })(),
+    START_TIMEOUT,
+    undefined,
+  );
+  try {
+    await client.close();
+  } catch {
+    // ignora
+  }
+  if (!tools) throw new Error(`Timeout ao conectar (${START_TIMEOUT / 1000}s)`);
+  return tools;
 }
 
 // ---------- ferramentas para o loop agêntico ----------
@@ -272,6 +440,18 @@ export function isMcpToolName(qualifiedName: string): boolean {
   return qualifiedIndex.has(qualifiedName);
 }
 
+function extractText(result: Awaited<ReturnType<Client['callTool']>>, toolName: string): string {
+  const texts: string[] = [];
+  for (const part of (result.content ?? []) as Array<Record<string, unknown>>) {
+    if (part.type === 'text' && typeof part.text === 'string') texts.push(part.text);
+    else texts.push(JSON.stringify(part));
+  }
+  if (result.isError) {
+    throw new Error(texts.join('\n') || `Erro na ferramenta ${toolName}`);
+  }
+  return texts.join('\n');
+}
+
 export async function callMcpTool(qualifiedName: string, input: object): Promise<string> {
   if (!qualifiedIndex.size) listRunningTools();
   const ref = qualifiedIndex.get(qualifiedName);
@@ -280,21 +460,38 @@ export async function callMcpTool(qualifiedName: string, input: object): Promise
   if (!state?.client || state.status !== 'running') {
     throw new Error(`O servidor MCP "${ref.server}" está desligado`);
   }
-  const result = await withTimeout(
-    state.client.callTool({ name: ref.tool, arguments: input as Record<string, unknown> }),
-    CALL_TIMEOUT,
-    undefined,
-  );
-  if (!result) throw new Error(`Timeout chamando ${ref.tool} (${CALL_TIMEOUT / 1000}s)`);
-  const texts: string[] = [];
-  for (const part of (result.content ?? []) as Array<Record<string, unknown>>) {
-    if (part.type === 'text' && typeof part.text === 'string') texts.push(part.text);
-    else texts.push(JSON.stringify(part));
+
+  // proxy: renova o token proativamente se estiver perto de expirar
+  if (state.source === 'proxy' && state.tokenExpiresAt && Date.now() > state.tokenExpiresAt - TOKEN_SKEW_MS) {
+    try {
+      await reconnectProxy(ref.server, state);
+    } catch (err) {
+      throw new Error(`Falha ao renovar o token do proxy "${ref.server}": ${err instanceof Error ? err.message : err}`);
+    }
   }
-  if (result.isError) {
-    throw new Error(texts.join('\n') || `Erro na ferramenta ${ref.tool}`);
+
+  const doCall = async (): Promise<string> => {
+    const client = state.client;
+    if (!client) throw new Error(`O servidor MCP "${ref.server}" está desligado`);
+    const result = await withTimeout(
+      client.callTool({ name: ref.tool, arguments: input as Record<string, unknown> }),
+      CALL_TIMEOUT,
+      undefined,
+    );
+    if (!result) throw new Error(`Timeout chamando ${ref.tool} (${CALL_TIMEOUT / 1000}s)`);
+    return extractText(result, ref.tool);
+  };
+
+  try {
+    return await doCall();
+  } catch (err) {
+    // proxy: token pode ter expirado no servidor — reconecta uma vez e tenta de novo
+    if (state.source === 'proxy' && isAuthError(err)) {
+      await reconnectProxy(ref.server, state);
+      return doCall();
+    }
+    throw err;
   }
-  return texts.join('\n');
 }
 
 export async function stopAll(): Promise<void> {

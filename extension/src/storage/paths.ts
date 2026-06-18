@@ -78,6 +78,11 @@ export function mcpStatePath(): string {
   return path.join(dataRoot(), 'mcp-state.json');
 }
 
+/** Configs dos proxies MCP OAuth2 (sem o secret, que vive no SecretStorage). */
+export function mcpProxiesPath(): string {
+  return path.join(dataRoot(), 'mcp-proxies.json');
+}
+
 export function defaultProjectsRoot(): string {
   return path.join(dataRoot(), 'projects');
 }

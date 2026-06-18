@@ -477,7 +477,11 @@ export function AgentsPage() {
         </Panel>
 
         {draft ? (
-          <Panel title={draft.id ? 'Editar agente' : 'Novo agente'} className="panel--form">
+          <Panel
+            title={draft.id ? 'Editar agente' : 'Novo agente'}
+            className="panel--form panel--agent-form"
+          >
+            <div className="agent-form">
             <div className="row">
               <div className="field" style={{ maxWidth: 90, flex: '0 0 90px' }}>
                 <label>Ícone</label>
@@ -582,6 +586,7 @@ export function AgentsPage() {
                 onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
                 placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
               />
+            </div>
             </div>
             <div className="form-actions">
               <button className="btn" onClick={() => setDraft(undefined)}>

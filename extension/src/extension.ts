@@ -6,6 +6,7 @@ import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
 import { registerBmadAssets } from './storage/bmadStore';
 import { loadConfig } from './storage/configStore';
+import { setSecretStore } from './storage/mcpProxyStore';
 import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths';
 import { seedDefaultSkills } from './storage/skillStore';
 import { checkEnvironment } from './tools/envCheck';
@@ -150,6 +151,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const config = loadConfig();
   const version = (context.extension.packageJSON as { version: string }).version;
 
+  // SecretStorage do VS Code guarda os client_secret dos proxies MCP (cifrado em repouso)
+  setSecretStore(context.secrets);
   void autoStartEnabled();
   context.subscriptions.push({ dispose: () => void stopAll() });
 

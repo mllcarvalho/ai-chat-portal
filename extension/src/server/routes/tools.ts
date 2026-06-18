@@ -7,9 +7,12 @@ import {
   addServer,
   listServers,
   removeServer,
+  saveProxyServer,
   setServerEnabled,
   startServer,
+  testProxyConnection,
 } from '../../tools/mcpManager';
+import type { McpProxyConfig } from '@aiportal/shared';
 import { getSession } from '../../storage/sessionStore';
 import { getAgent } from '../../storage/agentStore';
 import { getPortalRoot } from '../../storage/paths';
@@ -102,6 +105,38 @@ export function registerToolRoutes(router: Router): void {
       addServer(name, entry);
       const info = await setServerEnabled(name, true);
       sendJson(res, 201, info);
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // proxy OAuth2: o secret chega aqui (127.0.0.1) e nunca volta ao front
+  const readProxyInput = (body: unknown): { config: McpProxyConfig; secret?: string } => {
+    const input = (body ?? {}) as Partial<McpProxyConfig> & { clientSecret?: string };
+    const config: McpProxyConfig = {
+      name: (input.name ?? '').trim(),
+      tokenUrl: (input.tokenUrl ?? '').trim(),
+      gatewayUrl: (input.gatewayUrl ?? '').trim(),
+      clientId: (input.clientId ?? '').trim(),
+      scope: input.scope?.trim() || undefined,
+    };
+    return { config, secret: input.clientSecret };
+  };
+
+  router.post('/api/mcp/proxies', async ({ res, body }) => {
+    const { config, secret } = readProxyInput(body);
+    try {
+      sendJson(res, 201, await saveProxyServer(config, secret));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/mcp/proxies/test', async ({ res, body }) => {
+    const { config, secret } = readProxyInput(body);
+    try {
+      const tools = await testProxyConnection(config, secret);
+      sendJson(res, 200, { ok: true, tools });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : String(err));
     }
