@@ -2,7 +2,7 @@
   "name": "ai-chat-portal-extension",
   "displayName": "AI Product BMAD Chat",
   "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o AI Product BMAD Chat",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "publisher": "aichatportal",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "private": true,
@@ -45,7 +45,8 @@
     "@joplin/turndown-plugin-gfm": "^1.0.67",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "jszip": "^3.10.1",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.4",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

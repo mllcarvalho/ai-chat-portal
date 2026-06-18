@@ -16,10 +16,13 @@ import {
   saveProxy,
 } from '../storage/mcpProxyStore';
 import { getPortalRoot, mcpStatePath } from '../storage/paths';
+import { dispatcherFor, requestInitFor, resolveShellEnv } from './netEnv';
 import { withTimeout } from '../util';
 
 const START_TIMEOUT = 20_000;
 const CALL_TIMEOUT = 120_000;
+const TOKEN_TIMEOUT = 15_000;
+const CONNECT_TIMEOUT = 20_000;
 /** Reconecta o proxy quando faltar menos que isto para o token expirar. */
 const TOKEN_SKEW_MS = 60_000;
 
@@ -139,15 +142,27 @@ async function fetchToken(
     client_secret: secret,
   });
   if (cfg.scope) params.set('scope', cfg.scope);
+  const dispatcher = dispatcherFor(cfg.tokenUrl);
   let resp: Response;
   try {
     resp = await fetch(cfg.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
-    });
+      ...(dispatcher ? { dispatcher } : {}),
+    } as RequestInit);
   } catch (err) {
-    throw new Error(`Falha de rede ao obter token: ${err instanceof Error ? err.message : err}`);
+    const host = (() => {
+      try {
+        return new URL(cfg.tokenUrl).host;
+      } catch {
+        return cfg.tokenUrl;
+      }
+    })();
+    throw new Error(
+      `Falha de rede ao obter token em ${host}: ${err instanceof Error ? err.message : err}. ` +
+        `Confira proxy/VPN/certificado da rede corporativa.`,
+    );
   }
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
@@ -167,7 +182,7 @@ async function openProxyClient(
   const { token, expiresAt } = await fetchToken(cfg, secret);
   const client = new Client({ name: 'ai-chat-portal', version: '1.0' });
   const transport = new StreamableHTTPClientTransport(new URL(cfg.gatewayUrl), {
-    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    requestInit: requestInitFor(cfg.gatewayUrl, { Authorization: `Bearer ${token}` }),
   });
   await client.connect(transport);
   return { client, expiresAt };
@@ -176,6 +191,7 @@ async function openProxyClient(
 async function connectProxy(name: string, state: ServerState): Promise<Client> {
   const cfg = state.proxy;
   if (!cfg) throw new Error('Config do proxy ausente');
+  await resolveShellEnv();
   const secret = await getProxySecret(name);
   if (secret === undefined) throw new Error('Client Secret não encontrado no SecretStorage');
   const { client, expiresAt } = await openProxyClient(cfg, secret);
@@ -376,23 +392,42 @@ export async function testProxyConnection(
   config: McpProxyConfig,
   secret?: string,
 ): Promise<string[]> {
+  await resolveShellEnv();
   let realSecret = secret;
   if (realSecret === undefined || realSecret === '') {
     realSecret = await getProxySecret(config.name);
   }
   if (!realSecret) throw new Error('Informe o Client Secret');
+
+  const tokenHost = hostOf(config.tokenUrl);
+  const gatewayHost = hostOf(config.gatewayUrl);
+
+  // fase 1: token (erros reais de OAuth/rede propagam; só timeout vira sentinela)
+  const TIMED_OUT = Symbol('timeout');
+  const tokenResult = await Promise.race([
+    fetchToken(config, realSecret).then((r) => r.token),
+    new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), TOKEN_TIMEOUT)),
+  ]);
+  if (tokenResult === TIMED_OUT) {
+    throw new Error(
+      `Timeout (${TOKEN_TIMEOUT / 1000}s) obtendo o token em ${tokenHost}. ` +
+        `O host da extensão pode não estar alcançando a rede corporativa (proxy/VPN/cert).`,
+    );
+  }
+  const token = tokenResult;
+
+  // fase 2: conectar no gateway e listar tools
   const client = new Client({ name: 'ai-chat-portal-test', version: '1.0' });
   const tools = await withTimeout(
     (async () => {
-      const { token } = await fetchToken(config, realSecret!);
       const transport = new StreamableHTTPClientTransport(new URL(config.gatewayUrl), {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        requestInit: requestInitFor(config.gatewayUrl, { Authorization: `Bearer ${token}` }),
       });
       await client.connect(transport);
       const result = await client.listTools();
       return result.tools.map((t) => t.name);
     })(),
-    START_TIMEOUT,
+    CONNECT_TIMEOUT,
     undefined,
   );
   try {
@@ -400,8 +435,21 @@ export async function testProxyConnection(
   } catch {
     // ignora
   }
-  if (!tools) throw new Error(`Timeout ao conectar (${START_TIMEOUT / 1000}s)`);
+  if (!tools) {
+    throw new Error(
+      `Token OK, mas deu timeout (${CONNECT_TIMEOUT / 1000}s) conectando no gateway ${gatewayHost}. ` +
+        `Verifique a URL, proxy/VPN e o certificado do gateway.`,
+    );
+  }
   return tools;
+}
+
+function hostOf(urlStr: string): string {
+  try {
+    return new URL(urlStr).host;
+  } catch {
+    return urlStr;
+  }
 }
 
 // ---------- ferramentas para o loop agêntico ----------

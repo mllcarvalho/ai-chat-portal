@@ -11,6 +11,7 @@ import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths'
 import { seedDefaultSkills } from './storage/skillStore';
 import { checkEnvironment } from './tools/envCheck';
 import { autoStartEnabled, stopAll } from './tools/mcpManager';
+import { resolveShellEnv } from './tools/netEnv';
 import { withTimeout } from './util';
 
 /**
@@ -153,7 +154,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // SecretStorage do VS Code guarda os client_secret dos proxies MCP (cifrado em repouso)
   setSecretStore(context.secrets);
-  void autoStartEnabled();
+  // importa proxy/CA do shell de login (o host da extensão via GUI não herda) antes de religar MCPs
+  void resolveShellEnv().finally(() => void autoStartEnabled());
   context.subscriptions.push({ dispose: () => void stopAll() });
 
   const buildId = computeBuildId(context);
