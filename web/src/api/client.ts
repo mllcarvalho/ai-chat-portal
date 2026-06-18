@@ -9,6 +9,7 @@ import type {
   KnowledgeDoc,
   McpProxyConfig,
   McpServerInfo,
+  NetworkConfig,
   MeInfo,
   ModelInfo,
   Project,
@@ -286,6 +287,6 @@ export const api = {
     ),
 
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
-  patchConfig: (patch: { projectsRoot?: string }) =>
+  patchConfig: (patch: { projectsRoot?: string; network?: NetworkConfig }) =>
     request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

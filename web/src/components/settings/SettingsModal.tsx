@@ -13,11 +13,18 @@ export function SettingsModal() {
   const setHideToolCards = useUi((s) => s.setHideToolCards);
   const [config, setConfig] = useState<Omit<Config, 'token'>>();
   const [projectsRoot, setProjectsRoot] = useState('');
+  const [httpsProxy, setHttpsProxy] = useState('');
+  const [noProxy, setNoProxy] = useState('');
+  const [extraCaCerts, setExtraCaCerts] = useState('');
+  const [savingNet, setSavingNet] = useState(false);
 
   useEffect(() => {
     void api.getConfig().then((c) => {
       setConfig(c);
       setProjectsRoot(c.projectsRoot);
+      setHttpsProxy(c.network?.httpsProxy ?? '');
+      setNoProxy(c.network?.noProxy ?? '');
+      setExtraCaCerts(c.network?.extraCaCerts ?? '');
     });
   }, []);
 
@@ -29,6 +36,25 @@ export function SettingsModal() {
       toast('Pasta de projetos atualizada.', 'ok');
     } catch (err) {
       toast((err as Error).message, 'error');
+    }
+  };
+
+  const saveNetwork = async () => {
+    setSavingNet(true);
+    try {
+      const updated = await api.patchConfig({
+        network: {
+          httpsProxy: httpsProxy.trim() || undefined,
+          noProxy: noProxy.trim() || undefined,
+          extraCaCerts: extraCaCerts.trim() || undefined,
+        },
+      });
+      setConfig(updated);
+      toast('Rede salva. Religue o servidor MCP (desligar/ligar) para aplicar.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setSavingNet(false);
     }
   };
 
@@ -58,6 +84,39 @@ export function SettingsModal() {
           Os cards tipo portal_write_file somem do chat. Pedidos de aprovação de comandos continuam
           aparecendo sempre.
         </span>
+      </div>
+
+      <div className="field">
+        <label>Rede corporativa (proxies MCP)</label>
+        <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+          Use só se a conexão dos servidores MCP "Gateway OAuth2" falhar por timeout em hosts
+          internos. Vale para as chamadas de token e gateway dos proxies.
+        </span>
+        <input
+          value={httpsProxy}
+          onChange={(e) => setHttpsProxy(e.target.value)}
+          placeholder="HTTPS_PROXY — ex: http://proxy.empresa:8080"
+        />
+        <input
+          style={{ marginTop: 6 }}
+          value={noProxy}
+          onChange={(e) => setNoProxy(e.target.value)}
+          placeholder="NO_PROXY — hosts sem proxy, separados por vírgula (opcional)"
+        />
+        <input
+          style={{ marginTop: 6 }}
+          value={extraCaCerts}
+          onChange={(e) => setExtraCaCerts(e.target.value)}
+          placeholder="Caminho do PEM com a CA interna (opcional)"
+        />
+        <button
+          className="btn"
+          style={{ alignSelf: 'flex-start', marginTop: 8 }}
+          disabled={savingNet}
+          onClick={() => void saveNetwork()}
+        >
+          {savingNet ? 'Salvando…' : 'Salvar rede'}
+        </button>
       </div>
 
       <div className="field">

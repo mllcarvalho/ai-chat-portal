@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as tls from 'node:tls';
 import { Agent, ProxyAgent, type Dispatcher } from 'undici';
+import type { NetworkConfig } from '@aiportal/shared';
+import { getConfig } from '../storage/configStore';
 
 /**
  * Rede corporativa para as chamadas dos proxies MCP.
@@ -57,8 +59,22 @@ export async function resolveShellEnv(): Promise<void> {
   }
 }
 
+/** Config de rede da interface (Configurações) — tem prioridade sobre o ambiente. */
+function netConfig(): NetworkConfig {
+  try {
+    return getConfig().network ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Caminho do PEM com a CA interna: config da UI vence; senão NODE_EXTRA_CA_CERTS. */
+function caPath(): string | undefined {
+  return netConfig().extraCaCerts || process.env.NODE_EXTRA_CA_CERTS || undefined;
+}
+
 function loadCa(): string[] | undefined {
-  const file = process.env.NODE_EXTRA_CA_CERTS;
+  const file = caPath();
   if (!file) return undefined;
   try {
     const extra = fs.readFileSync(file, 'utf8');
@@ -69,12 +85,16 @@ function loadCa(): string[] | undefined {
   }
 }
 
-function hostInNoProxy(host: string): boolean {
-  const list = (process.env.NO_PROXY || process.env.no_proxy || '')
+function noProxyList(): string[] {
+  const raw = netConfig().noProxy || process.env.NO_PROXY || process.env.no_proxy || '';
+  return raw
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return list.some((entry) => {
+}
+
+function hostInNoProxy(host: string): boolean {
+  return noProxyList().some((entry) => {
     if (entry === '*') return true;
     const suffix = entry.replace(/^\*?\./, '');
     return host === entry || host === suffix || host.endsWith(`.${suffix}`);
@@ -83,6 +103,8 @@ function hostInNoProxy(host: string): boolean {
 
 function proxyFor(url: URL): string | undefined {
   if (hostInNoProxy(url.hostname)) return undefined;
+  const fromConfig = netConfig().httpsProxy;
+  if (fromConfig) return fromConfig;
   const https = process.env.HTTPS_PROXY || process.env.https_proxy;
   const http = process.env.HTTP_PROXY || process.env.http_proxy;
   const all = process.env.ALL_PROXY || process.env.all_proxy;
@@ -123,4 +145,39 @@ export function requestInitFor(urlStr: string, headers?: Record<string, string>)
     ...(headers ? { headers } : {}),
     ...(dispatcher ? { dispatcher } : {}),
   } as RequestInit;
+}
+
+/** Resumo do que está configurado, para anexar a erros de timeout. */
+export function netStatus(urlStr?: string): string {
+  const proxyRaw = netConfig().httpsProxy
+    ? `${netConfig().httpsProxy} (config)`
+    : process.env.HTTPS_PROXY || process.env.https_proxy
+      ? `${process.env.HTTPS_PROXY || process.env.https_proxy} (env)`
+      : 'nenhum';
+  const ca = caPath();
+  let caStatus = 'nenhum';
+  if (ca) {
+    let readable = false;
+    try {
+      fs.accessSync(ca);
+      readable = true;
+    } catch {
+      readable = false;
+    }
+    caStatus = `${ca} (${readable ? 'lido' : 'NÃO encontrado'})`;
+  }
+  let applied = 'sem dispatcher';
+  if (urlStr) {
+    try {
+      const url = new URL(urlStr);
+      applied = hostInNoProxy(url.hostname)
+        ? 'host no NO_PROXY (conexão direta)'
+        : dispatcherFor(urlStr)
+          ? 'usando proxy/CA'
+          : 'conexão direta';
+    } catch {
+      // ignora url inválida
+    }
+  }
+  return `proxy=${proxyRaw}; CA=${caStatus}; ${applied}`;
 }

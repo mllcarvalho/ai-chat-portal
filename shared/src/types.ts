@@ -11,6 +11,18 @@ export interface Config {
   projectsRoot: string;
   /** Origens extras liberadas no CORS (ex.: http://localhost:5173 em dev). */
   devOrigins?: string[];
+  /** Rede corporativa para as conexões dos proxies MCP (proxy/CA). */
+  network?: NetworkConfig;
+}
+
+/** Proxy e CA corporativos usados nas conexões dos proxies MCP (token + gateway). */
+export interface NetworkConfig {
+  /** Ex.: http://proxy.empresa:8080 — usado para hosts HTTPS/HTTP. */
+  httpsProxy?: string;
+  /** Lista separada por vírgula de hosts que NÃO passam pelo proxy. */
+  noProxy?: string;
+  /** Caminho de um arquivo PEM com a(s) CA(s) internas (NODE_EXTRA_CA_CERTS). */
+  extraCaCerts?: string;
 }
 
 /** Escrito em ~/AIChatPortal/runtime.json enquanto o servidor está de pé. */

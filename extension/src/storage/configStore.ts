@@ -44,7 +44,9 @@ export function getConfig(): Config {
   return cached;
 }
 
-export function patchConfig(patch: Partial<Pick<Config, 'projectsRoot' | 'devOrigins'>>): Config {
+export function patchConfig(
+  patch: Partial<Pick<Config, 'projectsRoot' | 'devOrigins' | 'network'>>,
+): Config {
   const cfg = getConfig();
   cached = { ...cfg, ...patch };
   writeJsonAtomic(CONFIG_PATH, cached);
