@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   isBmadAsset,
   slugifyCommand,
@@ -13,6 +13,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { formatMultiplier } from '../chat/MessageBubble';
+import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
@@ -39,6 +40,11 @@ const EMPTY: Draft = {
   knowledgeBaseIds: [],
 };
 
+interface PickItem {
+  id: string;
+  label: string;
+}
+
 /** Resumo dos vínculos do agente para a lista (ex: "2 skills · 1 base"). */
 function linkSummary(agent: AgentPreset): string {
   const parts: string[] = [];
@@ -49,23 +55,62 @@ function linkSummary(agent: AgentPreset): string {
   return parts.length ? ` · 🔗 ${parts.join(' · ')}` : '';
 }
 
-const LINK_LIST_STYLE: CSSProperties = {
-  maxHeight: 130,
-  overflowY: 'auto',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '6px 10px',
-  background: 'var(--bg-1)',
-};
-
-const LINK_ITEM_STYLE: CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  alignItems: 'center',
-  fontSize: 13,
-  padding: '3px 0',
-  cursor: 'pointer',
-};
+/** Modal de seleção de vínculos (skills ou bases): busca + checkboxes. */
+function LinkPickerModal(props: {
+  title: string;
+  emptyHint: string;
+  items: PickItem[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  const filtered = needle
+    ? props.items.filter((it) => it.label.toLowerCase().includes(needle))
+    : props.items;
+  return (
+    <Modal
+      title={props.title}
+      onClose={props.onClose}
+      footer={
+        <>
+          <span className="link-picker__count">{props.selected.length} selecionada(s)</span>
+          <button className="btn btn--primary" onClick={props.onClose}>
+            Concluir
+          </button>
+        </>
+      }
+    >
+      {props.items.length > 0 && (
+        <input
+          className="link-picker__search"
+          placeholder="Buscar…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          autoFocus
+        />
+      )}
+      <div className="link-picker__list">
+        {filtered.map((it) => (
+          <label key={it.id} className="link-picker__item">
+            <input
+              type="checkbox"
+              checked={props.selected.includes(it.id)}
+              onChange={() => props.onToggle(it.id)}
+            />
+            <span>{it.label}</span>
+          </label>
+        ))}
+        {filtered.length === 0 && (
+          <span className="link-picker__empty">
+            {props.items.length === 0 ? props.emptyHint : 'Nada encontrado.'}
+          </span>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 export function AgentsPage() {
   const agents = useCatalog((s) => s.agents);
@@ -84,6 +129,8 @@ export function AgentsPage() {
   const [vsAgents, setVsAgents] = useState<VsCodeAgent[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
+  const [picker, setPicker] = useState<'skills' | 'bases' | null>(null);
+  const [expandInstructions, setExpandInstructions] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -92,7 +139,7 @@ export function AgentsPage() {
   }, [loadAgents]);
 
   // opções dos vínculos (skills/bases criadas pelo usuário; assets BMAD são gerenciados)
-  useEffect(() => {
+  const loadLinks = useCallback(() => {
     void api
       .listSkills(contextProjectId ?? undefined)
       .then((list) => setSkills(list.filter((s) => !isBmadAsset(s.id))))
@@ -103,6 +150,10 @@ export function AgentsPage() {
       .catch(() => setBases([]));
   }, [contextProjectId]);
 
+  useEffect(() => {
+    loadLinks();
+  }, [loadLinks]);
+
   const toggleDraftLink = (key: 'skillIds' | 'knowledgeBaseIds', id: string) => {
     setDraft((d) => {
       if (!d) return d;
@@ -110,6 +161,10 @@ export function AgentsPage() {
       return { ...d, [key]: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] };
     });
   };
+
+  const skillLabel = (s: Skill) => `${s.name}${s.scope === 'project' ? ' 📁' : ''}`;
+  const baseLabel = (b: KnowledgeBase) =>
+    `${b.scope === 'project' ? '📁' : '🌐'} ${b.name}${b.enabled ? '' : ' (desativada no geral)'}`;
 
   const save = async () => {
     if (!draft) return;
@@ -173,6 +228,8 @@ export function AgentsPage() {
   const importAgentFiles = async (files: FileList) => {
     setBusy(true);
     let okCount = 0;
+    let bundledSkills = 0;
+    let bundledBases = 0;
     for (const file of Array.from(files)) {
       try {
         if (/\.zip$/i.test(file.name)) {
@@ -182,7 +239,9 @@ export function AgentsPage() {
             reader.onerror = () => reject(new Error('Falha ao ler o arquivo'));
             reader.readAsDataURL(file);
           });
-          await api.importAgentZip(zipBase64);
+          const imported = await api.importAgentZip(zipBase64);
+          bundledSkills += imported.skillIds?.length ?? 0;
+          bundledBases += imported.knowledgeBaseIds?.length ?? 0;
           okCount++;
           continue;
         }
@@ -217,8 +276,13 @@ export function AgentsPage() {
     }
     if (okCount) {
       await loadAgents();
+      loadLinks();
+      const bundled =
+        bundledSkills || bundledBases
+          ? ` (com ${bundledSkills} skill${bundledSkills === 1 ? '' : 's'} e ${bundledBases} base${bundledBases === 1 ? '' : 's'} vinculadas)`
+          : '';
       toast(
-        `${okCount} agente${okCount === 1 ? '' : 's'} importado${okCount === 1 ? '' : 's'}/atualizado${okCount === 1 ? '' : 's'}.`,
+        `${okCount} agente${okCount === 1 ? '' : 's'} importado${okCount === 1 ? '' : 's'}/atualizado${okCount === 1 ? '' : 's'}.${bundled}`,
         'ok',
       );
     }
@@ -237,6 +301,37 @@ export function AgentsPage() {
       skillIds: [],
       knowledgeBaseIds: [],
     });
+  };
+
+  // chips dos vínculos selecionados no draft (com nome resolvido; ids órfãos viram chip de aviso)
+  const renderLinkChips = (key: 'skillIds' | 'knowledgeBaseIds') => {
+    const ids = draft?.[key] ?? [];
+    if (ids.length === 0) {
+      return <span className="link-field__empty">Nenhuma vinculada.</span>;
+    }
+    return (
+      <div className="link-field__chips">
+        {ids.map((id) => {
+          const label =
+            key === 'skillIds'
+              ? skills.find((s) => s.id === id)?.name
+              : bases.find((b) => b.id === id)?.name;
+          return (
+            <span key={id} className={`link-chip${label ? '' : ' link-chip--missing'}`}>
+              {label ?? 'item indisponível'}
+              <span
+                role="button"
+                className="link-chip__x"
+                title="Desvincular"
+                onClick={() => toggleDraftLink(key, id)}
+              >
+                ×
+              </span>
+            </span>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -445,25 +540,11 @@ export function AgentsPage() {
             <div className="row">
               <div className="field">
                 <label>Skills vinculadas ({draft.skillIds.length})</label>
-                <div style={LINK_LIST_STYLE}>
-                  {skills.map((s) => (
-                    <label key={s.id} style={LINK_ITEM_STYLE}>
-                      <input
-                        type="checkbox"
-                        checked={draft.skillIds.includes(s.id)}
-                        onChange={() => toggleDraftLink('skillIds', s.id)}
-                      />
-                      <span>
-                        {s.name}
-                        {s.scope === 'project' ? ' 📁' : ''}
-                      </span>
-                    </label>
-                  ))}
-                  {skills.length === 0 && (
-                    <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
-                      Nenhuma skill no portal ainda.
-                    </span>
-                  )}
+                <div className="link-field">
+                  <button className="btn btn--sm btn--ghost" onClick={() => setPicker('skills')}>
+                    🔗 Vincular skills
+                  </button>
+                  {renderLinkChips('skillIds')}
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
                   Garantidas no catálogo das conversas deste agente e levadas no export. Não
@@ -472,25 +553,11 @@ export function AgentsPage() {
               </div>
               <div className="field">
                 <label>Bases vinculadas ({draft.knowledgeBaseIds.length})</label>
-                <div style={LINK_LIST_STYLE}>
-                  {bases.map((b) => (
-                    <label key={b.id} style={LINK_ITEM_STYLE}>
-                      <input
-                        type="checkbox"
-                        checked={draft.knowledgeBaseIds.includes(b.id)}
-                        onChange={() => toggleDraftLink('knowledgeBaseIds', b.id)}
-                      />
-                      <span>
-                        {b.scope === 'project' ? '📁' : '🌐'} {b.name}
-                        {b.enabled ? '' : ' (desativada no geral)'}
-                      </span>
-                    </label>
-                  ))}
-                  {bases.length === 0 && (
-                    <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
-                      Nenhuma base de conhecimento ainda.
-                    </span>
-                  )}
+                <div className="link-field">
+                  <button className="btn btn--sm btn--ghost" onClick={() => setPicker('bases')}>
+                    🔗 Vincular bases
+                  </button>
+                  {renderLinkChips('knowledgeBaseIds')}
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
                   Entram no contexto das conversas deste agente mesmo desativadas no toggle geral, e
@@ -499,7 +566,16 @@ export function AgentsPage() {
               </div>
             </div>
             <div className="field page-card__grow">
-              <label>Instruções do agente (markdown)</label>
+              <div className="field__label-row">
+                <label>Instruções do agente (markdown)</label>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => setExpandInstructions(true)}
+                  title="Editar em tela cheia"
+                >
+                  ⤢ Expandir
+                </button>
+              </div>
               <textarea
                 className="page-card__editor"
                 value={draft.instructions}
@@ -530,6 +606,47 @@ export function AgentsPage() {
           </Panel>
         )}
       </div>
+
+      {draft && picker === 'skills' && (
+        <LinkPickerModal
+          title="Vincular skills"
+          emptyHint="Nenhuma skill no portal ainda."
+          items={skills.map((s) => ({ id: s.id, label: skillLabel(s) }))}
+          selected={draft.skillIds}
+          onToggle={(id) => toggleDraftLink('skillIds', id)}
+          onClose={() => setPicker(null)}
+        />
+      )}
+      {draft && picker === 'bases' && (
+        <LinkPickerModal
+          title="Vincular bases de conhecimento"
+          emptyHint="Nenhuma base de conhecimento ainda."
+          items={bases.map((b) => ({ id: b.id, label: baseLabel(b) }))}
+          selected={draft.knowledgeBaseIds}
+          onToggle={(id) => toggleDraftLink('knowledgeBaseIds', id)}
+          onClose={() => setPicker(null)}
+        />
+      )}
+      {draft && expandInstructions && (
+        <Modal
+          title="Instruções do agente (markdown)"
+          wide
+          onClose={() => setExpandInstructions(false)}
+          footer={
+            <button className="btn btn--primary" onClick={() => setExpandInstructions(false)}>
+              Concluir
+            </button>
+          }
+        >
+          <textarea
+            className="modal-editor"
+            value={draft.instructions}
+            onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
+            placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
+            autoFocus
+          />
+        </Modal>
+      )}
     </PageShell>
   );
 }

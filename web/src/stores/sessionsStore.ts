@@ -86,7 +86,19 @@ export const useSessions = create<SessionsState>((set, get) => ({
     const { current } = get();
     if (!current) return;
     const updated = await api.patchSession(current.id, patch);
-    set({ current: updated });
+    // sincroniza as listas da sidebar na hora (sem refetch): título, modo etc.
+    const { standalone, byProject } = get();
+    const fields: Partial<Session> = { ...updated };
+    delete (fields as { messages?: unknown }).messages;
+    const apply = (list: SessionSummary[]) =>
+      list.map((s) => (s.id === updated.id ? { ...s, ...fields } : s));
+    set({
+      current: updated,
+      standalone: apply(standalone),
+      byProject: Object.fromEntries(
+        Object.entries(byProject).map(([pid, list]) => [pid, apply(list)]),
+      ),
+    });
   },
 
   setMode: async (mode) => {

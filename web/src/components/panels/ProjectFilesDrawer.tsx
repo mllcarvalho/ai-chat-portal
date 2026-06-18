@@ -30,11 +30,24 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Caminhos de todas as pastas da árvore (para recolher/expandir tudo). */
+function collectDirPaths(entries: FileEntry[], acc: string[] = []): string[] {
+  for (const entry of entries) {
+    if (entry.type === 'dir') {
+      acc.push(entry.path);
+      if (entry.children) collectDirPaths(entry.children, acc);
+    }
+  }
+  return acc;
+}
+
 function TreeLevel(props: {
   entries: FileEntry[];
   depth: number;
   contextFiles: string[];
   canPin: boolean;
+  collapsed: Set<string>;
+  onToggleDir: (path: string) => void;
   onOpen: (entry: FileEntry) => void;
   onTogglePin: (entry: FileEntry) => void;
   onDownload: (entry: FileEntry) => void;
@@ -44,14 +57,18 @@ function TreeLevel(props: {
     <>
       {props.entries.map((entry) => {
         const pinned = props.contextFiles.includes(entry.path);
+        const isDir = entry.type === 'dir';
+        const isCollapsed = isDir && props.collapsed.has(entry.path);
         return (
           <div key={entry.path} style={{ paddingLeft: props.depth * 14 }}>
             <div className={`file-tree__row${pinned ? ' file-tree__row--pinned' : ''}`}>
               <button
-                className="file-tree__item"
-                onClick={() => entry.type === 'file' && props.onOpen(entry)}
+                className={`file-tree__item${isDir ? ' file-tree__item--dir' : ''}`}
+                onClick={() => (isDir ? props.onToggleDir(entry.path) : props.onOpen(entry))}
+                title={isDir ? (isCollapsed ? 'Expandir pasta' : 'Recolher pasta') : undefined}
               >
-                <span>{entry.type === 'dir' ? '📁' : '📄'}</span>
+                <span className="file-tree__chevron">{isDir ? (isCollapsed ? '▶' : '▼') : ''}</span>
+                <span>{isDir ? '📁' : '📄'}</span>
                 <span className="file-tree__name">{entry.name}</span>
                 {entry.type === 'file' && (
                   <span className="file-tree__size">{formatSize(entry.size)}</span>
@@ -89,12 +106,14 @@ function TreeLevel(props: {
                 </span>
               )}
             </div>
-            {entry.children && (
+            {entry.children && !isCollapsed && (
               <TreeLevel
                 entries={entry.children}
                 depth={props.depth + 1}
                 contextFiles={props.contextFiles}
                 canPin={props.canPin}
+                collapsed={props.collapsed}
+                onToggleDir={props.onToggleDir}
                 onOpen={props.onOpen}
                 onTogglePin={props.onTogglePin}
                 onDownload={props.onDownload}
@@ -131,7 +150,20 @@ export function ProjectFilesDrawer() {
   const [dragOver, setDragOver] = useState(false);
   const [width, setWidth] = useState<number | undefined>(savedPanelWidth);
   const [resizing, setResizing] = useState(false);
+  /** Pastas recolhidas (expandidas por padrão). */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const uploadRef = useRef<HTMLInputElement>(null);
+
+  const toggleDir = (path: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+
+  const allDirs = collectDirPaths(tree);
+  const allCollapsed = allDirs.length > 0 && allDirs.every((p) => collapsed.has(p));
 
   // pin só funciona com a conversa dona da pasta exibida (projeto ou workspace)
   const canPin = !!session && (!!workspaceSessionId || session.projectId === projectId);
@@ -339,6 +371,15 @@ export function ProjectFilesDrawer() {
         <button className="btn btn--sm btn--ghost" onClick={() => void reload()}>
           ↻ Atualizar
         </button>
+        {allDirs.length > 0 && (
+          <button
+            className="btn btn--sm btn--ghost"
+            title={allCollapsed ? 'Expandir todas as pastas' : 'Recolher todas as pastas'}
+            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allDirs))}
+          >
+            {allCollapsed ? '▶ Expandir tudo' : '▼ Recolher tudo'}
+          </button>
+        )}
       </div>
       {canPin && (
         <div className="files-panel__hint">
@@ -414,6 +455,8 @@ export function ProjectFilesDrawer() {
               depth={0}
               contextFiles={contextFiles}
               canPin={canPin}
+              collapsed={collapsed}
+              onToggleDir={toggleDir}
               onOpen={(e) => void openFile(e)}
               onTogglePin={(e) => void togglePin(e)}
               onDownload={(e) => void downloadFile(e.path)}

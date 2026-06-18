@@ -1847,6 +1847,20 @@ select:focus {
   border-radius: 6px;
   color: var(--text-dim);
 }
+.file-tree__item--dir {
+  cursor: pointer;
+}
+.file-tree__chevron {
+  display: inline-block;
+  width: 11px;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-faint);
+  transition: color 0.15s var(--ease);
+}
+.file-tree__item--dir:hover .file-tree__chevron {
+  color: var(--text);
+}
 .file-tree__item:hover {
   color: var(--text);
 }
@@ -2358,6 +2372,113 @@ select:focus {
 .page-card__grow textarea.page-card__editor {
   flex: 1;
   min-height: 220px;
+}
+
+/* rodapé de ações do formulário de agente: fixo no fundo do painel, sempre visível */
+.panel--form .form-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  background: var(--bg-1);
+  z-index: 1;
+}
+
+/* cabeçalho de campo com ação à direita (ex: label + botão "Expandir") */
+.field__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* campo de vínculos: botão "Vincular…" + chips dos selecionados */
+.link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.link-field > .btn {
+  align-self: flex-start;
+}
+.link-field__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.link-field__empty {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  padding: 3px 6px 3px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--tool-border);
+  background: var(--tool-soft);
+  color: var(--tool);
+  white-space: nowrap;
+}
+.link-chip--missing {
+  border-color: rgba(201, 58, 44, 0.4);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.link-chip__x {
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.65;
+  padding: 0 1px;
+  border-radius: 50%;
+}
+.link-chip__x:hover {
+  opacity: 1;
+}
+
+/* modal de seleção de vínculos */
+.link-picker__search {
+  width: 100%;
+  margin-bottom: 10px;
+}
+.link-picker__list {
+  display: flex;
+  flex-direction: column;
+}
+.link-picker__item {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  font-size: 13.5px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.link-picker__item:hover {
+  background: var(--bg-hover);
+}
+.link-picker__empty {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 8px;
+}
+.link-picker__count {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+/* editor grande de instruções dentro do modal de expandir */
+.modal-editor {
+  width: 100%;
+  min-height: 58vh;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
 }
 
 .page-hint {
