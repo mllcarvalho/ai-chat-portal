@@ -206,7 +206,12 @@ const url = portal.runtime.portalUrl;
 log('Abrindo o portal no navegador…');
 try {
   if (isWindows) {
-    spawnSync('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
+    // explorer.exe abre o navegador padrão de forma confiável em cmd, PowerShell
+    // E Git Bash/MSYS; o antigo `cmd /c start` falha silenciosamente em vários
+    // Git Bash. explorer.exe retorna status 1 mesmo com sucesso, então só caímos
+    // no fallback se ele NÃO conseguiu nem iniciar (r.error).
+    const r = spawnSync('explorer.exe', [url], { stdio: 'ignore' });
+    if (r.error) spawnSync('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
   } else if (platform() === 'darwin') {
     spawnSync('open', [url], { stdio: 'ignore' });
   } else {

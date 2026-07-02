@@ -21,6 +21,13 @@ import { getPython, shellAvailable } from '../tools/envCheck';
 const SKILLS_SUBDIR = path.join('.agents', 'skills');
 const PRESET_PREFIX = BMAD_ASSET_PREFIX;
 
+/**
+ * Versão FIXADA do bmad-method. Não usar @latest: um novo release pode mudar a
+ * CLI do `install` (flags, argumentos) e quebrar o instalador do portal sem aviso.
+ * Ao subir esta versão, revalide os args de startBmadInstall com `install --help`.
+ */
+const BMAD_VERSION = '6.9.0';
+
 interface InstallState {
   installing: boolean;
   error?: string;
@@ -199,6 +206,18 @@ export function getBmadStatus(): BmadStatus {
   };
 }
 
+/**
+ * No Windows precisamos de shell:true para o `npx` (npx.cmd) resolver, mas com
+ * shell:true o spawn NÃO cita os itens do array de args — o cmd.exe então quebra
+ * valores com espaço/parênteses como "Português (Brasil)" em tokens soltos, que
+ * o bmad interpreta como argumentos posicionais ("too many arguments for
+ * install: Expected 0 arguments but got 2"). Quando há shell, citamos nós mesmos.
+ */
+function quoteArg(arg: string): string {
+  if (/^[\w@.:/\\-]+$/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
 /** Roda `npx bmad-method install` na instalação global (assíncrono). */
 export function startBmadInstall(): BmadStatus {
   if (install?.installing) return getBmadStatus();
@@ -210,7 +229,7 @@ export function startBmadInstall(): BmadStatus {
 
   const args = [
     '-y',
-    'bmad-method@latest',
+    `bmad-method@${BMAD_VERSION}`,
     'install',
     '--directory',
     dir,
@@ -226,10 +245,11 @@ export function startBmadInstall(): BmadStatus {
     '--document-output-language',
     'Português (Brasil)',
   ];
-  const child = spawn('npx', args, {
+  const useShell = process.platform === 'win32';
+  const child = spawn('npx', useShell ? args.map(quoteArg) : args, {
     cwd: dir,
     env: process.env,
-    shell: process.platform === 'win32',
+    shell: useShell,
   });
   const append = (chunk: Buffer) => {
     state.log = (state.log + chunk.toString()).slice(-4000);
