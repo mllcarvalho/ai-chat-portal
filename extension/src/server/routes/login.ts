@@ -29,7 +29,9 @@ export function registerLoginRoutes(router: Router): void {
     const username = input.username?.trim();
     const password = input.password ?? '';
     if (!username || !password) {
-      sendError(res, 400, 'Informe o usuário (RACF) e a senha');
+      // em branco a UI nem chama esta rota (entra sem configurar proxy) —
+      // aqui só chega submissão incompleta
+      sendError(res, 400, 'Informe o usuário (RACF) e a senha para configurar o proxy');
       return;
     }
     const proxyUrl = buildProxyUrl(username, password);

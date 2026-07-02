@@ -28,8 +28,17 @@ export function LoginScreen() {
       });
   }, []);
 
+  const blank = !username.trim() && !password;
+  // um preenchido e o outro não: nem configura nem entra — pede para completar ou limpar
+  const incomplete = !blank && (!username.trim() || !password);
+
   const submit = async () => {
-    if (!username.trim() || !password || busy) return;
+    if (incomplete || busy) return;
+    if (blank) {
+      // máquina pessoal: entra sem tocar em settings.json/.bashrc/.zshrc
+      setLoggedIn(true);
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -77,14 +86,15 @@ export function LoginScreen() {
         {error && <p className="login-card__error">{error}</p>}
         <button
           className="btn btn--primary login-card__submit"
-          disabled={busy || !username.trim() || !password}
+          disabled={busy || incomplete}
           onClick={() => void submit()}
         >
-          {busy ? 'Configurando proxy…' : 'Entrar'}
+          {busy ? 'Configurando proxy…' : blank ? 'Entrar sem configurar proxy' : 'Entrar'}
         </button>
         <p className="login-card__hint">
-          A senha não fica salva no portal: ela só entra na URL do proxy gravada nas configurações
-          da máquina (settings.json, .bashrc/.zshrc).
+          Máquina pessoal, sem proxy corporativo? Deixe os dois campos em branco: nada é alterado
+          na máquina. Preenchendo, a senha não fica salva no portal — ela só entra na URL do proxy
+          gravada nas configurações (settings.json, .bashrc/.zshrc).
         </p>
       </div>
     </div>
