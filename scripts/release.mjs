@@ -22,6 +22,12 @@ const version = JSON.parse(
   readFileSync(join(root, 'extension', 'package.json'), 'utf8'),
 ).version;
 
+// o nome publicado vem do installer/package.json — a branch beta publica
+// ai-product-bmad-chat-beta sem tocar neste script
+const pkgName = JSON.parse(
+  readFileSync(join(root, 'installer', 'package.json'), 'utf8'),
+).name;
+
 try {
   quiet('npm whoami');
 } catch {
@@ -31,7 +37,7 @@ try {
 // versões no npm são imutáveis: não deixa republicar uma que já existe
 let alreadyPublished = false;
 try {
-  quiet(`npm view ai-product-bmad-chat@${version} version`);
+  quiet(`npm view ${pkgName}@${version} version`);
   alreadyPublished = true;
 } catch {
   // 404 esperado quando a versão é nova
@@ -43,7 +49,7 @@ if (alreadyPublished) {
   );
 }
 
-console.log(`\x1b[36m▸\x1b[0m Lançando ai-product-bmad-chat@${version}…`);
+console.log(`\x1b[36m▸\x1b[0m Lançando ${pkgName}@${version}…`);
 run('npm run package');
 
 copyFileSync(
@@ -57,7 +63,7 @@ const installerPkg = JSON.parse(readFileSync(installerPkgPath, 'utf8'));
 installerPkg.version = version;
 writeFileSync(installerPkgPath, JSON.stringify(installerPkg, null, 2) + '\n');
 
-run('npm publish -w ai-product-bmad-chat');
+run(`npm publish -w ${pkgName}`);
 
-console.log(`\n\x1b[32m✦ ai-product-bmad-chat@${version} publicado!\x1b[0m`);
-console.log('  Quem for usar roda: npx ai-product-bmad-chat@latest\n');
+console.log(`\n\x1b[32m✦ ${pkgName}@${version} publicado!\x1b[0m`);
+console.log(`  Quem for usar roda: npx ${pkgName}@latest\n`);
