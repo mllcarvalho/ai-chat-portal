@@ -2043,6 +2043,83 @@ select:focus {
   border-style: dashed;
 }
 
+/* ---------- ações BMAD no chat ---------- */
+
+.bmad-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 18px 0;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+.bmad-actions__toggle {
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-1);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bmad-actions__toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.bmad-actions__groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  row-gap: 5px;
+  padding-bottom: 4px;
+}
+.bmad-actions__group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  row-gap: 5px;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+}
+.bmad-actions__group:last-child {
+  border-right: none;
+}
+.bmad-actions__group-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.bmad-chip {
+  border: 1px solid var(--border-strong);
+  background: var(--bg-1);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.bmad-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.bmad-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ---------- login ---------- */
 
 .login-card .field {
