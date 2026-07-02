@@ -10,7 +10,9 @@ import { Modal } from '../common/Modal';
  *  - run: envia o comando na hora — a skill trabalha com o contexto da conversa;
  *  - input: abre um mini-modal para complementar (tema, ideia…) antes de enviar.
  *    Deixar o campo vazio também vale: roda só com o contexto.
- * Só aparecem as ações cuja skill está de fato instalada no catálogo.
+ * Só aparecem as ações cuja skill está de fato instalada no catálogo. Ações com
+ * `persona` trocam a conversa para o agente BMAD certo antes de rodar (se ele
+ * estiver habilitado); sem persona, roda com o agente atual da conversa.
  */
 
 interface BmadAction {
@@ -21,6 +23,8 @@ interface BmadAction {
   /** Tooltip explicando o que a ação faz. */
   hint: string;
   kind: 'run' | 'input';
+  /** Persona BMAD dona da ação (sufixo do preset bmad-global-bmad-agent-…). */
+  persona?: 'analyst' | 'architect' | 'pm' | 'ux-designer' | 'dev' | 'tech-writer';
   /** Complemento fixo enviado junto (kind run). */
   args?: string;
   /** Pergunta e exemplo do campo (kind input). */
@@ -34,6 +38,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
     actions: [
       {
         command: 'bmad-brainstorming',
+        persona: 'analyst',
         label: 'Brainstorming',
         icon: '💡',
         hint: 'Sessão de ideação facilitada, com técnicas criativas',
@@ -43,6 +48,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-market-research',
+        persona: 'analyst',
         label: 'Pesquisa de mercado',
         icon: '🔎',
         hint: 'Pesquisa de concorrência e clientes',
@@ -52,6 +58,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-domain-research',
+        persona: 'analyst',
         label: 'Pesquisa de domínio',
         icon: '🌐',
         hint: 'Pesquisa de um domínio ou indústria',
@@ -61,6 +68,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-technical-research',
+        persona: 'architect',
         label: 'Pesquisa técnica',
         icon: '🧪',
         hint: 'Pesquisa de tecnologias e arquitetura',
@@ -75,6 +83,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
     actions: [
       {
         command: 'bmad-product-brief',
+        persona: 'analyst',
         label: 'Product Brief',
         icon: '📋',
         hint: 'Cria (ou atualiza) o brief do produto',
@@ -84,6 +93,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-prd',
+        persona: 'pm',
         label: 'PRD',
         icon: '📄',
         hint: 'Cria ou atualiza o PRD (usa o brief/contexto se existir)',
@@ -93,6 +103,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-prfaq',
+        persona: 'pm',
         label: 'PRFAQ',
         icon: '📰',
         hint: 'Working backwards: press release + FAQ do conceito',
@@ -102,6 +113,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-ux',
+        persona: 'ux-designer',
         label: 'UX Design',
         icon: '🎨',
         hint: 'Planeja padrões de UX e especificações de design',
@@ -116,6 +128,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
     actions: [
       {
         command: 'bmad-prd',
+        persona: 'pm',
         label: 'Validar PRD',
         icon: '✅',
         hint: 'Valida o PRD desta conversa ou dos arquivos do projeto',
@@ -143,6 +156,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
     actions: [
       {
         command: 'bmad-create-epics-and-stories',
+        persona: 'pm',
         label: 'Épicos e histórias',
         icon: '🧩',
         hint: 'Quebra os requisitos do PRD em épicos e user stories',
@@ -150,6 +164,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       },
       {
         command: 'bmad-check-implementation-readiness',
+        persona: 'pm',
         label: 'Pronto p/ implementar?',
         icon: '🚦',
         hint: 'Confere se PRD, UX, arquitetura e épicos estão completos',
@@ -182,9 +197,11 @@ const COLLAPSED_KEY = 'aiportal.bmadActionsCollapsed';
 
 export function BmadActions() {
   const skills = useCatalog((s) => s.skills);
+  const agents = useCatalog((s) => s.agents);
   const send = useChat((s) => s.send);
   const isStreaming = useChat((s) => s.isStreaming);
   const session = useSessions((s) => s.current);
+  const patchCurrent = useSessions((s) => s.patchCurrent);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSED_KEY) === '1',
   );
@@ -207,7 +224,28 @@ export function BmadActions() {
     setCollapsed(!collapsed);
   };
 
-  const run = (action: BmadAction, complement?: string) => {
+  // preset da persona dona da ação — só vale se estiver habilitado nas Configurações
+  const presetFor = (action: BmadAction) => {
+    if (!action.persona) return undefined;
+    const preset = agents.find((a) => a.id === `bmad-global-bmad-agent-${action.persona}`);
+    return preset && preset.enabled !== false ? preset : undefined;
+  };
+
+  const run = async (action: BmadAction, complement?: string) => {
+    // troca a conversa para a persona certa ANTES de enviar (o servidor lê o
+    // agente da sessão na hora do chat); se falhar, roda com o agente atual
+    const preset = presetFor(action);
+    if (preset && session.agentId !== preset.id) {
+      try {
+        await patchCurrent({
+          agentId: preset.id,
+          ...(preset.defaultModelId ? { modelId: preset.defaultModelId } : {}),
+          ...(preset.defaultMode ? { mode: preset.defaultMode } : {}),
+        });
+      } catch {
+        // sem bloquear a ação
+      }
+    }
     const rest = (complement ?? action.args ?? '').trim();
     void send(`/${action.command}${rest ? ` ${rest}` : ''}`);
   };
@@ -215,7 +253,7 @@ export function BmadActions() {
   const onChipClick = (action: BmadAction) => {
     if (isStreaming) return;
     if (action.kind === 'run') {
-      run(action);
+      void run(action);
     } else {
       setInput('');
       setPending(action);
@@ -224,7 +262,7 @@ export function BmadActions() {
 
   const confirmPending = () => {
     if (!pending) return;
-    run(pending, input);
+    void run(pending, input);
     setPending(undefined);
   };
 
@@ -242,17 +280,20 @@ export function BmadActions() {
           {available.map((group) => (
             <span className="bmad-actions__group" key={group.title}>
               <span className="bmad-actions__group-title">{group.title}</span>
-              {group.actions.map((action) => (
-                <button
-                  key={`${action.command}-${action.label}`}
-                  className="bmad-chip"
-                  title={action.hint}
-                  disabled={isStreaming}
-                  onClick={() => onChipClick(action)}
-                >
-                  {action.icon} {action.label}
-                </button>
-              ))}
+              {group.actions.map((action) => {
+                const preset = presetFor(action);
+                return (
+                  <button
+                    key={`${action.command}-${action.label}`}
+                    className="bmad-chip"
+                    title={preset ? `${action.hint} · com ${preset.name}` : action.hint}
+                    disabled={isStreaming}
+                    onClick={() => onChipClick(action)}
+                  >
+                    {action.icon} {action.label}
+                  </button>
+                );
+              })}
             </span>
           ))}
         </div>
