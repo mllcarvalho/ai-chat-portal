@@ -286,6 +286,15 @@ export const api = {
       name ? { name } : {},
     ),
 
+  loginStatus: () =>
+    request<{ username?: string; configured: boolean; proxyHost: string }>('GET', '/api/login'),
+  login: (username: string, password: string) =>
+    request<{ ok: boolean; username: string; proxyHost: string; rcFiles: string[] }>(
+      'POST',
+      '/api/login',
+      { username, password },
+    ),
+
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: { projectsRoot?: string; network?: NetworkConfig }) =>
     request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),

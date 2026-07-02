@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { BmadStatus, Project } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -12,6 +12,7 @@ import { EmptyState, Panel } from '../pages/PageShell';
  */
 function BmadPanel({ project }: { project: Project }) {
   const newSession = useSessions((s) => s.newSession);
+  const catalogAgents = useCatalog((s) => s.agents);
   const loadAgents = useCatalog((s) => s.loadAgents);
   const loadSkills = useCatalog((s) => s.loadSkills);
   const setView = useUi((s) => s.setView);
@@ -68,10 +69,26 @@ function BmadPanel({ project }: { project: Project }) {
     }
   };
 
+  // o BMAD vem embutido: se por algum motivo ainda não está instalado (ex.: a
+  // ativação rodou sem Node), dispara a instalação sozinho — uma vez por visita
+  const autoInstallTried = useRef(false);
+  useEffect(() => {
+    if (!status || status.installed || status.installing || status.error) return;
+    if (autoInstallTried.current) return;
+    autoInstallTried.current = true;
+    void install();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // personas desabilitadas (Configurações → Agentes BMAD) ficam fora da lista
+  const visibleAgents = (status?.agents ?? []).filter(
+    (agent) => catalogAgents.find((a) => a.id === agent.presetId)?.enabled !== false,
+  );
+
   return (
     <Panel
       title="BMAD — time de produto"
-      count={status?.installed ? status.agents.length : undefined}
+      count={status?.installed ? visibleAgents.length : undefined}
       actions={
         status?.installed && !status.installing ? (
           <button className="btn btn--sm" onClick={() => void install()} title="Reinstalar / atualizar">
@@ -101,17 +118,20 @@ function BmadPanel({ project }: { project: Project }) {
       {status && !status.installed && !status.installing && (
         <EmptyState
           icon="🅱️"
-          title="BMAD não instalado"
+          title={status.error ? 'BMAD não instalado' : 'Preparando o BMAD…'}
           hint={
             <>
-              Instala o bmad-method (módulo BMM) uma única vez, valendo para todos os projetos:
-              personas viram agentes no chat e os workflows viram comandos <code>/bmad-*</code>.
+              O BMAD (módulo BMM) é instalado automaticamente, uma única vez, valendo para todos
+              os projetos: personas viram agentes no chat e os workflows viram comandos{' '}
+              <code>/bmad-*</code>.
             </>
           }
           action={
-            <button className="btn btn--primary" onClick={() => void install()}>
-              ⤓ Instalar BMAD
-            </button>
+            status.error ? (
+              <button className="btn btn--primary" onClick={() => void install()}>
+                ↻ Tentar instalar de novo
+              </button>
+            ) : undefined
           }
         />
       )}
@@ -129,7 +149,7 @@ function BmadPanel({ project }: { project: Project }) {
       )}
       {status?.installed && !status.installing && (
         <>
-          {status.agents.map((agent) => (
+          {visibleAgents.map((agent) => (
             <div className="page-list-item page-list-item--static" key={agent.presetId}>
               <span className="item-card__name">
                 {agent.icon ?? '🅱️'} {agent.name}

@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { buildPortalUrl, clearRuntime, readRuntime, writeRuntime } from './authToken';
 import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
-import { registerBmadAssets } from './storage/bmadStore';
+import { registerBmadAssets, startBmadInstall } from './storage/bmadStore';
 import { loadConfig } from './storage/configStore';
 import { setSecretStore } from './storage/mcpProxyStore';
 import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths';
@@ -197,6 +197,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   await tryBecomeServer();
+  // BMAD embutido: instala sozinho na primeira vez, sem clique. Só a janela
+  // que está servindo o portal instala (duas janelas rodando npx na mesma
+  // pasta ao mesmo tempo corromperiam a instalação global).
+  if (serving && !isBmadInstalled()) {
+    void checkEnvironment().then((env) => {
+      if (env.node) startBmadInstall();
+    });
+  }
   // janelas que cederam ficam de prontidão: se o portal canônico sumir
   // (janela fechada/recarregada), a primeira que notar assume
   const watchdog = setInterval(() => void tryBecomeServer(), 30000);

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BMAD_ASSET_PREFIX, type BmadStatus } from '@aiportal/shared';
 import { bmadRootDir, ensureDir, isBmadInstalled } from './paths';
-import { deleteAgent, listAgents, upsertAgentWithId } from './agentStore';
+import { deleteAgent, getAgent, listAgents, upsertAgentWithId } from './agentStore';
 import { deleteSkill, listAllSkills, upsertSkillWithId } from './skillStore';
 import { getPython, shellAvailable } from '../tools/envCheck';
 
@@ -36,6 +36,17 @@ interface InstallState {
 
 let install: InstallState | undefined;
 let registeredThisSession = false;
+
+/**
+ * Personas habilitadas por default no primeiro registro: Analista de negócio,
+ * PM e UX Designer. As demais ficam desabilitadas, com toggle nas
+ * Configurações — e o que o usuário escolher lá é preservado nos re-registros.
+ */
+const DEFAULT_ENABLED_PERSONAS = new Set([
+  'bmad-agent-analyst',
+  'bmad-agent-pm',
+  'bmad-agent-ux-designer',
+]);
 
 const PERSONA_ICONS: Record<string, string> = {
   'bmad-agent-analyst': '📊',
@@ -152,12 +163,14 @@ export function registerBmadAssets(): { agents: number; skills: number } {
     if (!parsed) continue;
     const content = adapterFor(folder) + parsed.body;
     if (folder.startsWith('bmad-agent-')) {
-      upsertAgentWithId(PRESET_PREFIX + folder, {
+      const id = PRESET_PREFIX + folder;
+      upsertAgentWithId(id, {
         name: `${parsed.title ?? folder} (BMAD)`,
         icon: PERSONA_ICONS[folder] ?? '🅱️',
         description: parsed.description,
         instructions: content,
         defaultMode: 'agent',
+        enabled: getAgent(id)?.enabled ?? DEFAULT_ENABLED_PERSONAS.has(folder),
       });
       agents++;
     } else {

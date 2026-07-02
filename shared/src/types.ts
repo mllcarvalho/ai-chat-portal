@@ -13,6 +13,8 @@ export interface Config {
   devOrigins?: string[];
   /** Rede corporativa para as conexões dos proxies MCP (proxy/CA). */
   network?: NetworkConfig;
+  /** Último usuário RACF informado no login (a senha nunca é persistida). */
+  racfUser?: string;
 }
 
 /** Proxy e CA corporativos usados nas conexões dos proxies MCP (token + gateway). */
@@ -206,6 +208,11 @@ export interface AgentPreset {
   defaultMode?: SessionMode;
   /** null/ausente = todas as ferramentas. */
   enabledTools?: string[] | null;
+  /**
+   * Agente disponível para uso (ausente = habilitado). Desabilitado some dos
+   * seletores mas continua gerenciável nas Configurações (usado pelos BMAD).
+   */
+  enabled?: boolean;
   /**
    * Skills vinculadas (aditivo, nunca restringe): garantidas no catálogo das
    * conversas do agente e incluídas no export.

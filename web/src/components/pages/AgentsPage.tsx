@@ -114,6 +114,8 @@ function LinkPickerModal(props: {
 
 export function AgentsPage() {
   const agents = useCatalog((s) => s.agents);
+  // agentes BMAD desabilitados ficam só nas Configurações, fora da lista
+  const visibleAgents = agents.filter((a) => !(isBmadAsset(a.id) && a.enabled === false));
   const models = useCatalog((s) => s.models);
   const loadAgents = useCatalog((s) => s.loadAgents);
   const newSession = useSessions((s) => s.newSession);
@@ -367,8 +369,8 @@ export function AgentsPage() {
       }
     >
       <div className="page-cols">
-        <Panel title="Meus agentes" count={agents.length}>
-          {agents.length === 0 && (
+        <Panel title="Meus agentes" count={visibleAgents.length}>
+          {visibleAgents.length === 0 && (
             <EmptyState
               icon="🤖"
               title="Nenhum agente ainda"
@@ -380,7 +382,7 @@ export function AgentsPage() {
               }
             />
           )}
-          {agents.map((agent) => (
+          {visibleAgents.map((agent) => (
             <button
               className={`page-list-item${draft?.id === agent.id ? ' page-list-item--active' : ''}`}
               key={agent.id}

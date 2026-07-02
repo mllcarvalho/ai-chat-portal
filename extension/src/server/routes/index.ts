@@ -11,6 +11,7 @@ import { registerAgentRoutes } from './agents';
 import { registerToolRoutes } from './tools';
 import { registerKnowledgeRoutes } from './knowledge';
 import { registerConfigRoutes } from './config';
+import { registerLoginRoutes } from './login';
 import { registerBmadRoutes } from './bmad';
 import { registerCopilotRoutes } from './copilot';
 
@@ -36,6 +37,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerToolRoutes(router);
   registerKnowledgeRoutes(router);
   registerConfigRoutes(router);
+  registerLoginRoutes(router);
   registerBmadRoutes(router);
   registerCopilotRoutes(router);
   return router;

@@ -177,6 +177,9 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__footer">
+        <button className="sidebar__footer-btn" onClick={() => setView('home')}>
+          🏠 Início
+        </button>
         <button className="sidebar__footer-btn" onClick={() => setView('agents')}>
           🤖 Agentes
         </button>

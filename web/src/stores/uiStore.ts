@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
-/** Conteúdo da área principal: chat ou as páginas de gestão (tela cheia). */
-export type MainView = 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
+/** Conteúdo da área principal: home (MESA/PROJETO), chat ou as páginas de gestão. */
+export type MainView = 'home' | 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
@@ -31,6 +31,9 @@ interface UiState {
   view: MainView;
   panel: PanelKind;
   toasts: Toast[];
+  /** Login RACF feito nesta aba (não persiste: cada abertura do portal pede de novo). */
+  loggedIn: boolean;
+  setLoggedIn: (loggedIn: boolean) => void;
   /**
    * Oculta os cards técnicos de ferramentas (portal_write_file etc.) no chat.
    * Pedidos de aprovação aparecem sempre, independente desta preferência.
@@ -59,9 +62,11 @@ interface UiState {
 let toastSeq = 1;
 
 export const useUi = create<UiState>((set, get) => ({
-  view: 'chat',
+  view: 'home',
   panel: { kind: 'none' },
   toasts: [],
+  loggedIn: false,
+  setLoggedIn: (loggedIn) => set({ loggedIn }),
   hideToolCards: localStorage.getItem(HIDE_TOOL_CARDS_KEY) === '1',
   setHideToolCards: (hide) => {
     localStorage.setItem(HIDE_TOOL_CARDS_KEY, hide ? '1' : '0');

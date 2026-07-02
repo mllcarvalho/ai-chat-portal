@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Config } from '@aiportal/shared';
+import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useUi } from '../../stores/uiStore';
@@ -8,6 +8,8 @@ import { Modal } from '../common/Modal';
 export function SettingsModal() {
   const health = useCatalog((s) => s.health);
   const me = useCatalog((s) => s.me);
+  const agents = useCatalog((s) => s.agents);
+  const loadAgents = useCatalog((s) => s.loadAgents);
   const toast = useUi((s) => s.toast);
   const hideToolCards = useUi((s) => s.hideToolCards);
   const setHideToolCards = useUi((s) => s.setHideToolCards);
@@ -34,6 +36,17 @@ export function SettingsModal() {
       const updated = await api.patchConfig({ projectsRoot: projectsRoot.trim() });
       setConfig(updated);
       toast('Pasta de projetos atualizada.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const bmadAgents = agents.filter((a) => isBmadAsset(a.id));
+
+  const toggleBmadAgent = async (id: string, enabled: boolean) => {
+    try {
+      await api.patchAgent(id, { enabled });
+      await loadAgents();
     } catch (err) {
       toast((err as Error).message, 'error');
     }
@@ -85,6 +98,35 @@ export function SettingsModal() {
           aparecendo sempre.
         </span>
       </div>
+
+      {bmadAgents.length > 0 && (
+        <div className="field">
+          <label>Agentes BMAD</label>
+          <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+            Os agentes desmarcados somem dos seletores do chat. Habilite aqui quando precisar
+            deles.
+          </span>
+          {bmadAgents.map((agent) => (
+            <label
+              key={agent.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+                fontWeight: 'normal',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={agent.enabled !== false}
+                onChange={(e) => void toggleBmadAgent(agent.id, e.target.checked)}
+              />
+              {agent.icon} {agent.name}
+            </label>
+          ))}
+        </div>
+      )}
 
       <div className="field">
         <label>Rede corporativa (proxies MCP)</label>
