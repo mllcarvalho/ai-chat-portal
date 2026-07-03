@@ -2508,6 +2508,29 @@ button.chip--action:disabled {
   cursor: default;
 }
 
+/* lista de ferramentas expandida de um servidor MCP (botão 🧰 na linha) */
+.mcp-tool-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--tool-border);
+  padding-left: 10px;
+}
+.mcp-tool__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.mcp-tool__desc {
+  font-size: 12px;
+  opacity: 0.75;
+  max-width: 68ch;
+}
+.icon-btn--active {
+  background: var(--tool-soft);
+}
+
 /* log do setup guiado (ConsumerLab): cauda do output dos comandos */
 .mcp-setup-log {
   max-height: 220px;

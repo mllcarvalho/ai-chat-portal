@@ -383,6 +383,14 @@ function toInfo(name: string, state: ServerState): McpServerInfo {
   };
 }
 
+/** Tools do servidor (nome + descrição) para a UI — vazio se não estiver rodando. */
+export function listServerTools(name: string): Array<{ name: string; description: string }> {
+  syncFromDisk();
+  const state = servers.get(name);
+  if (!state) throw new Error(`Servidor MCP "${name}" não está configurado`);
+  return state.tools.map((t) => ({ name: t.name, description: t.description }));
+}
+
 export function listServers(): McpServerInfo[] {
   syncFromDisk();
   return [...servers.entries()]

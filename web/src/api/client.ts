@@ -246,6 +246,11 @@ export const api = {
     }),
   restartMcpServer: (name: string) =>
     request<McpServerInfo>('POST', `/api/mcp/servers/${encodeURIComponent(name)}/restart`),
+  listMcpServerTools: (name: string) =>
+    request<Array<{ name: string; description: string }>>(
+      'GET',
+      `/api/mcp/servers/${encodeURIComponent(name)}/tools`,
+    ),
   deleteMcpServer: (name: string) =>
     request<{ ok: boolean }>('DELETE', `/api/mcp/servers/${encodeURIComponent(name)}`),
   saveMcpProxy: (input: McpProxyInput) =>

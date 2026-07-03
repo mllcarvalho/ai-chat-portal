@@ -273,7 +273,16 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
   };
 
   return (
-    <Panel title={draft.editing ? `Editar proxy "${draft.editing}"` : 'Novo servidor'} className="panel--form">
+    <Panel
+      title={
+        draft.editing
+          ? draft.kind === 'consumerlab'
+            ? 'ConsumerLab — reconfigurar'
+            : `Editar proxy "${draft.editing}"`
+          : 'Novo servidor'
+      }
+      className="panel--form"
+    >
       <div className="row">
         <div className="field">
           <label>Nome</label>
@@ -447,6 +456,24 @@ export function McpServersPage() {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [pending, setPending] = useState<string | undefined>();
   const [draft, setDraft] = useState<McpDraft | undefined>();
+  /** Servidor com a lista de ferramentas expandida + cache por servidor. */
+  const [toolsOpen, setToolsOpen] = useState<string | undefined>();
+  const [toolsCache, setToolsCache] = useState<Record<string, Array<{ name: string; description: string }>>>({});
+
+  const toggleTools = async (server: McpServerInfo) => {
+    if (toolsOpen === server.name) {
+      setToolsOpen(undefined);
+      return;
+    }
+    setToolsOpen(server.name);
+    try {
+      const tools = await api.listMcpServerTools(server.name);
+      setToolsCache((cache) => ({ ...cache, [server.name]: tools }));
+    } catch (err) {
+      toast((err as Error).message, 'error');
+      setToolsOpen(undefined);
+    }
+  };
 
   const reload = () => api.listMcpServers().then(setServers).catch(() => setServers([]));
 
@@ -532,6 +559,19 @@ export function McpServersPage() {
           {servers.map((server) => {
             const status = statusLabel(server);
             const isProxy = server.kind === 'proxy';
+            // servidor do setup guiado: clicar reabre o painel (trocar conta, refazer SSO)
+            const isConsumerLab = server.kind === 'mcpjson' && server.name === 'consumerlab';
+            const open = isProxy
+              ? () => editProxy(server)
+              : isConsumerLab
+                ? () =>
+                    setDraft({
+                      ...EMPTY_DRAFT,
+                      kind: 'consumerlab',
+                      name: server.name,
+                      editing: server.name,
+                    })
+                : undefined;
             return (
               <div className={`mcp-row${draft?.editing === server.name ? ' mcp-row--active' : ''}`} key={server.name}>
                 <button
@@ -543,9 +583,9 @@ export function McpServersPage() {
                 />
                 <div
                   className="mcp-row__info"
-                  style={isProxy ? { cursor: 'pointer' } : undefined}
-                  onClick={isProxy ? () => editProxy(server) : undefined}
-                  title={isProxy ? 'Editar proxy' : undefined}
+                  style={open ? { cursor: 'pointer' } : undefined}
+                  onClick={open}
+                  title={isProxy ? 'Editar proxy' : isConsumerLab ? 'Reconfigurar (conta, SSO)' : undefined}
                 >
                   <div className="mcp-row__name">
                     {server.name}
@@ -560,14 +600,37 @@ export function McpServersPage() {
                   {server.status === 'error' && server.error && (
                     <div className="mcp-row__error">{server.error}</div>
                   )}
-                  {server.status === 'running' && server.toolNames.length > 0 && (
+                  {server.status === 'running' && server.toolNames.length > 0 && toolsOpen !== server.name && (
                     <div className="mcp-row__tools" title={server.toolNames.join(', ')}>
                       {server.toolNames.slice(0, 6).join(' · ')}
                       {server.toolNames.length > 6 ? ` · +${server.toolNames.length - 6}` : ''}
                     </div>
                   )}
+                  {toolsOpen === server.name && (
+                    <div className="mcp-tool-list" onClick={(e) => e.stopPropagation()}>
+                      {(toolsCache[server.name] ?? []).map((tool) => (
+                        <div className="mcp-tool" key={tool.name}>
+                          <div className="mcp-tool__name">{tool.name}</div>
+                          {tool.description && <div className="mcp-tool__desc">{tool.description}</div>}
+                        </div>
+                      ))}
+                      {!toolsCache[server.name] && <div className="mcp-tool__desc">Carregando…</div>}
+                    </div>
+                  )}
                 </div>
                 <div className="mcp-row__actions">
+                  {server.status === 'running' && server.toolCount > 0 && (
+                    <button
+                      className={`icon-btn${toolsOpen === server.name ? ' icon-btn--active' : ''}`}
+                      title={toolsOpen === server.name ? 'Esconder ferramentas' : 'Ver ferramentas'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleTools(server);
+                      }}
+                    >
+                      🧰
+                    </button>
+                  )}
                   {server.enabled && (
                     <button
                       className="icon-btn"

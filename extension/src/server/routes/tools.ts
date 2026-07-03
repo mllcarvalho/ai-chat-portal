@@ -6,6 +6,7 @@ import { getToolCatalog } from '../../tools/toolRegistry';
 import {
   addServer,
   listServers,
+  listServerTools,
   removeServer,
   saveProxyServer,
   setServerEnabled,
@@ -184,6 +185,14 @@ export function registerToolRoutes(router: Router): void {
       sendJson(res, 200, { ok: true, tools });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.get('/api/mcp/servers/:name/tools', ({ res, params }) => {
+    try {
+      sendJson(res, 200, listServerTools(params.name));
+    } catch (err) {
+      sendError(res, 404, err instanceof Error ? err.message : String(err));
     }
   });
 
