@@ -16,10 +16,11 @@ import {
   saveProxy,
 } from '../storage/mcpProxyStore';
 import { GLOBAL_ROOT, getPortalRoot, mcpStatePath } from '../storage/paths';
-import { dispatcherFor, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
+import { dispatcherFor, netProcessEnv, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
 import { withTimeout } from '../util';
 
-const START_TIMEOUT = 20_000;
+// primeiro boot de servidor stdio pode ser lento (venv, imports, STS via proxy)
+const START_TIMEOUT = 45_000;
 const CALL_TIMEOUT = 120_000;
 const TOKEN_TIMEOUT = 15_000;
 const CONNECT_TIMEOUT = 20_000;
@@ -264,7 +265,9 @@ async function connect(entry: McpServerEntry): Promise<Client> {
     const transport = new StdioClientTransport({
       command: entry.command,
       args: entry.args ?? [],
-      env: { ...getDefaultEnvironment(), ...(entry.env ?? {}) },
+      // getDefaultEnvironment é mínimo (HOME/PATH/etc): sem o netProcessEnv o
+      // processo fica sem proxy/CA corporativos e trava em qualquer chamada externa
+      env: { ...getDefaultEnvironment(), ...netProcessEnv(), ...(entry.env ?? {}) },
       cwd: entry.cwd ?? getPortalRoot() ?? GLOBAL_ROOT,
       stderr: 'ignore',
     });
@@ -390,6 +393,19 @@ export function listServers(): McpServerInfo[] {
 export function addServer(name: string, entry: McpServerEntry): void {
   const entries = readMcpJson();
   if (entries[name] || isProxy(name)) throw new Error(`Já existe um servidor chamado "${name}"`);
+  entries[name] = entry;
+  writeMcpJson(entries);
+  syncFromDisk();
+}
+
+/**
+ * Cria OU substitui a entry no mcp.json (setups guiados que o usuário refaz —
+ * ex: ConsumerLab após credencial expirar — devem sobrescrever, não recusar).
+ * O syncFromDisk derruba o servidor antigo se a config mudou.
+ */
+export function upsertServer(name: string, entry: McpServerEntry): void {
+  if (isProxy(name)) throw new Error(`Já existe um proxy OAuth2 chamado "${name}"`);
+  const entries = readMcpJson();
   entries[name] = entry;
   writeMcpJson(entries);
   syncFromDisk();

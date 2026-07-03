@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { ConsumerLabAccount, ConsumerLabStatus, McpServerEntry } from '@aiportal/shared';
 import { dataRoot, ensureDir } from '../storage/paths';
-import { addServer, setServerEnabled } from './mcpManager';
+import { setServerEnabled, upsertServer } from './mcpManager';
 
 /**
  * Setup guiado do MCP ConsumerLab (Itaú) — porta do setup.sh usado no fluxo
@@ -455,7 +455,7 @@ async function finishSetup(accountId: string, roleName: string): Promise<void> {
     args: ['--directory', repoPath, 'run', '--native-tls', 'python', 'run.py'],
     env: { AWS_DEFAULT_REGION: AWS_REGION, AWS_PROFILE: profile },
   };
-  addServer(CONSUMERLAB_SERVER_NAME, entry);
+  upsertServer(CONSUMERLAB_SERVER_NAME, entry);
   const info = await setServerEnabled(CONSUMERLAB_SERVER_NAME, true);
   if (info.status === 'error')
     fail(`Servidor registrado, mas falhou ao iniciar: ${info.error ?? 'erro desconhecido'}`);

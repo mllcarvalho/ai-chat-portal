@@ -1,9 +1,11 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import * as tls from 'node:tls';
 import { Agent, ProxyAgent, type Dispatcher } from 'undici';
 import type { NetworkConfig } from '@aiportal/shared';
 import { getConfig } from '../storage/configStore';
+import { GLOBAL_ROOT } from '../storage/paths';
 
 /**
  * Rede corporativa para as chamadas dos proxies MCP.
@@ -109,6 +111,67 @@ function proxyFor(url: URL): string | undefined {
   const http = process.env.HTTP_PROXY || process.env.http_proxy;
   const all = process.env.ALL_PROXY || process.env.all_proxy;
   return (url.protocol === 'https:' ? https : http) || all || undefined;
+}
+
+/**
+ * Env de rede para PROCESSOS FILHOS (servidores MCP stdio e afins). O SDK MCP
+ * spawna com um env mínimo (HOME/PATH/etc), então sem isto um servidor python
+ * ou node fica sem proxy/CA e trava atrás da rede corporativa (ex: botocore →
+ * STS). Inclui proxy (config da UI vence o ambiente) e, quando há CA interna,
+ * um bundle COMBINADO (raízes padrão + interna) gravado em ~/AIChatPortal —
+ * AWS_CA_BUNDLE/REQUESTS_CA_BUNDLE substituem o trust store no python, então
+ * o arquivo precisa conter as duas coisas para não quebrar TLS não-interceptado.
+ */
+export function netProcessEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  const cfg = netConfig();
+  const https = cfg.httpsProxy || process.env.HTTPS_PROXY || process.env.https_proxy;
+  const http = cfg.httpProxy || cfg.httpsProxy || process.env.HTTP_PROXY || process.env.http_proxy;
+  const noProxy = cfg.noProxy || process.env.NO_PROXY || process.env.no_proxy;
+  if (https) {
+    env.HTTPS_PROXY = https;
+    env.https_proxy = https;
+  }
+  if (http) {
+    env.HTTP_PROXY = http;
+    env.http_proxy = http;
+  }
+  if (noProxy) {
+    env.NO_PROXY = noProxy;
+    env.no_proxy = noProxy;
+  }
+  const internalCa = caPath();
+  if (internalCa) {
+    env.NODE_EXTRA_CA_CERTS = internalCa; // aditivo por natureza (node)
+    const bundle = ensureCombinedCaBundle(internalCa);
+    if (bundle) {
+      env.AWS_CA_BUNDLE = bundle; // botocore/boto3
+      env.REQUESTS_CA_BUNDLE = bundle; // requests/urllib3
+    }
+  }
+  return env;
+}
+
+/** Grava (uma vez por mudança) o PEM combinado: raízes do Node + CA interna. */
+function ensureCombinedCaBundle(internalCaFile: string): string | undefined {
+  try {
+    const internal = fs.readFileSync(internalCaFile, 'utf8');
+    const combined = [...tls.rootCertificates, internal.trim()].join('\n') + '\n';
+    const file = path.join(GLOBAL_ROOT, 'ca-bundle.pem');
+    let current: string | undefined;
+    try {
+      current = fs.readFileSync(file, 'utf8');
+    } catch {
+      /* ainda não existe */
+    }
+    if (current !== combined) {
+      fs.mkdirSync(GLOBAL_ROOT, { recursive: true });
+      fs.writeFileSync(file, combined, 'utf8');
+    }
+    return file;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
