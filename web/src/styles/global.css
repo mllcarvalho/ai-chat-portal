@@ -232,11 +232,26 @@ select:focus {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-faint);
-  padding: 14px 10px 6px;
+  color: var(--text-dim);
+  padding: 14px 10px 7px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+}
+.sidebar__scroll > .sidebar__section-title:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 12px;
+}
+.sidebar__section-count {
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0;
+}
+.sidebar__section-title button {
+  margin-left: auto;
 }
 
 .sidebar__section-title button {
@@ -392,6 +407,20 @@ select:focus {
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.user-badge__relogin {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.user-badge__relogin:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 
 /* ---------- chat ---------- */
@@ -705,6 +734,94 @@ select:focus {
   word-break: break-word;
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* ---------- balão de persona (portal_spawn_subagent) ---------- */
+
+.subagent-bubble {
+  border: 1px solid var(--tool-border);
+  border-left: 3px solid var(--tool);
+  background: var(--tool-soft);
+  border-radius: var(--radius);
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.subagent-bubble--error {
+  border-left-color: var(--danger);
+}
+
+.subagent-bubble__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  font-size: 12.5px;
+}
+
+.subagent-bubble__avatar {
+  flex-shrink: 0;
+}
+
+.subagent-bubble__name {
+  font-weight: 700;
+  color: var(--tool);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-bubble__toggle {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+.subagent-bubble__toggle:hover {
+  color: var(--tool);
+}
+
+.subagent-bubble__task {
+  margin: 0;
+  padding: 8px 13px;
+  border-top: 1px dashed var(--tool-border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.subagent-bubble__body {
+  padding: 4px 14px 10px;
+  border-top: 1px dashed var(--tool-border);
+  font-size: 13.5px;
+}
+
+/* ---------- pergunta ao usuário (portal_ask_user) ---------- */
+
+.question-card__text {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.question-card__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.question-card__free {
+  display: flex;
+  gap: 8px;
+}
+.question-card__free input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ---------- markdown ---------- */
@@ -1931,6 +2048,41 @@ select:focus {
   word-break: break-word;
 }
 
+/* preview de mocks HTML (iframe isolado) e wireframes .excalidraw */
+.html-preview {
+  width: 100%;
+  min-height: 380px;
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.file-reader .html-preview {
+  min-height: 70vh;
+}
+.excalidraw-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  padding: 8px;
+}
+
+/* diagramas mermaid nos balões do chat e nos documentos renderizados */
+.mermaid-block {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  overflow-x: auto;
+}
+.mermaid-block svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-block__loading {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
 /* ---------- empty states / welcome ---------- */
 
 .welcome {
@@ -2045,63 +2197,82 @@ select:focus {
 
 /* ---------- ações BMAD no chat ---------- */
 
-.bmad-actions {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 18px 0;
+.bmad-deck-wrap {
   max-width: 960px;
   margin: 0 auto;
   width: 100%;
+  padding: 8px 18px 2px;
 }
-.bmad-actions__toggle {
-  flex-shrink: 0;
-  border: 1px solid var(--border-strong);
+.bmad-deck {
+  border: 1px solid var(--border);
   background: var(--bg-1);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: var(--radius);
+  box-shadow: 0 1px 3px rgba(22, 41, 75, 0.06);
+  overflow: hidden;
+}
+.bmad-deck--collapsed {
+  box-shadow: none;
+}
+.bmad-deck__header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: none;
+  background: var(--bg-2);
   font: inherit;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-dim);
   cursor: pointer;
-  white-space: nowrap;
 }
-.bmad-actions__toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.bmad-deck--collapsed .bmad-deck__header {
+  background: var(--bg-1);
+  padding: 5px 12px;
 }
-.bmad-actions__groups {
+.bmad-deck__header:hover {
+  color: var(--accent-strong);
+}
+.bmad-deck__hint {
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.bmad-deck__caret {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+.bmad-deck__rows {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  row-gap: 5px;
-  padding-bottom: 4px;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 12px 11px;
 }
-.bmad-actions__group {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  row-gap: 5px;
-  padding-right: 10px;
-  border-right: 1px solid var(--border);
+.bmad-deck__row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px;
+  align-items: start;
 }
-.bmad-actions__group:last-child {
-  border-right: none;
-}
-.bmad-actions__group-title {
+.bmad-deck__row-title {
   font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   color: var(--text-faint);
+  text-align: right;
   white-space: nowrap;
+  padding-top: 6px;
+}
+.bmad-deck__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .bmad-chip {
-  border: 1px solid var(--border-strong);
-  background: var(--bg-1);
+  border: 1px solid var(--border);
+  background: var(--bg-0);
   border-radius: 999px;
   padding: 4px 10px;
   font: inherit;
@@ -2118,6 +2289,16 @@ select:focus {
 .bmad-chip:disabled {
   opacity: 0.5;
   cursor: default;
+}
+@media (max-width: 640px) {
+  .bmad-deck__row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+  .bmad-deck__row-title {
+    text-align: left;
+    padding-top: 0;
+  }
 }
 
 /* ---------- login ---------- */

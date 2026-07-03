@@ -9,6 +9,7 @@ import type {
   KnowledgeDoc,
   McpProxyConfig,
   McpServerInfo,
+  MicrosoftGraphConfig,
   NetworkConfig,
   MeInfo,
   ModelInfo,
@@ -147,6 +148,8 @@ export const api = {
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/cancel`),
   respondApproval: (requestId: string, callId: string, approved: boolean) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/approval`, { callId, approved }),
+  respondQuestion: (requestId: string, callId: string, answer: string) =>
+    request<{ ok: boolean }>('POST', `/api/chat/${requestId}/question`, { callId, answer }),
 
   // pasta de trabalho da conversa (workspace da sessão avulsa, ou o projeto dela)
   sessionFiles: (id: string) => request<FileEntry[]>('GET', `/api/sessions/${id}/files`),
@@ -167,6 +170,8 @@ export const api = {
       `/api/sessions/${id}/files/download?path=${encodeURIComponent(path)}`,
       path.split('/').pop() ?? 'arquivo',
     ),
+  revealSessionFile: (id: string, path: string) =>
+    request<{ ok: boolean }>('POST', `/api/sessions/${id}/files/reveal`, { path }),
 
   listProjects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (name: string) => request<Project>('POST', '/api/projects', { name }),
@@ -191,6 +196,8 @@ export const api = {
       `/api/projects/${id}/files/download?path=${encodeURIComponent(path)}`,
       path.split('/').pop() ?? 'arquivo',
     ),
+  revealProjectFile: (id: string, path: string) =>
+    request<{ ok: boolean }>('POST', `/api/projects/${id}/files/reveal`, { path }),
   copilotQuota: (fresh = false) =>
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
   bmadStatus: () => request<BmadStatus>('GET', '/api/bmad'),
@@ -271,6 +278,8 @@ export const api = {
     request<KnowledgeDoc>('PUT', `/api/knowledge/${id}/docs`, { name, content }),
   deleteKnowledgeDoc: (id: string, name: string) =>
     request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}/docs/${encodeURIComponent(name)}`),
+  moveKnowledgeDoc: (id: string, name: string, toBaseId: string) =>
+    request<KnowledgeDoc>('POST', `/api/knowledge/${id}/docs/move`, { name, toBaseId }),
   exportKnowledgeBase: (id: string, fileName: string) =>
     downloadFromUrl(`/api/knowledge/${id}/export`, fileName),
   importKnowledgeBase: (
@@ -295,7 +304,17 @@ export const api = {
       { username, password },
     ),
 
+  shareByEmail: (kind: 'agent' | 'skill' | 'knowledge', id: string) =>
+    request<{ ok: boolean; mode: 'outlook' | 'mail' | 'xdg' | 'manual'; file: string }>(
+      'POST',
+      '/api/share/email',
+      { kind, id },
+    ),
+
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
-  patchConfig: (patch: { projectsRoot?: string; network?: NetworkConfig }) =>
-    request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
+  patchConfig: (patch: {
+    projectsRoot?: string;
+    network?: NetworkConfig;
+    microsoft?: MicrosoftGraphConfig;
+  }) => request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

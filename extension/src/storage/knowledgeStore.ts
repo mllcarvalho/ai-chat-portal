@@ -2,10 +2,18 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { KnowledgeBase, KnowledgeDoc } from '@aiportal/shared';
+import { slugifyCommand } from '@aiportal/shared';
 import { readJson, writeJsonAtomic } from './jsonStore';
 import { PROJECT_META_DIR, ensureDir, knowledgeDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
-import { docNameForUrl, fetchRemoteContent, normalizeSourceUrl } from './remoteFetch';
+import {
+  docNameForUrl,
+  fetchRemoteContent,
+  htmlToMarkdown,
+  normalizeSourceUrl,
+  sanitizeMarkdown,
+} from './remoteFetch';
+import { fetchSharePointContent, isSharePointUrl } from './sharepointFetch';
 
 const DOC_EXTENSIONS = ['.md', '.txt'];
 const DOC_LIMIT = 512 * 1024;
@@ -206,19 +214,53 @@ export function deleteDoc(baseId: string, name: string): boolean {
   }
 }
 
+/** Move um documento para outra base, levando junto a fonte remota (se houver). */
+export function moveDoc(fromBaseId: string, name: string, toBaseId: string): KnowledgeDoc {
+  if (fromBaseId === toBaseId) throw new Error('Escolha uma base diferente da atual');
+  const fromDir = findBaseDir(fromBaseId);
+  const toDir = findBaseDir(toBaseId);
+  if (!fromDir || !toDir) throw new Error('Base de conhecimento não encontrada');
+  const docName = safeDocName(name);
+  const content = readDoc(fromBaseId, docName);
+  if (content === undefined) {
+    throw new Error(`Documento "${docName}" não existe na base de origem`);
+  }
+  if (fs.existsSync(path.join(toDir, docName))) {
+    throw new Error(`A base de destino já tem um documento "${docName}"`);
+  }
+  const source = readSources(fromDir)[docName];
+  const doc = writeDoc(toBaseId, docName, content);
+  if (source) {
+    const targetSources = readSources(toDir);
+    targetSources[docName] = source;
+    writeSources(toDir, targetSources);
+  }
+  deleteDoc(fromBaseId, docName);
+  return { ...doc, sourceUrl: source?.url, syncedAt: source?.syncedAt, syncError: source?.error };
+}
+
+/** Baixa o conteúdo de uma fonte remota, escolhendo o caminho pela URL. */
+export async function fetchSourceContent(
+  url: string,
+): Promise<{ content: string; suggestedName?: string }> {
+  if (isSharePointUrl(url)) return fetchSharePointContent(url);
+  return { content: await fetchRemoteContent(url) };
+}
+
 /**
- * Cria um documento sincronizado de uma URL remota (GitHub Pages, markdown bruto…):
- * baixa o conteúdo, converte HTML para markdown e registra a fonte para re-sync.
+ * Cria um documento sincronizado de uma URL remota (GitHub Pages, markdown
+ * bruto, página/arquivo de SharePoint…): baixa o conteúdo, converte para
+ * markdown e registra a fonte para re-sync.
  */
 export async function addRemoteDoc(baseId: string, rawUrl: string, name?: string): Promise<KnowledgeDoc> {
   const dir = findBaseDir(baseId);
   if (!dir) throw new Error('Base de conhecimento não encontrada');
   const url = normalizeSourceUrl(rawUrl);
-  let docName = name?.trim() || docNameForUrl(url);
+  const fetched = await fetchSourceContent(url);
+  let docName = name?.trim() || fetched.suggestedName || docNameForUrl(url);
   if (!/\.(md|txt)$/i.test(docName)) docName = `${docName}.md`;
   docName = safeDocName(docName);
-  const content = await fetchRemoteContent(url);
-  const doc = writeDoc(baseId, docName, content);
+  const doc = writeDoc(baseId, docName, fetched.content);
   const sources = readSources(dir);
   const syncedAt = new Date().toISOString();
   sources[doc.name] = { url, syncedAt };
@@ -245,7 +287,7 @@ export async function syncRemoteDocs(baseId: string, name?: string): Promise<Syn
       continue;
     }
     try {
-      const content = await fetchRemoteContent(source.url);
+      const { content } = await fetchSourceContent(source.url);
       writeDoc(baseId, docName, content);
       sources[docName] = { url: source.url, syncedAt: new Date().toISOString() };
     } catch (err) {
@@ -270,24 +312,74 @@ export function setDocSources(baseId: string, sources: Record<string, DocSource>
   writeSources(dir, sources);
 }
 
+/** Base global que recebe as páginas enviadas pelo bookmarklet do navegador. */
+const CAPTURE_BASE_NAME = 'Capturas do navegador';
+
+/**
+ * Salva uma página enviada pelo bookmarklet "Enviar para o portal" (o usuário
+ * clica nele numa aba onde a página já está renderizada — é assim que
+ * conteúdo atrás de SSO, como SharePoint, entra sem app no Entra ID).
+ * Capturar a mesma página de novo sobrescreve o documento (re-sync manual).
+ */
+export function saveCapturedDoc(input: {
+  title?: string;
+  url?: string;
+  html?: string;
+  text?: string;
+}): { baseName: string; docName: string } {
+  let base = listBases().find(
+    (b) => b.scope === 'global' && b.name.toLowerCase() === CAPTURE_BASE_NAME.toLowerCase(),
+  );
+  base ??= createBase({
+    name: CAPTURE_BASE_NAME,
+    scope: 'global',
+    description: 'Páginas enviadas pelo bookmarklet "Enviar para o portal" (SharePoint, intranet…)',
+  });
+  if (!base) throw new Error('Não foi possível criar a base de capturas');
+
+  const markdown = input.html
+    ? sanitizeMarkdown(htmlToMarkdown(input.html), input.url ?? 'about:blank')
+    : (input.text ?? '').trim();
+  if (!markdown) throw new Error('A página não tem conteúdo de texto extraível');
+
+  const title = input.title?.trim() || 'Página capturada';
+  const header =
+    `# ${title}\n\n` +
+    `> Fonte: ${input.url ?? '(desconhecida)'} — capturada em ${new Date().toLocaleString('pt-BR')}. ` +
+    'Para atualizar, clique no bookmarklet de novo na página.\n\n';
+  const docName = `${slugifyCommand(title).slice(0, 60) || 'pagina-capturada'}.md`;
+  const doc = writeDoc(base.id, docName, header + markdown);
+  return { baseName: base.name, docName: doc.name };
+}
+
 export interface KnowledgeSnippet {
   baseName: string;
   docName: string;
   content: string;
 }
 
+/** Entrada do índice injetado no lugar do conteúdo quando as bases não cabem. */
+export interface KnowledgeIndexEntry {
+  baseName: string;
+  docName: string;
+  size: number;
+  headings: string[];
+}
+
+export interface KnowledgeContext {
+  snippets: KnowledgeSnippet[];
+  index: KnowledgeIndexEntry[];
+}
+
 const PER_DOC_CAP = 16_000;
 const TOTAL_CAP = 48_000;
+/** Teto por chamada de portal_read_knowledge (o modelo continua com offset). */
+const READ_TOOL_CAP = 24_000;
+const SEARCH_RESULTS = 8;
+const SEARCH_SNIPPET_CAP = 1_200;
 
-/**
- * Conteúdo das bases habilitadas (globais + do projeto da sessão) para injetar
- * no contexto, com teto por documento e total. extraBaseIds (bases vinculadas
- * ao agente da sessão) entram mesmo desativadas no toggle geral.
- */
-export function collectKnowledge(
-  projectId?: string | null,
-  extraBaseIds?: string[],
-): KnowledgeSnippet[] {
+/** Bases habilitadas (globais + do projeto) mais as vinculadas ao agente da sessão. */
+function enabledBases(projectId?: string | null, extraBaseIds?: string[]): KnowledgeBase[] {
   const bases = listBases(projectId ?? undefined).filter((b) => b.enabled);
   const included = new Set(bases.map((b) => b.id));
   for (const id of extraBaseIds ?? []) {
@@ -298,9 +390,20 @@ export function collectKnowledge(
       included.add(id);
     }
   }
+  return bases;
+}
+
+/**
+ * Conteúdo das bases habilitadas para injetar no contexto, com teto por
+ * documento e total (comportamento clássico: entra tudo, truncando).
+ */
+export function collectKnowledge(
+  projectId?: string | null,
+  extraBaseIds?: string[],
+): KnowledgeSnippet[] {
   const snippets: KnowledgeSnippet[] = [];
   let total = 0;
-  for (const base of bases) {
+  for (const base of enabledBases(projectId, extraBaseIds)) {
     for (const doc of listDocs(base.id)) {
       if (total >= TOTAL_CAP) return snippets;
       let content = readDoc(base.id, doc.name) ?? '';
@@ -315,4 +418,208 @@ export function collectKnowledge(
     }
   }
   return snippets;
+}
+
+/**
+ * Contexto de conhecimento da conversa. Enquanto o conteúdo cabe no teto,
+ * tudo é injetado (zero latência extra). Quando excede E a conversa tem as
+ * ferramentas de busca (canSearch), injeta só um índice — o modelo recupera o
+ * que precisar com portal_search_knowledge/portal_read_knowledge, em vez de
+ * receber 48 KB truncados às cegas.
+ */
+export function collectKnowledgeContext(
+  projectId?: string | null,
+  extraBaseIds?: string[],
+  canSearch = false,
+): KnowledgeContext {
+  const bases = enabledBases(projectId, extraBaseIds);
+  const totalSize = bases.reduce(
+    (sum, base) => sum + listDocs(base.id).reduce((s, d) => s + d.size, 0),
+    0,
+  );
+  if (!canSearch || totalSize <= TOTAL_CAP) {
+    return { snippets: collectKnowledge(projectId, extraBaseIds), index: [] };
+  }
+  const index: KnowledgeIndexEntry[] = [];
+  for (const base of bases) {
+    for (const doc of listDocs(base.id)) {
+      index.push({
+        baseName: base.name,
+        docName: doc.name,
+        size: doc.size,
+        headings: docHeadings(readDoc(base.id, doc.name) ?? ''),
+      });
+    }
+  }
+  return { snippets: [], index };
+}
+
+/** Títulos (#/##/###) do documento para o índice; sem títulos, a primeira linha. */
+function docHeadings(content: string, max = 6): string[] {
+  const headings: string[] = [];
+  for (const line of content.split('\n')) {
+    const match = /^#{1,3}\s+(.+)/.exec(line.trim());
+    if (match) headings.push(match[1].trim().slice(0, 80));
+    if (headings.length >= max) return headings;
+  }
+  if (!headings.length) {
+    const first = content.split('\n').find((l) => l.trim());
+    if (first) headings.push(first.trim().slice(0, 80));
+  }
+  return headings;
+}
+
+// ---------------------------------------------------------------------------
+// Busca lexical para as ferramentas do agente
+
+function normalizeText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function queryTerms(query: string): string[] {
+  return [...new Set(normalizeText(query).split(/[^a-z0-9]+/).filter((t) => t.length >= 3))];
+}
+
+interface DocSection {
+  heading: string;
+  content: string;
+}
+
+/** Divide por títulos markdown; seções longas quebram em blocos de parágrafos. */
+function splitSections(content: string): DocSection[] {
+  const sections: DocSection[] = [];
+  let heading = '';
+  let buffer: string[] = [];
+  const flush = () => {
+    const text = buffer.join('\n').trim();
+    buffer = [];
+    if (!text) return;
+    // seções gigantes viram blocos menores para o score não diluir
+    for (let i = 0; i < text.length; i += 2_000) {
+      sections.push({ heading, content: text.slice(i, i + 2_000) });
+    }
+  };
+  for (const line of content.split('\n')) {
+    const match = /^#{1,4}\s+(.+)/.exec(line.trim());
+    if (match) {
+      flush();
+      heading = match[1].trim();
+    } else {
+      buffer.push(line);
+    }
+  }
+  flush();
+  return sections;
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  for (let i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length)) {
+    count++;
+  }
+  return count;
+}
+
+export interface KnowledgeHit {
+  baseName: string;
+  docName: string;
+  heading: string;
+  snippet: string;
+}
+
+/**
+ * Busca por palavras-chave nas bases habilitadas da conversa. Ranqueia seções
+ * priorizando quantos termos distintos casam (e presença no título) sobre
+ * repetição do mesmo termo.
+ */
+export function searchKnowledge(
+  query: string,
+  projectId?: string | null,
+  extraBaseIds?: string[],
+  baseFilter?: string,
+): KnowledgeHit[] {
+  const terms = queryTerms(query);
+  if (!terms.length) return [];
+  const wanted = baseFilter ? normalizeText(baseFilter) : undefined;
+  const scored: Array<KnowledgeHit & { score: number }> = [];
+  for (const base of enabledBases(projectId, extraBaseIds)) {
+    if (wanted && !normalizeText(base.name).includes(wanted)) continue;
+    for (const doc of listDocs(base.id)) {
+      const content = readDoc(base.id, doc.name);
+      if (!content) continue;
+      for (const section of splitSections(content)) {
+        const body = normalizeText(section.content);
+        const head = normalizeText(`${doc.name} ${section.heading}`);
+        let matched = 0;
+        let score = 0;
+        for (const term of terms) {
+          const inBody = countOccurrences(body, term);
+          const inHead = countOccurrences(head, term);
+          if (!inBody && !inHead) continue;
+          matched++;
+          score += Math.min(inBody, 5) + inHead * 4;
+        }
+        if (!matched) continue;
+        score += matched * 20;
+        scored.push({
+          baseName: base.name,
+          docName: doc.name,
+          heading: section.heading,
+          snippet: section.content.slice(0, SEARCH_SNIPPET_CAP),
+          score,
+        });
+      }
+    }
+  }
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, SEARCH_RESULTS)
+    .map(({ score: _score, ...hit }) => hit);
+}
+
+/**
+ * Lê um documento para a ferramenta portal_read_knowledge. A base pode vir
+ * pelo nome (como no índice injetado) ou pelo id.
+ */
+export function readKnowledgeDoc(
+  baseRef: string,
+  docName: string,
+  projectId?: string | null,
+  extraBaseIds?: string[],
+  offset = 0,
+): string {
+  const bases = enabledBases(projectId, extraBaseIds);
+  const wanted = normalizeText(baseRef);
+  const base =
+    bases.find((b) => b.id === baseRef) ??
+    bases.find((b) => normalizeText(b.name) === wanted) ??
+    bases.find((b) => normalizeText(b.name).includes(wanted));
+  if (!base) {
+    const known = bases.map((b) => `"${b.name}"`).join(', ');
+    throw new Error(`Base "${baseRef}" não encontrada. Bases disponíveis: ${known || '(nenhuma)'}`);
+  }
+  const docs = listDocs(base.id);
+  const doc =
+    docs.find((d) => d.name === docName) ??
+    docs.find((d) => normalizeText(d.name) === normalizeText(docName));
+  if (!doc) {
+    const known = docs.map((d) => d.name).join(', ');
+    throw new Error(`Documento "${docName}" não existe na base "${base.name}". Documentos: ${known || '(nenhum)'}`);
+  }
+  const content = readDoc(base.id, doc.name) ?? '';
+  const start = Math.max(0, Math.floor(offset));
+  if (start >= content.length && content.length > 0) {
+    throw new Error(`Offset ${start} além do fim do documento (${content.length} caracteres)`);
+  }
+  const chunk = content.slice(start, start + READ_TOOL_CAP);
+  const remaining = content.length - (start + chunk.length);
+  const header = `# ${base.name} — ${doc.name} (caracteres ${start}–${start + chunk.length} de ${content.length})\n\n`;
+  const footer =
+    remaining > 0
+      ? `\n\n… (continua — chame de novo com offset=${start + chunk.length} para os ${remaining} caracteres restantes)`
+      : '';
+  return `${header}${chunk}${footer}`;
 }

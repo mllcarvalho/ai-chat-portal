@@ -14,6 +14,13 @@ export interface PendingApproval {
   cwd: string;
 }
 
+/** Pergunta do portal_ask_user aguardando resposta na UI. */
+export interface PendingQuestion {
+  callId: string;
+  question: string;
+  options: string[];
+}
+
 interface ChatState {
   isStreaming: boolean;
   requestId?: string;
@@ -21,15 +28,24 @@ interface ChatState {
   streamingParts: MessagePart[];
   /** O stream fica pausado no servidor enquanto isto não for respondido. */
   pendingApproval?: PendingApproval;
+  /** Idem: pergunta do assistente aguardando o usuário. */
+  pendingQuestion?: PendingQuestion;
   send: (text: string, attachments?: ChatAttachment[]) => Promise<void>;
   respondApproval: (approved: boolean) => void;
+  respondQuestion: (answer: string) => void;
   stop: () => void;
 }
 
 let abortController: AbortController | undefined;
 
 /** Ferramentas que podem criar/alterar arquivos da pasta de trabalho. */
-const FILE_MUTATING_TOOLS = ['portal_write_file', 'portal_run_command'];
+const FILE_MUTATING_TOOLS = [
+  'portal_write_file',
+  'portal_run_command',
+  'portal_edit_file',
+  'portal_delete_file',
+  'portal_move_file',
+];
 
 export const useChat = create<ChatState>((set, get) => ({
   isStreaming: false,
@@ -98,14 +114,24 @@ export const useChat = create<ChatState>((set, get) => ({
                 cwd: data.cwd,
               },
             }),
+          onUserQuestion: (data) =>
+            set({
+              pendingQuestion: {
+                callId: data.callId,
+                question: data.question,
+                options: data.options,
+              },
+            }),
           onToolResult: (data) => {
             if (data.ok && FILE_MUTATING_TOOLS.includes(data.toolName)) {
               useUi.getState().bumpFilesVersion();
             }
-            // desfecho do comando chegou (aprovado/negado/expirado): limpa o pedido
+            // desfecho do comando/pergunta chegou: limpa o pendente do mesmo callId
             const pending = get().pendingApproval;
+            const question = get().pendingQuestion;
             set({
               ...(pending?.callId === data.callId ? { pendingApproval: undefined } : {}),
+              ...(question?.callId === data.callId ? { pendingQuestion: undefined } : {}),
               streamingParts: [
                 ...get().streamingParts,
                 {
@@ -152,6 +178,7 @@ export const useChat = create<ChatState>((set, get) => ({
               streamingParts: [],
               requestId: undefined,
               pendingApproval: undefined,
+              pendingQuestion: undefined,
             });
           },
           onUsageUpdate: (data) => {
@@ -180,6 +207,7 @@ export const useChat = create<ChatState>((set, get) => ({
           streamingParts: [],
           requestId: undefined,
           pendingApproval: undefined,
+          pendingQuestion: undefined,
         });
         abortController = undefined;
       }
@@ -204,6 +232,16 @@ export const useChat = create<ChatState>((set, get) => ({
     });
   },
 
+  respondQuestion: (answer) => {
+    const { requestId, pendingQuestion } = get();
+    if (!requestId || !pendingQuestion || !answer.trim()) return;
+    // limpa já: o desfecho real chega no tool_result deste callId
+    set({ pendingQuestion: undefined });
+    api.respondQuestion(requestId, pendingQuestion.callId, answer.trim()).catch((err) => {
+      useUi.getState().toast((err as Error).message, 'error');
+    });
+  },
+
   stop: () => {
     const { requestId, isStreaming, streamingParts } = get();
     if (!isStreaming) return;
@@ -224,6 +262,7 @@ export const useChat = create<ChatState>((set, get) => ({
       streamingParts: [],
       requestId: undefined,
       pendingApproval: undefined,
+      pendingQuestion: undefined,
     });
   },
 }));

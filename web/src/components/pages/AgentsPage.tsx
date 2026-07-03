@@ -227,6 +227,20 @@ export function AgentsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const emailShare = async (id: string) => {
+    try {
+      const result = await api.shareByEmail('agent', id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
   const importAgentFiles = async (files: FileList) => {
     setBusy(true);
     let okCount = 0;
@@ -431,6 +445,19 @@ export function AgentsPage() {
                 >
                   Exportar
                 </span>
+                {!isBmadAsset(agent.id) && (
+                  <span
+                    role="button"
+                    className="mini-btn"
+                    title="Enviar por email (abre o cliente com o .agent.zip anexado — skills e bases vinculadas vão juntas)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void emailShare(agent.id);
+                    }}
+                  >
+                    ✉️
+                  </span>
+                )}
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"

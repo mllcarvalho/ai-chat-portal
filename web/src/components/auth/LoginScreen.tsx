@@ -4,9 +4,10 @@ import { useUi } from '../../stores/uiStore';
 
 /**
  * Porta de entrada do portal: usuário RACF + senha. As credenciais configuram
- * o proxy corporativo da máquina (http.proxy do VS Code + HTTP_PROXY/HTTPS_PROXY
- * no .bashrc/.zshrc) — por isso pedimos a cada abertura: senha de rede muda e
- * o proxy precisa acompanhar.
+ * o proxy corporativo da máquina (http.proxy do VS Code, HTTP_PROXY/HTTPS_PROXY
+ * no .bashrc/.zshrc e strict-ssl/always-auth/cafile no ~/.npmrc). O login fica
+ * gravado no navegador — refresh não pede de novo; para trocar de usuário ou
+ * atualizar a senha do proxy há o botão ↻ no rodapé da sidebar.
  */
 export function LoginScreen() {
   const setLoggedIn = useUi((s) => s.setLoggedIn);
@@ -93,8 +94,9 @@ export function LoginScreen() {
         </button>
         <p className="login-card__hint">
           Máquina pessoal, sem proxy corporativo? Deixe os dois campos em branco: nada é alterado
-          na máquina. Preenchendo, a senha não fica salva no portal — ela só entra na URL do proxy
-          gravada nas configurações (settings.json, .bashrc/.zshrc).
+          na máquina. Preenchendo, a senha entra só na URL do proxy gravada nas configurações
+          (settings.json, .bashrc/.zshrc, ~/.npmrc e a tela Rede do portal). O login fica salvo
+          neste navegador — use o ↻ da sidebar para relogar.
         </p>
       </div>
     </div>

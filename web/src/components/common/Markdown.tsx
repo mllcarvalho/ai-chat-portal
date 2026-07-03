@@ -2,6 +2,7 @@ import { memo, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import { MermaidBlock } from './MermaidBlock';
 
 function CodeBlock(props: { language?: string; children: ReactNode; raw: string }) {
   const [copied, setCopied] = useState(false);
@@ -45,6 +46,9 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
             const className =
               (child as { props?: { className?: string } })?.props?.className ?? '';
             const language = /language-([\w-]+)/.exec(className)?.[1];
+            if (language === 'mermaid') {
+              return <MermaidBlock code={extractText(children).trim()} />;
+            }
             return (
               <CodeBlock language={language} raw={extractText(children)}>
                 {children}

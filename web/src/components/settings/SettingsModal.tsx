@@ -16,17 +16,24 @@ export function SettingsModal() {
   const [config, setConfig] = useState<Omit<Config, 'token'>>();
   const [projectsRoot, setProjectsRoot] = useState('');
   const [httpsProxy, setHttpsProxy] = useState('');
+  const [httpProxy, setHttpProxy] = useState('');
   const [noProxy, setNoProxy] = useState('');
   const [extraCaCerts, setExtraCaCerts] = useState('');
   const [savingNet, setSavingNet] = useState(false);
+  const [msClientId, setMsClientId] = useState('');
+  const [msTenant, setMsTenant] = useState('');
+  const [savingMs, setSavingMs] = useState(false);
 
   useEffect(() => {
     void api.getConfig().then((c) => {
       setConfig(c);
       setProjectsRoot(c.projectsRoot);
       setHttpsProxy(c.network?.httpsProxy ?? '');
+      setHttpProxy(c.network?.httpProxy ?? '');
       setNoProxy(c.network?.noProxy ?? '');
       setExtraCaCerts(c.network?.extraCaCerts ?? '');
+      setMsClientId(c.microsoft?.clientId ?? '');
+      setMsTenant(c.microsoft?.tenant ?? '');
     });
   }, []);
 
@@ -52,18 +59,43 @@ export function SettingsModal() {
     }
   };
 
+  const saveMicrosoft = async () => {
+    setSavingMs(true);
+    try {
+      const updated = await api.patchConfig({
+        microsoft: {
+          clientId: msClientId.trim() || undefined,
+          tenant: msTenant.trim() || undefined,
+        },
+      });
+      setConfig(updated);
+      toast('Login Microsoft salvo. Adicione a URL do SharePoint de novo para entrar.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setSavingMs(false);
+    }
+  };
+
   const saveNetwork = async () => {
     setSavingNet(true);
     try {
       const updated = await api.patchConfig({
         network: {
           httpsProxy: httpsProxy.trim() || undefined,
+          httpProxy: httpProxy.trim() || undefined,
           noProxy: noProxy.trim() || undefined,
           extraCaCerts: extraCaCerts.trim() || undefined,
         },
       });
       setConfig(updated);
-      toast('Rede salva. Religue o servidor MCP (desligar/ligar) para aplicar.', 'ok');
+      // o servidor pode preencher o HTTP_PROXY a partir do HTTPS_PROXY
+      setHttpsProxy(updated.network?.httpsProxy ?? '');
+      setHttpProxy(updated.network?.httpProxy ?? '');
+      toast(
+        'Rede salva e reaplicada nos arquivos da máquina (VS Code, .bashrc/.zshrc, ~/.npmrc).',
+        'ok',
+      );
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -129,15 +161,22 @@ export function SettingsModal() {
       )}
 
       <div className="field">
-        <label>Rede corporativa (proxies MCP)</label>
+        <label>Rede corporativa (proxy)</label>
         <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
-          Use só se a conexão dos servidores MCP "Gateway OAuth2" falhar por timeout em hosts
-          internos. Vale para as chamadas de token e gateway dos proxies.
+          Os proxies são preenchidos pelo login (RACF + senha). Alterar aqui regrava os mesmos
+          arquivos do login: settings.json do VS Code, .bashrc/.zshrc e o cafile do ~/.npmrc.
+          Também vale para as conexões dos servidores MCP.
         </span>
         <input
           value={httpsProxy}
           onChange={(e) => setHttpsProxy(e.target.value)}
-          placeholder="HTTPS_PROXY — ex: http://proxy.empresa:8080"
+          placeholder="HTTPS_PROXY — ex: http://usuario:senha@proxy.empresa:8080"
+        />
+        <input
+          style={{ marginTop: 6 }}
+          value={httpProxy}
+          onChange={(e) => setHttpProxy(e.target.value)}
+          placeholder="HTTP_PROXY — vazio usa o mesmo valor do HTTPS_PROXY"
         />
         <input
           style={{ marginTop: 6 }}
@@ -149,7 +188,7 @@ export function SettingsModal() {
           style={{ marginTop: 6 }}
           value={extraCaCerts}
           onChange={(e) => setExtraCaCerts(e.target.value)}
-          placeholder="Caminho do PEM com a CA interna (opcional)"
+          placeholder="CA interna — caminho do PEM (vira o cafile do ~/.npmrc)"
         />
         <button
           className="btn"
@@ -158,6 +197,36 @@ export function SettingsModal() {
           onClick={() => void saveNetwork()}
         >
           {savingNet ? 'Salvando…' : 'Salvar rede'}
+        </button>
+      </div>
+
+      <div className="field">
+        <label>SharePoint (Microsoft Graph)</label>
+        <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+          Para sincronizar páginas e arquivos do SharePoint nas bases de conhecimento é preciso um
+          app registrado no Entra ID da empresa (a Microsoft não autoriza o app do VS Code a pedir
+          esses acessos). Peça ao time de identidade um app com: plataforma "Mobile and desktop
+          applications" com redirect http://localhost, cliente público habilitado e permissões
+          delegadas Sites.Read.All e Files.Read.All do Microsoft Graph.
+        </span>
+        <input
+          value={msClientId}
+          onChange={(e) => setMsClientId(e.target.value)}
+          placeholder="Client ID do app — ex: 1a2b3c4d-…"
+        />
+        <input
+          style={{ marginTop: 6 }}
+          value={msTenant}
+          onChange={(e) => setMsTenant(e.target.value)}
+          placeholder="Tenant (opcional) — ID/domínio do tenant; vazio = organizations"
+        />
+        <button
+          className="btn"
+          style={{ alignSelf: 'flex-start', marginTop: 8 }}
+          disabled={savingMs}
+          onClick={() => void saveMicrosoft()}
+        >
+          {savingMs ? 'Salvando…' : 'Salvar login Microsoft'}
         </button>
       </div>
 

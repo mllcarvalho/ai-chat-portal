@@ -13,7 +13,9 @@ import { registerKnowledgeRoutes } from './knowledge';
 import { registerConfigRoutes } from './config';
 import { registerLoginRoutes } from './login';
 import { registerBmadRoutes } from './bmad';
+import { registerCaptureRoutes } from './capture';
 import { registerCopilotRoutes } from './copilot';
+import { registerShareRoutes } from './share';
 
 export interface RouteDeps {
   context: vscode.ExtensionContext;
@@ -39,6 +41,8 @@ export function buildRouter(deps: RouteDeps): Router {
   registerConfigRoutes(router);
   registerLoginRoutes(router);
   registerBmadRoutes(router);
+  registerCaptureRoutes(router);
   registerCopilotRoutes(router);
+  registerShareRoutes(router);
   return router;
 }

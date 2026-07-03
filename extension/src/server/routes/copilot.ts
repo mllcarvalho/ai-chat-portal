@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { CopilotQuota } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
+import { requestInitFor } from '../../tools/netEnv';
 import { withTimeout } from '../../util';
 
 /**
@@ -119,12 +120,12 @@ async function githubSessionToken(): Promise<string> {
 async function fetchCopilotToken(): Promise<string> {
   if (copilotToken && Date.now() < copilotToken.expiresAt) return copilotToken.token;
   const res = await fetch(TOKEN_URL, {
-    headers: {
+    ...requestInitFor(TOKEN_URL, {
       Authorization: `token ${await githubSessionToken()}`,
       Accept: 'application/json',
       'User-Agent': 'AIChatPortal',
       'Editor-Version': `vscode/${vscode.version}`,
-    },
+    }),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`GitHub respondeu ${res.status} ao obter o token do Copilot`);
@@ -140,7 +141,7 @@ async function fetchCopilotToken(): Promise<string> {
 /** Resposta crua de GET /models, para o caminho normal e para o debug. */
 async function fetchModelsRaw(): Promise<{ status: number; body: string }> {
   const res = await fetch(MODELS_URL, {
-    headers: {
+    ...requestInitFor(MODELS_URL, {
       Authorization: `Bearer ${await fetchCopilotToken()}`,
       Accept: 'application/json',
       'User-Agent': 'AIChatPortal',
@@ -148,7 +149,7 @@ async function fetchModelsRaw(): Promise<{ status: number; body: string }> {
       'Editor-Plugin-Version': editorPluginVersion(),
       'Copilot-Integration-Id': 'vscode-chat',
       'X-GitHub-Api-Version': CAPI_API_VERSION,
-    },
+    }),
     signal: AbortSignal.timeout(8000),
   });
   return { status: res.status, body: await res.text() };
@@ -188,12 +189,12 @@ export async function getModelBilling(): Promise<Map<string, ModelBilling>> {
 
 async function fetchQuota(): Promise<CopilotQuota> {
   const res = await fetch(QUOTA_URL, {
-    headers: {
+    ...requestInitFor(QUOTA_URL, {
       Authorization: `token ${await githubSessionToken()}`,
       Accept: 'application/json',
       'User-Agent': 'AIChatPortal',
       'Editor-Version': `vscode/${vscode.version}`,
-    },
+    }),
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) throw new Error(`GitHub respondeu ${res.status} ao consultar a cota do Copilot`);

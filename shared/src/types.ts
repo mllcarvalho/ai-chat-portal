@@ -13,14 +13,31 @@ export interface Config {
   devOrigins?: string[];
   /** Rede corporativa para as conexões dos proxies MCP (proxy/CA). */
   network?: NetworkConfig;
+  /** Autenticação Microsoft para ler SharePoint via Graph. */
+  microsoft?: MicrosoftGraphConfig;
   /** Último usuário RACF informado no login (a senha nunca é persistida). */
   racfUser?: string;
+}
+
+/**
+ * App do Entra ID usado no login Microsoft (SharePoint). Obrigatório: a
+ * Microsoft não pré-autoriza o client ID do próprio VS Code a pedir escopos
+ * de SharePoint no Graph (erro AADSTS65002), então o login só funciona com um
+ * app registrado no tenant.
+ */
+export interface MicrosoftGraphConfig {
+  /** Application (client) ID do app registrado no Entra ID. */
+  clientId?: string;
+  /** Tenant: 'organizations' (default), 'common' ou o ID/domínio do tenant. */
+  tenant?: string;
 }
 
 /** Proxy e CA corporativos usados nas conexões dos proxies MCP (token + gateway). */
 export interface NetworkConfig {
   /** Ex.: http://proxy.empresa:8080 — usado para hosts HTTPS/HTTP. */
   httpsProxy?: string;
+  /** HTTP_PROXY dos rc/env — normalmente o mesmo valor do httpsProxy. */
+  httpProxy?: string;
   /** Lista separada por vírgula de hosts que NÃO passam pelo proxy. */
   noProxy?: string;
   /** Caminho de um arquivo PEM com a(s) CA(s) internas (NODE_EXTRA_CA_CERTS). */

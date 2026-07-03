@@ -1,6 +1,7 @@
 import { Router, sendError, sendJson } from '../router';
 import { getConfig, patchConfig } from '../../storage/configStore';
 import {
+  applyNpmrcSettings,
   applyProxyToProcessEnv,
   applyProxyToRcFiles,
   applyProxyToVsCode,
@@ -43,7 +44,7 @@ export function registerLoginRoutes(router: Router): void {
     }
     let rcFiles: string[] = [];
     try {
-      rcFiles = applyProxyToRcFiles(proxyUrl).updated;
+      rcFiles = applyProxyToRcFiles(proxyUrl, proxyUrl).updated;
     } catch (err) {
       sendError(
         res,
@@ -52,8 +53,23 @@ export function registerLoginRoutes(router: Router): void {
       );
       return;
     }
-    applyProxyToProcessEnv(proxyUrl);
-    patchConfig({ racfUser: username });
+    const network = getConfig().network;
+    try {
+      rcFiles.push(applyNpmrcSettings(network?.extraCaCerts));
+    } catch (err) {
+      sendError(
+        res,
+        500,
+        `Proxy configurado no VS Code e no shell, mas falhou ao gravar o ~/.npmrc: ${(err as Error).message}`,
+      );
+      return;
+    }
+    applyProxyToProcessEnv(proxyUrl, proxyUrl);
+    // os valores ficam visíveis/editáveis na tela de Configurações (rede)
+    patchConfig({
+      racfUser: username,
+      network: { ...network, httpProxy: proxyUrl, httpsProxy: proxyUrl },
+    });
     sendJson(res, 200, { ok: true, username, proxyHost: proxyHost(), rcFiles });
   });
 }

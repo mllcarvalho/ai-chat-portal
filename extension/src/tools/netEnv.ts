@@ -147,6 +147,22 @@ export function requestInitFor(urlStr: string, headers?: Record<string, string>)
   } as RequestInit;
 }
 
+/**
+ * http.proxy do settings do VS Code — o VS Code injeta esse proxy no fetch de
+ * TODAS as extensões, então um valor obsoleto ali derruba as chamadas do
+ * portal mesmo com env/config certos. Require dinâmico para os testes fora do
+ * VS Code não quebrarem.
+ */
+function vsCodeProxySetting(): string | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const vscode = require('vscode') as typeof import('vscode');
+    return vscode.workspace?.getConfiguration('http').get<string>('proxy') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Resumo do que está configurado, para anexar a erros de timeout. */
 export function netStatus(urlStr?: string): string {
   const proxyRaw = netConfig().httpsProxy
@@ -179,5 +195,7 @@ export function netStatus(urlStr?: string): string {
       // ignora url inválida
     }
   }
-  return `proxy=${proxyRaw}; CA=${caStatus}; ${applied}`;
+  const vsProxy = vsCodeProxySetting();
+  const vsPart = vsProxy ? `; http.proxy do VS Code=${vsProxy} (vale para o fetch da extensão)` : '';
+  return `proxy=${proxyRaw}; CA=${caStatus}; ${applied}${vsPart}`;
 }

@@ -26,12 +26,17 @@ export interface ConfirmOptions {
 }
 
 const HIDE_TOOL_CARDS_KEY = 'aiportal.hideToolCards';
+const LOGGED_IN_KEY = 'aiportal.loggedIn';
 
 interface UiState {
   view: MainView;
   panel: PanelKind;
   toasts: Toast[];
-  /** Login RACF feito nesta aba (não persiste: cada abertura do portal pede de novo). */
+  /**
+   * Login RACF feito neste navegador — persiste entre refreshes (localStorage).
+   * Para trocar de usuário ou atualizar a senha do proxy, o botão ↻ ao lado do
+   * nome do usuário (rodapé da sidebar) volta para a tela de login.
+   */
   loggedIn: boolean;
   setLoggedIn: (loggedIn: boolean) => void;
   /**
@@ -65,8 +70,11 @@ export const useUi = create<UiState>((set, get) => ({
   view: 'home',
   panel: { kind: 'none' },
   toasts: [],
-  loggedIn: false,
-  setLoggedIn: (loggedIn) => set({ loggedIn }),
+  loggedIn: localStorage.getItem(LOGGED_IN_KEY) === '1',
+  setLoggedIn: (loggedIn) => {
+    localStorage.setItem(LOGGED_IN_KEY, loggedIn ? '1' : '0');
+    set({ loggedIn });
+  },
   hideToolCards: localStorage.getItem(HIDE_TOOL_CARDS_KEY) === '1',
   setHideToolCards: (hide) => {
     localStorage.setItem(HIDE_TOOL_CARDS_KEY, hide ? '1' : '0');

@@ -108,6 +108,7 @@ export function Sidebar() {
       <div className="sidebar__scroll">
         <div className="sidebar__section-title">
           Projetos
+          {projects.length > 0 && <span className="sidebar__section-count">{projects.length}</span>}
           <button
             title="Novo projeto"
             onClick={() => openPanel({ kind: 'newProject' })}
@@ -169,7 +170,12 @@ export function Sidebar() {
           </div>
         ))}
 
-        <div className="sidebar__section-title">Conversas</div>
+        <div className="sidebar__section-title">
+          Conversas avulsas
+          {standalone.length > 0 && (
+            <span className="sidebar__section-count">{standalone.length}</span>
+          )}
+        </div>
         {standalone.map((session) => (
           <SessionItem key={session.id} session={session} />
         ))}
@@ -177,20 +183,17 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__footer">
-        <button className="sidebar__footer-btn" onClick={() => setView('home')}>
-          🏠 Início
-        </button>
         <button className="sidebar__footer-btn" onClick={() => setView('agents')}>
           🤖 Agentes
         </button>
         <button className="sidebar__footer-btn" onClick={() => setView('skills')}>
           ⚡ Skills
         </button>
-        <button className="sidebar__footer-btn" onClick={() => setView('mcps')}>
-          🔧 Servidores MCP
-        </button>
         <button className="sidebar__footer-btn" onClick={() => setView('knowledge')}>
           📚 Conhecimento
+        </button>
+        <button className="sidebar__footer-btn" onClick={() => setView('mcps')}>
+          🔧 Servidores MCP
         </button>
         <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
           ⚙️ Configurações

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BmadStatus, Project } from '@aiportal/shared';
+import type { BmadStatus } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { api } from '../../api/client';
@@ -10,12 +10,9 @@ import { EmptyState, Panel } from '../pages/PageShell';
  * Painel da integração BMAD: a instalação é GLOBAL (vale para todos os
  * projetos); só os documentos gerados ficam na pasta deste projeto.
  */
-function BmadPanel({ project }: { project: Project }) {
-  const newSession = useSessions((s) => s.newSession);
-  const catalogAgents = useCatalog((s) => s.agents);
+function BmadPanel() {
   const loadAgents = useCatalog((s) => s.loadAgents);
   const loadSkills = useCatalog((s) => s.loadSkills);
-  const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const [status, setStatus] = useState<BmadStatus | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
@@ -80,23 +77,13 @@ function BmadPanel({ project }: { project: Project }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // personas desabilitadas (Configurações → Agentes BMAD) ficam fora da lista
-  const visibleAgents = (status?.agents ?? []).filter(
-    (agent) => catalogAgents.find((a) => a.id === agent.presetId)?.enabled !== false,
-  );
+  // instalado e saudável = nada a mostrar: as personas já estão no seletor de
+  // agente do chat e as ações na barra BMAD — o painel só aparece para
+  // instalar, acompanhar a instalação ou reportar erro
+  if (status?.installed && !status.installing && !status.error && !apiError) return null;
 
   return (
-    <Panel
-      title="BMAD — time de produto"
-      count={status?.installed ? visibleAgents.length : undefined}
-      actions={
-        status?.installed && !status.installing ? (
-          <button className="btn btn--sm" onClick={() => void install()} title="Reinstalar / atualizar">
-            ↻ Atualizar
-          </button>
-        ) : undefined
-      }
-    >
+    <Panel title="BMAD — time de produto">
       {apiError && !status && (
         <EmptyState
           icon="⚠️"
@@ -147,38 +134,6 @@ function BmadPanel({ project }: { project: Project }) {
           {status.error}
         </p>
       )}
-      {status?.installed && !status.installing && (
-        <>
-          {visibleAgents.map((agent) => (
-            <div className="page-list-item page-list-item--static" key={agent.presetId}>
-              <span className="item-card__name">
-                {agent.icon ?? '🅱️'} {agent.name}
-              </span>
-              <span className="item-card__desc">{agent.description || '—'}</span>
-              <span className="page-list-item__actions">
-                <span
-                  role="button"
-                  className="mini-btn"
-                  title="Nova conversa neste projeto com esta persona"
-                  onClick={() => {
-                    setView('chat');
-                    void newSession(project.id, { agentId: agent.presetId });
-                  }}
-                >
-                  Conversar →
-                </span>
-              </span>
-            </div>
-          ))}
-          <p className="page-hint" style={{ marginTop: 10 }}>
-            Instalação global: as personas e os +{status.skillCount} workflows (<code>/bmad-…</code>)
-            valem em todos os projetos. Os documentos gerados ficam em{' '}
-            <code>_bmad-output/</code> do projeto da conversa. Digite <code>/bmad</code> no chat
-            para ver os comandos (ex: <code>/bmad-create-prd</code>, <code>/bmad-party-mode</code>,{' '}
-            <code>/bmad-help</code>).
-          </p>
-        </>
-      )}
     </Panel>
   );
 }
@@ -191,7 +146,6 @@ export function ProjectHome() {
   const newSession = useSessions((s) => s.newSession);
   const selectSession = useSessions((s) => s.selectSession);
   const openProject = useSessions((s) => s.openProject);
-  const openPanel = useUi((s) => s.openPanel);
   const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
@@ -239,15 +193,6 @@ export function ProjectHome() {
         <div className="page__actions">
           <button className="btn btn--primary" onClick={() => void newSession(project.id)}>
             ＋ Nova conversa
-          </button>
-          <button className="btn" onClick={() => openPanel({ kind: 'files' })}>
-            📄 Arquivos
-          </button>
-          <button className="btn" onClick={() => setView('skills')}>
-            ⚡ Skills
-          </button>
-          <button className="btn" onClick={() => setView('knowledge')}>
-            📚 Conhecimento
           </button>
           <button className="btn btn--danger" onClick={() => void removeProject()} title="Remover projeto do portal">
             Remover
@@ -303,7 +248,7 @@ export function ProjectHome() {
               </div>
             </Panel>
 
-            <BmadPanel project={project} />
+            <BmadPanel />
           </div>
         </div>
       </div>

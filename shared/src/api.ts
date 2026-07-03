@@ -40,6 +40,12 @@ export interface ChatSseEvents {
    * o desfecho chega no tool_result do mesmo callId.
    */
   approval_request: { callId: string; toolName: string; command: string; cwd: string };
+  /**
+   * Pergunta do portal_ask_user aguardando o usuário. O stream fica pausado até
+   * POST /api/chat/:requestId/question { callId, answer } (ou timeout);
+   * o desfecho chega no tool_result do mesmo callId.
+   */
+  user_question: { callId: string; toolName: string; question: string; options: string[] };
   tool_result: {
     callId: string;
     toolName: string;

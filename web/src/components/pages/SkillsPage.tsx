@@ -134,6 +134,20 @@ export function SkillsPage() {
     }
   };
 
+  const emailShare = async (id: string) => {
+    try {
+      const result = await api.shareByEmail('skill', id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
   const edit = async (skill: Skill) => {
     try {
       const full = await api.getSkill(skill.id);
@@ -285,6 +299,19 @@ export function SkillsPage() {
                 >
                   ⬇ Baixar
                 </span>
+                {!isBmadAsset(skill.id) && (
+                  <span
+                    role="button"
+                    className="mini-btn"
+                    title="Enviar por email (abre o cliente com o .md anexado — re-importável pelo botão Importar)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void emailShare(skill.id);
+                    }}
+                  >
+                    ✉️
+                  </span>
+                )}
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"

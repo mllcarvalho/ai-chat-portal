@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { slugifyCommand, type KnowledgeBase, type KnowledgeDoc } from '@aiportal/shared';
-import { api } from '../../api/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  DEFAULT_PORT,
+  PORT_RANGE,
+  slugifyCommand,
+  type KnowledgeBase,
+  type KnowledgeDoc,
+} from '@aiportal/shared';
+import { api, getToken } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -30,6 +36,55 @@ export function KnowledgePage() {
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteName, setRemoteName] = useState('');
+  const [captureModal, setCaptureModal] = useState(false);
+  const [movingDoc, setMovingDoc] = useState<KnowledgeDoc | undefined>();
+
+  /**
+   * Bookmarklet "Enviar para o portal": roda DENTRO da aba onde a página está
+   * aberta (e autenticada, ex.: SharePoint via SSO), extrai o conteúdo
+   * renderizado e posta no servidor local. Tenta a porta atual do portal e,
+   * se ela mudou (failover entre janelas), varre a faixa de portas. Sites cuja
+   * CSP (connect-src) bloqueia fetch para 127.0.0.1 caem no plano B: um popup
+   * da página-ponte do portal recebe o conteúdo por postMessage — que a CSP
+   * não alcança — e salva de lá (same-origin).
+   */
+  const bookmarklet = useMemo(() => {
+    const ports = [
+      ...new Set([
+        Number(window.location.port) || DEFAULT_PORT,
+        ...Array.from({ length: PORT_RANGE + 1 }, (_, i) => DEFAULT_PORT + i),
+      ]),
+    ];
+    const code = [
+      '(function(){',
+      `var P=${JSON.stringify(ports)};`,
+      "var m=document.querySelector('main,[role=\"main\"],[data-automation-id=\"contentScrollRegion\"],#spPageCanvasContent')||document.body;",
+      'var h=m.outerHTML;if(h.length>3000000)h=h.slice(0,3000000);',
+      `var b=JSON.stringify({token:${JSON.stringify(getToken())},title:document.title,url:location.href,html:h});`,
+      'function n(t,e){var d=document.createElement("div");d.textContent=t;',
+      'd.style.cssText="position:fixed;top:16px;right:16px;z-index:2147483647;background:"+(e?"#c93a2c":"#16294b")+";color:#fff;padding:10px 14px;border-radius:8px;font:13px/1.4 sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:340px";',
+      'document.body.appendChild(d);setTimeout(function(){d.remove()},6000)}',
+      'function u(i){return "http://127.0.0.1:"+P[i]}',
+      'function T(){try{return AbortSignal.timeout(1500)}catch(_){return undefined}}',
+      // plano B (CSP bloqueou o fetch): popup da ponte + postMessage
+      'function p(){var i=0,t,w=window.open(u(0)+"/api/capture/bridge","aiportal_capture","width=440,height=230");',
+      'if(!w){n("O navegador bloqueou o popup do portal — permita popups neste site e clique de novo",1);return}',
+      'function x(){i++;if(i>=P.length){try{w.close()}catch(_){}n("Portal não encontrado — ele está aberto no VS Code?",1);return}',
+      'try{w.location=u(i)+"/api/capture/bridge"}catch(_){}t=setTimeout(x,1400)}',
+      't=setTimeout(x,1400);',
+      'window.addEventListener("message",function(e){var d=e.data;if(!d||e.origin.indexOf("http://127.0.0.1:")!==0)return;',
+      'if(d.type==="aiportal-bridge-ready"){clearTimeout(t);e.source.postMessage({type:"aiportal-capture",payload:JSON.parse(b)},e.origin)}',
+      'if(d.type==="aiportal-capture-result"){if(d.ok)n("✓ Salvo no portal: "+d.doc+" (base \\""+d.base+"\\")");else n("Portal: "+(d.error||"erro"),1)}})}',
+      'function a(i){if(i>=P.length){p();return}',
+      'fetch(u(i)+"/api/capture",{method:"POST",headers:{"Content-Type":"text/plain"},body:b,signal:T()})',
+      '.then(function(r){return r.json()})',
+      '.then(function(d){if(d&&d.ok)n("✓ Salvo no portal: "+d.doc+" (base \\""+d.base+"\\")");else n("Portal: "+((d&&d.error)||"erro"),1)})',
+      '.catch(function(){a(i+1)})}',
+      'a(0);',
+      '})()',
+    ].join('');
+    return `javascript:${encodeURIComponent(code)}`;
+  }, []);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,6 +102,20 @@ export function KnowledgePage() {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  /**
+   * Recarrega bases e documentos sob demanda — capturas do navegador chegam
+   * por fora desta tela (bookmarklet) e não aparecem sozinhas.
+   */
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      await reload();
+      if (selected) setDocs(await api.listKnowledgeDocs(selected.id).catch(() => []));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const select = async (base: KnowledgeBase) => {
     setSelected(base);
@@ -80,6 +149,20 @@ export function KnowledgePage() {
   const exportBase = async (base: KnowledgeBase) => {
     try {
       await api.exportKnowledgeBase(base.id, `${slugifyCommand(base.name) || 'base'}.zip`);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const emailShare = async (kind: 'knowledge', id: string) => {
+    try {
+      const result = await api.shareByEmail(kind, id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
     } catch (err) {
       toast((err as Error).message, 'error');
     }
@@ -242,6 +325,26 @@ export function KnowledgePage() {
     }
   };
 
+  const moveDocTo = async (target: KnowledgeBase) => {
+    if (!selected || !movingDoc) return;
+    setBusy(true);
+    try {
+      await api.moveKnowledgeDoc(selected.id, movingDoc.name, target.id);
+      if (docName === movingDoc.name) {
+        setDocName('');
+        setDocContent('');
+      }
+      toast(`"${movingDoc.name}" movido para "${target.name}".`, 'ok');
+      setMovingDoc(undefined);
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeDoc = async (doc: KnowledgeDoc) => {
     if (!selected) return;
     const ok = await confirm({
@@ -264,7 +367,7 @@ export function KnowledgePage() {
     <PageShell
       icon="📚"
       title="Bases de conhecimento"
-      subtitle="Documentos .md/.txt injetados no contexto das conversas — enviados do computador ou sincronizados de uma URL (GitHub Pages, markdown publicado…). Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
+      subtitle="Documentos usados como contexto das conversas — enviados do computador ou sincronizados de uma URL (GitHub Pages, SharePoint, markdown publicado…; Word/Excel/PowerPoint/PDF são convertidos para texto). Bases pequenas entram inteiras no contexto; quando crescem, a IA passa a buscar nelas sob demanda. Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
       actions={
         <>
           <input
@@ -285,6 +388,13 @@ export function KnowledgePage() {
             title="Importar uma base exportada em .zip"
           >
             📦 Importar .zip
+          </button>
+          <button
+            className="btn"
+            onClick={() => setCaptureModal(true)}
+            title="Capturar páginas abertas no navegador (SharePoint, intranet…) sem configurar nada"
+          >
+            🔖 Capturar do navegador
           </button>
           <button className="btn btn--primary" onClick={() => setBaseModal(true)}>
             ＋ Nova base
@@ -333,6 +443,17 @@ export function KnowledgePage() {
                 </span>
                 <span
                   role="button"
+                  className="mini-btn"
+                  title="Enviar por email (abre o cliente com o .zip anexado)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void emailShare('knowledge', base.id);
+                  }}
+                >
+                  ✉️
+                </span>
+                <span
+                  role="button"
                   className="mini-btn mini-btn--danger"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -362,7 +483,17 @@ export function KnowledgePage() {
           title={selected ? `Documentos · ${selected.name}` : 'Documentos'}
           count={selected ? docs.length : undefined}
           actions={
-            selected && (
+            <>
+              <button
+                className="btn btn--sm"
+                disabled={busy}
+                onClick={() => void refresh()}
+                title="Atualizar as listas — capturas do navegador não aparecem sozinhas"
+                aria-label="Atualizar listas"
+              >
+                🔄
+              </button>
+              {selected && (
               <>
                 <input
                   ref={uploadInputRef}
@@ -388,7 +519,7 @@ export function KnowledgePage() {
                   className="btn btn--sm"
                   disabled={busy}
                   onClick={() => setUrlFormOpen((open) => !open)}
-                  title="Adicionar documento a partir de uma URL (GitHub Pages, markdown publicado…)"
+                  title="Adicionar documento a partir de uma URL (GitHub Pages, página ou arquivo de SharePoint, markdown publicado…)"
                   aria-label="Adicionar por URL"
                 >
                   🔗
@@ -416,7 +547,8 @@ export function KnowledgePage() {
                   ＋
                 </button>
               </>
-            )
+              )}
+            </>
           }
         >
           {selected ? (
@@ -428,7 +560,7 @@ export function KnowledgePage() {
                     <input
                       value={remoteUrl}
                       onChange={(e) => setRemoteUrl(e.target.value)}
-                      placeholder="https://exemplo.github.io/docs/guia.html"
+                      placeholder="https://exemplo.github.io/docs/guia.html ou https://empresa.sharepoint.com/sites/…"
                     />
                   </div>
                   <div className="field">
@@ -475,6 +607,17 @@ export function KnowledgePage() {
                         Sincronizar
                       </span>
                     )}
+                    <span
+                      role="button"
+                      className="mini-btn"
+                      title="Mover para outra base de conhecimento"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMovingDoc(doc);
+                      }}
+                    >
+                      Mover
+                    </span>
                     <span
                       role="button"
                       className="mini-btn mini-btn--danger"
@@ -597,6 +740,81 @@ export function KnowledgePage() {
           >
             📦 Importar .zip
           </button>
+        </Modal>
+      )}
+
+      {movingDoc && selected && (
+        <Modal title="Mover documento" onClose={() => setMovingDoc(undefined)}>
+          <p style={{ marginTop: 0 }}>
+            Mover <strong>{movingDoc.name}</strong> de "{selected.name}" para:
+          </p>
+          {bases
+            .filter((b) => b.id !== selected.id)
+            .map((b) => (
+              <button
+                key={b.id}
+                className="btn"
+                disabled={busy}
+                style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 6 }}
+                onClick={() => void moveDocTo(b)}
+              >
+                {b.scope === 'project' ? '📁' : '🌐'} {b.name}
+                <span style={{ color: 'var(--text-dim)', marginLeft: 'auto', fontSize: 12 }}>
+                  {b.docCount} doc{b.docCount === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          {bases.filter((b) => b.id !== selected.id).length === 0 && (
+            <p style={{ color: 'var(--text-dim)', margin: 0 }}>
+              Não há outra base para receber o documento — crie uma em "Nova base" primeiro.
+            </p>
+          )}
+        </Modal>
+      )}
+
+      {captureModal && (
+        <Modal title="🔖 Capturar do navegador" onClose={() => setCaptureModal(false)}>
+          <p style={{ marginTop: 0 }}>
+            Para páginas que exigem login no navegador (SharePoint, intranet…): o botão abaixo roda
+            na própria aba onde a página está aberta e envia o conteúdo para o portal — sem
+            configurar nada no Entra ID.
+          </p>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              padding: '14px 0',
+            }}
+          >
+            <a
+              className="btn btn--primary"
+              href={bookmarklet}
+              draggable
+              onClick={(e) => e.preventDefault()}
+              title="Arraste este botão para a barra de favoritos do navegador"
+            >
+              📥 Enviar para o portal
+            </a>
+          </div>
+          <ol style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.7 }}>
+            <li>
+              <strong>Arraste o botão acima</strong> para a barra de favoritos (Ctrl/Cmd+Shift+B
+              mostra a barra).
+            </li>
+            <li>Abra a página que quer capturar, já logado normalmente.</li>
+            <li>
+              Clique no favorito: a página vira um documento na base{' '}
+              <strong>"Capturas do navegador"</strong>. Clicar de novo na mesma página atualiza o
+              documento.
+            </li>
+          </ol>
+          <p style={{ color: 'var(--text-dim)', fontSize: 12.5, margin: 0 }}>
+            O favorito carrega o token do seu portal — não compartilhe. Se o portal estiver
+            fechado ou o token mudar, gere o favorito de novo aqui. Em páginas com política de
+            segurança rígida (CSP), o envio abre uma janelinha do portal para completar a captura
+            — permita popups do site se o navegador perguntar. Depois de capturado, dá para mover
+            o documento da base "Capturas do navegador" para qualquer outra base (botão "Mover").
+          </p>
         </Modal>
       )}
     </PageShell>

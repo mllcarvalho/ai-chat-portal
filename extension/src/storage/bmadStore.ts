@@ -125,10 +125,133 @@ function adapterFor(skillFolder: string): string {
     `Documentos do trabalho ({project-root}, {output_folder}, _bmad-output/…): use portal_read_file / portal_write_file ` +
     `na pasta de trabalho da conversa — saídas vão em _bmad-output/ (ex: _bmad-output/planning-artifacts/prd.md). ` +
     `Conversas fora de projeto também têm pasta de trabalho (o workspace da conversa); use-a do mesmo jeito. ` +
+    `Pesquisa na web: EXISTE neste ambiente — instruções de "web search" (ex: "Search the web: X") viram ` +
+    `portal_web_search (descobre as fontes) + portal_fetch_url (lê a página); cite as URLs reais dos resultados, ` +
+    `nunca uma URL que você não abriu. Alguns sites são bloqueados na rede: se um falhar, siga para outro resultado. ` +
+    `Subagentes ("spawn/launch subagents", subprocesses): use portal_spawn_subagent — chamadas na mesma rodada ` +
+    `rodam em paralelo. Os subagentes do portal SÓ LEEM: quando a skill mandar um subagente ESCREVER um arquivo ` +
+    `(ex: review-*.md, artefatos em .working/), peça o conteúdo como resposta do subagente e grave você mesmo ` +
+    `com portal_write_file. ` +
+    `Artefatos visuais: NÃO há navegador no servidor (webbrowser.open não existe) — mas arquivos .html e ` +
+    `.excalidraw gravados têm preview embutido no painel Arquivos da conversa, e diagramas Mermaid renderizam ` +
+    `nos balões do chat e nos .md; em vez de "abrir no navegador", diga ao usuário para clicar no arquivo no ` +
+    `painel Arquivos. ` +
     commandsNote +
     `\n\n`
   );
 }
+
+/**
+ * Roster de personas para o party mode: as mesmas 4 camadas que o
+ * resolve_config.py mescla (base → base.user → custom → custom.user), lidas
+ * direto para não depender de python na ativação da skill.
+ */
+function bmadAgentRoster(): Array<{
+  code: string;
+  name: string;
+  title: string;
+  icon: string;
+  description: string;
+}> {
+  const merged = new Map<string, Record<string, string>>();
+  const layers = [
+    'config.toml',
+    'config.user.toml',
+    path.join('custom', 'config.toml'),
+    path.join('custom', 'config.user.toml'),
+  ];
+  for (const rel of layers) {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(path.join(bmadRootDir(), '_bmad', rel), 'utf8');
+    } catch {
+      continue;
+    }
+    let current: Record<string, string> | undefined;
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      const section = /^\[agents\.([^\]]+)\]$/.exec(trimmed);
+      if (section) {
+        current = merged.get(section[1]) ?? {};
+        merged.set(section[1], current);
+        continue;
+      }
+      if (trimmed.startsWith('[')) {
+        current = undefined;
+        continue;
+      }
+      if (!current) continue;
+      const kv = /^(\w+)\s*=\s*"(.*)"\s*$/.exec(trimmed);
+      if (kv) current[kv[1]] = kv[2];
+    }
+  }
+  return [...merged.entries()]
+    .map(([code, v]) => ({
+      code,
+      name: v.name ?? code,
+      title: v.title ?? '',
+      icon: v.icon ?? '🅱️',
+      description: v.description ?? '',
+    }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
+ * Nota extra da skill bmad-party-mode: mapeia a orquestração (pensada para o
+ * Agent tool do Claude Code) para portal_spawn_subagent e embute o roster já
+ * resolvido, para a discussão funcionar igual ao BMAD tradicional.
+ */
+function partyModeAdapter(): string {
+  const roster = bmadAgentRoster();
+  const rosterLines = roster
+    .map((a) => `> - ${a.icon} **${a.name}** — ${a.title} (\`${a.code}\`): ${a.description}`)
+    .join('\n');
+  return (
+    `> **Party mode no AI Product BMAD Chat** — mapeie a orquestração desta skill assim: o "Agent tool" ` +
+    `é a ferramenta portal_spawn_subagent. UMA chamada por persona escolhida na rodada, todas na MESMA ` +
+    `resposta (rodam em paralelo). Em cada chamada: label = "{icon} {name}" e task = o prompt do template ` +
+    `da skill JÁ PREENCHIDO (persona, contexto da discussão, o que os outros agentes disseram quando for ` +
+    `reação, mensagem do usuário e guidelines). Os subagentes NÃO veem a conversa nem uns aos outros — tudo ` +
+    `precisa ir na task; não use personaPath nem personaAgent aqui (a persona vai no próprio template). ` +
+    `Cada resposta de subagente já aparece como um balão próprio no chat, identificado pelo label: NÃO ` +
+    `repita nem resuma as respostas no seu texto — no máximo a "Orchestrator Note" curta. Pule o passo do ` +
+    `resolve_config.py: o roster já resolvido está abaixo. O flag --model vira o parâmetro modelId do ` +
+    `subagente; --solo funciona como descrito na skill.\n>\n` +
+    `> Roster resolvido (use name/title/icon/description no template de cada agente):\n` +
+    `${rosterLines}\n\n`
+  );
+}
+
+/** As 3 skills de research exigem web search como pré-requisito hard ("abort if unavailable"). */
+const RESEARCH_NOTE =
+  `> **Web search neste ambiente** — o pré-requisito de web search desta skill é ATENDIDO pela ferramenta ` +
+  `portal_web_search: NÃO aborte na ativação. Fluxo: portal_web_search para cada busca que os steps pedirem, ` +
+  `portal_fetch_url para ler as fontes relevantes, e cite as URLs REAIS dos resultados — nunca preencha ` +
+  `"_Source: [URL]_" com uma URL que você não abriu. Sites bloqueados pela rede corporativa: troque de fonte. ` +
+  `Dado que não conseguir verificar em fonte viva entra como "[SUPOSIÇÃO — não verificada]", nunca como fato ` +
+  `com fonte.\n\n`;
+
+/**
+ * Notas de adaptação por skill, prefixadas depois do adapter genérico: cobrem
+ * mecânicas que a skill descreve em termos do Claude Code e que no portal têm
+ * outra tradução (ou fallback) — sem tocar no corpo da skill.
+ */
+const SKILL_ADAPTER_NOTES: Record<string, () => string> = {
+  'bmad-party-mode': partyModeAdapter,
+  'bmad-market-research': () => RESEARCH_NOTE,
+  'bmad-domain-research': () => RESEARCH_NOTE,
+  'bmad-technical-research': () => RESEARCH_NOTE,
+  'bmad-shard-doc': () =>
+    `> **Fallback do shard neste ambiente** — se o npx do @kayvan/markdown-tree-parser não existir ou o ` +
+    `comando for negado, NÃO dê HALT: faça o shard manualmente, replicando o explode — leia o documento com ` +
+    `portal_read_file, divida nas seções de nível 2 (##), grave cada seção como arquivo próprio (nome ` +
+    `kebab-case do título) com portal_write_file e gere o index.md com os links.\n\n`,
+  'bmad-customize': () =>
+    `> **Persistência dos overrides neste ambiente** — grave os arquivos de customização com a ferramenta ` +
+    `bmad_write_custom (caminhos _bmad/custom/<skill>.toml ou <skill>.user.toml), NUNCA com portal_write_file: ` +
+    `a pasta da conversa não é lida pelas skills na ativação. A instalação BMAD é global, então o override ` +
+    `gravado vale para todas as conversas do portal — avise isso ao usuário antes de gravar.\n\n`,
+};
 
 function bmadSkillFolders(): string[] {
   try {
@@ -161,7 +284,8 @@ export function registerBmadAssets(): { agents: number; skills: number } {
   for (const folder of bmadSkillFolders()) {
     const parsed = parseSkillMd(path.join(bmadRootDir(), SKILLS_SUBDIR, folder, 'SKILL.md'));
     if (!parsed) continue;
-    const content = adapterFor(folder) + parsed.body;
+    const content =
+      adapterFor(folder) + (SKILL_ADAPTER_NOTES[folder]?.() ?? '') + parsed.body;
     if (folder.startsWith('bmad-agent-')) {
       const id = PRESET_PREFIX + folder;
       upsertAgentWithId(id, {

@@ -76,9 +76,16 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       return;
     }
 
+    // o bookmarklet "Enviar para o portal" posta de páginas externas
+    // (SharePoint, intranet…): a origem é liberada SÓ nestas rotas e a
+    // autenticação é o token do portal dentro do corpo (validado na rota);
+    // /bridge é a página-ponte que o bookmarklet abre quando a CSP do site
+    // bloqueia o fetch direto
+    const isCapture = url.pathname === '/api/capture' || url.pathname === '/api/capture/bridge';
+
     const origin = req.headers.origin;
     if (origin) {
-      if (!isAllowedOrigin(origin, opts.config)) {
+      if (!isCapture && !isAllowedOrigin(origin, opts.config)) {
         sendError(res, 403, 'Origem não permitida');
         return;
       }
@@ -86,6 +93,9 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${TOKEN_HEADER}`);
+      // Chrome/Edge exigem este header no preflight de sites públicos para
+      // 127.0.0.1 (Private Network Access)
+      res.setHeader('Access-Control-Allow-Private-Network', 'true');
     }
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -95,7 +105,7 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
 
     if (url.pathname.startsWith('/api/')) {
       // health é aberto para o setup/onboarding poderem diagnosticar sem token
-      if (url.pathname !== '/api/health') {
+      if (url.pathname !== '/api/health' && !isCapture) {
         const token =
           req.headers[TOKEN_HEADER.toLowerCase()] ?? url.searchParams.get('token') ?? '';
         if (token !== opts.config.token) {

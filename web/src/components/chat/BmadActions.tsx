@@ -267,37 +267,45 @@ export function BmadActions() {
   };
 
   return (
-    <div className={`bmad-actions${collapsed ? ' bmad-actions--collapsed' : ''}`}>
-      <button
-        className="bmad-actions__toggle"
-        onClick={toggle}
-        title={collapsed ? 'Mostrar ações BMAD' : 'Ocultar ações BMAD'}
-      >
-        🅱️ Ações {collapsed ? '▸' : '▾'}
-      </button>
-      {!collapsed && (
-        <div className="bmad-actions__groups">
-          {available.map((group) => (
-            <span className="bmad-actions__group" key={group.title}>
-              <span className="bmad-actions__group-title">{group.title}</span>
-              {group.actions.map((action) => {
-                const preset = presetFor(action);
-                return (
-                  <button
-                    key={`${action.command}-${action.label}`}
-                    className="bmad-chip"
-                    title={preset ? `${action.hint} · com ${preset.name}` : action.hint}
-                    disabled={isStreaming}
-                    onClick={() => onChipClick(action)}
-                  >
-                    {action.icon} {action.label}
-                  </button>
-                );
-              })}
-            </span>
-          ))}
-        </div>
-      )}
+    <div className="bmad-deck-wrap">
+      <div className={`bmad-deck${collapsed ? ' bmad-deck--collapsed' : ''}`}>
+        <button
+          className="bmad-deck__header"
+          onClick={toggle}
+          title={collapsed ? 'Mostrar ações BMAD' : 'Ocultar ações BMAD'}
+        >
+          <span className="bmad-deck__brand">🅱️ Ações BMAD</span>
+          <span className="bmad-deck__hint">
+            {collapsed ? 'Descobrir · Definir · Validar · Planejar' : 'fluxo do time de produto'}
+          </span>
+          <span className="bmad-deck__caret">{collapsed ? '▸' : '▾'}</span>
+        </button>
+        {!collapsed && (
+          <div className="bmad-deck__rows">
+            {available.map((group) => (
+              <div className="bmad-deck__row" key={group.title}>
+                <span className="bmad-deck__row-title">{group.title}</span>
+                <span className="bmad-deck__chips">
+                  {group.actions.map((action) => {
+                    const preset = presetFor(action);
+                    return (
+                      <button
+                        key={`${action.command}-${action.label}`}
+                        className="bmad-chip"
+                        title={preset ? `${action.hint} · com ${preset.name}` : action.hint}
+                        disabled={isStreaming}
+                        onClick={() => onChipClick(action)}
+                      >
+                        {action.icon} {action.label}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {pending && (
         <Modal
