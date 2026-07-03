@@ -6,6 +6,7 @@ import { getToolCatalog } from '../../tools/toolRegistry';
 import {
   addServer,
   listServers,
+  listServerTools,
   removeServer,
   saveProxyServer,
   setServerEnabled,
@@ -13,6 +14,14 @@ import {
   testProxyConnection,
 } from '../../tools/mcpManager';
 import type { McpProxyConfig } from '@aiportal/shared';
+import {
+  cancelConsumerLabSetup,
+  chooseConsumerLabAccount,
+  chooseConsumerLabRole,
+  getConsumerLabStatus,
+  startConsumerLabSetup,
+  switchConsumerLabSso,
+} from '../../tools/consumerLabSetup';
 import { getSession } from '../../storage/sessionStore';
 import { getAgent } from '../../storage/agentStore';
 import { getPortalRoot } from '../../storage/paths';
@@ -110,6 +119,43 @@ export function registerToolRoutes(router: Router): void {
     }
   });
 
+  // setup guiado do ConsumerLab (Itaú): dispara em background e a UI faz polling;
+  // as fases awaiting-* pausam esperando o POST /choose com conta ou role
+  router.get('/api/mcp/consumerlab', ({ res }) => {
+    sendJson(res, 200, getConsumerLabStatus());
+  });
+
+  router.post('/api/mcp/consumerlab/setup', ({ res }) => {
+    sendJson(res, 200, startConsumerLabSetup());
+  });
+
+  router.post('/api/mcp/consumerlab/choose', ({ res, body }) => {
+    const input = (body ?? {}) as { accountId?: string; roleName?: string };
+    try {
+      if (input.accountId?.trim()) {
+        sendJson(res, 200, chooseConsumerLabAccount(input.accountId.trim()));
+      } else if (input.roleName?.trim()) {
+        sendJson(res, 200, chooseConsumerLabRole(input.roleName.trim()));
+      } else {
+        sendError(res, 400, 'Informe accountId ou roleName');
+      }
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/mcp/consumerlab/switch-sso', ({ res }) => {
+    try {
+      sendJson(res, 200, switchConsumerLabSso());
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/mcp/consumerlab/cancel', ({ res }) => {
+    sendJson(res, 200, cancelConsumerLabSetup());
+  });
+
   // proxy OAuth2: o secret chega aqui (127.0.0.1) e nunca volta ao front
   const readProxyInput = (body: unknown): { config: McpProxyConfig; secret?: string } => {
     const input = (body ?? {}) as Partial<McpProxyConfig> & { clientSecret?: string };
@@ -139,6 +185,14 @@ export function registerToolRoutes(router: Router): void {
       sendJson(res, 200, { ok: true, tools });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.get('/api/mcp/servers/:name/tools', ({ res, params }) => {
+    try {
+      sendJson(res, 200, listServerTools(params.name));
+    } catch (err) {
+      sendError(res, 404, err instanceof Error ? err.message : String(err));
     }
   });
 

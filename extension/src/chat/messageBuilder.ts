@@ -24,10 +24,31 @@ export interface KnowledgeSnippet {
   content: string;
 }
 
+/** Entrada do índice de bases grandes demais para injeção integral. */
+export interface KnowledgeIndexEntry {
+  baseName: string;
+  docName: string;
+  size: number;
+  headings: string[];
+}
+
 /** Arquivo do projeto fixado no contexto da sessão. */
 export interface ContextFile {
   path: string;
   content: string;
+}
+
+/** A skill de party mode do BMAD está ativa ou carregável nesta rodada? */
+function hasPartyModeSkill(opts: {
+  instructionSkills: SkillWithContent[];
+  commandSkills?: SkillWithContent[];
+  canLoadSkills?: boolean;
+}): boolean {
+  const isParty = (s: SkillWithContent) => s.command === 'bmad-party-mode';
+  return (
+    opts.instructionSkills.some(isParty) ||
+    (!!opts.canLoadSkills && (opts.commandSkills ?? []).some(isParty))
+  );
 }
 
 export function buildPreamble(opts: {
@@ -40,6 +61,8 @@ export function buildPreamble(opts: {
   /** Se a ferramenta portal_load_skill está disponível nesta rodada. */
   canLoadSkills?: boolean;
   knowledge?: KnowledgeSnippet[];
+  /** Índice injetado no lugar do conteúdo quando as bases excedem o teto. */
+  knowledgeIndex?: KnowledgeIndexEntry[];
   contextFiles?: ContextFile[];
   /** Nota sobre shell/python da máquina (só entra no modo agent). */
   envNote?: string;
@@ -77,6 +100,19 @@ export function buildPreamble(opts: {
       'Ao continuar a resposta depois de receber resultados de ferramentas, retome de onde parou: ' +
         'nunca repita saudações, apresentações nem informações que você já escreveu nesta mesma ' +
         'resposta. Anuncie uma ação só depois de executá-la, nunca antes de chamar a ferramenta.',
+      'Para pareceres INDEPENDENTES de várias personas (ex: comitê de revisores), dispare um ' +
+        'portal_spawn_subagent POR PERSONA, todos na mesma rodada — eles rodam em paralelo e cada ' +
+        'resposta aparece como um balão próprio no chat, identificado pelo label. Já quando o ' +
+        'usuário pedir uma DISCUSSÃO entre personas (debate, roundtable, party mode do BMAD), ' +
+        (hasPartyModeSkill(opts)
+          ? 'siga o loop da skill bmad-party-mode (se ainda não estiver ativa, carregue-a ANTES ' +
+            'com portal_load_skill). '
+          : 'conduza rodadas em que cada persona reage às demais. ') +
+        'Os subagentes não veem a conversa nem uns aos outros: cada task precisa levar a persona, ' +
+        'o contexto da discussão e o que os outros já disseram — tasks genéricas idênticas produzem ' +
+        'respostas duplicadas, não um debate. Quando precisar que o usuário escolha ' +
+        'entre opções (elicitações de workflow, decisões de rumo), use portal_ask_user em vez de ' +
+        'terminar a resposta com a pergunta solta no texto.',
     );
   }
   if (envNote && session.mode === 'agent') {
@@ -115,6 +151,23 @@ export function buildPreamble(opts: {
   for (const snippet of knowledge ?? []) {
     blocks.push(
       `## Base de conhecimento: ${snippet.baseName} — ${snippet.docName}\n${snippet.content}`,
+    );
+  }
+  if (opts.knowledgeIndex?.length) {
+    blocks.push(
+      '## Bases de conhecimento (índice — conteúdo NÃO carregado)\n' +
+        'As bases habilitadas excedem o limite de injeção, então os documentos abaixo NÃO estão ' +
+        'neste contexto — só o índice. Sempre que o pedido do usuário tocar nesses assuntos, ' +
+        'busque com portal_search_knowledge ANTES de responder e, se os trechos não bastarem, ' +
+        'leia o documento com portal_read_knowledge. Nunca responda de memória algo que estas ' +
+        'bases documentam, e não invente conteúdo delas.\n' +
+        opts.knowledgeIndex
+          .map(
+            (e) =>
+              `- Base "${e.baseName}" — ${e.docName} (${Math.max(1, Math.round(e.size / 1024))} KB)` +
+              (e.headings.length ? `: ${e.headings.join('; ')}` : ''),
+          )
+          .join('\n'),
     );
   }
   for (const file of contextFiles ?? []) {
@@ -170,6 +223,7 @@ export function buildMessages(opts: {
   commandSkills: SkillWithContent[];
   canLoadSkills?: boolean;
   knowledge?: KnowledgeSnippet[];
+  knowledgeIndex?: KnowledgeIndexEntry[];
   contextFiles?: ContextFile[];
   envNote?: string;
   maxInputTokens: number;

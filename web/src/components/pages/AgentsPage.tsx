@@ -13,6 +13,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { formatMultiplier } from '../chat/MessageBubble';
+import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
@@ -114,6 +115,8 @@ function LinkPickerModal(props: {
 
 export function AgentsPage() {
   const agents = useCatalog((s) => s.agents);
+  // agentes BMAD desabilitados ficam só nas Configurações, fora da lista
+  const visibleAgents = agents.filter((a) => !(isBmadAsset(a.id) && a.enabled === false));
   const models = useCatalog((s) => s.models);
   const loadAgents = useCatalog((s) => s.loadAgents);
   const newSession = useSessions((s) => s.newSession);
@@ -223,6 +226,20 @@ export function AgentsPage() {
     a.download = `${slug}.agent.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const emailShare = async (id: string) => {
+    try {
+      const result = await api.shareByEmail('agent', id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
   };
 
   const importAgentFiles = async (files: FileList) => {
@@ -367,8 +384,8 @@ export function AgentsPage() {
       }
     >
       <div className="page-cols">
-        <Panel title="Meus agentes" count={agents.length}>
-          {agents.length === 0 && (
+        <Panel title="Meus agentes" count={visibleAgents.length}>
+          {visibleAgents.length === 0 && (
             <EmptyState
               icon="🤖"
               title="Nenhum agente ainda"
@@ -380,7 +397,7 @@ export function AgentsPage() {
               }
             />
           )}
-          {agents.map((agent) => (
+          {visibleAgents.map((agent) => (
             <button
               className={`page-list-item${draft?.id === agent.id ? ' page-list-item--active' : ''}`}
               key={agent.id}
@@ -429,6 +446,19 @@ export function AgentsPage() {
                 >
                   Exportar
                 </span>
+                {!isBmadAsset(agent.id) && (
+                  <span
+                    role="button"
+                    className="mini-btn"
+                    title="Enviar por email (abre o cliente com o .agent.zip anexado — skills e bases vinculadas vão juntas)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void emailShare(agent.id);
+                    }}
+                  >
+                    ✉️
+                  </span>
+                )}
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
@@ -633,24 +663,13 @@ export function AgentsPage() {
         />
       )}
       {draft && expandInstructions && (
-        <Modal
+        <MarkdownEditorModal
           title="Instruções do agente (markdown)"
-          wide
+          value={draft.instructions}
+          onChange={(value) => setDraft({ ...draft, instructions: value })}
+          placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
           onClose={() => setExpandInstructions(false)}
-          footer={
-            <button className="btn btn--primary" onClick={() => setExpandInstructions(false)}>
-              Concluir
-            </button>
-          }
-        >
-          <textarea
-            className="modal-editor"
-            value={draft.instructions}
-            onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-            placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
-            autoFocus
-          />
-        </Modal>
+        />
       )}
     </PageShell>
   );

@@ -7,6 +7,7 @@ export function NewProjectModal() {
   const createProject = useSessions((s) => s.createProject);
   const openProject = useSessions((s) => s.openProject);
   const closePanel = useUi((s) => s.closePanel);
+  const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -17,6 +18,7 @@ export function NewProjectModal() {
     try {
       const project = await createProject(name.trim());
       closePanel();
+      setView('chat');
       openProject(project.id);
       toast(`Projeto "${project.name}" criado.`, 'ok');
     } catch (err) {

@@ -3,8 +3,17 @@ import * as path from 'node:path';
 import type { SessionMode } from '@aiportal/shared';
 import { PROJECT_META_DIR, bmadRootDir } from '../storage/paths';
 import { createAgent } from '../storage/agentStore';
-import { createBase, listBases, writeDoc } from '../storage/knowledgeStore';
+import {
+  createBase,
+  fetchSourceContent,
+  listBases,
+  readKnowledgeDoc,
+  searchKnowledge,
+  writeDoc,
+} from '../storage/knowledgeStore';
 import { createSkill, getSkill, listSkills } from '../storage/skillStore';
+import { normalizeSourceUrl } from '../storage/remoteFetch';
+import { searchWeb } from './webSearch';
 
 export const READ_LIMIT = 256 * 1024;
 export const WRITE_LIMIT = 2 * 1024 * 1024;
@@ -81,6 +90,183 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
     },
   },
   {
+    name: 'portal_edit_file',
+    description:
+      'Edita um arquivo da pasta de trabalho substituindo um trecho exato por outro — prefira esta ' +
+      'ferramenta a portal_write_file para mudanças pontuais em arquivos existentes (não reescreve o arquivo ' +
+      'inteiro). O trecho buscado deve ser único no arquivo (inclua linhas vizinhas para desambiguar) ' +
+      'e bater exatamente, incluindo espaços e quebras de linha.',
+    inputSchema: {
+      type: 'object',
+      required: ['path', 'find'],
+      properties: {
+        path: { type: 'string', description: 'Caminho relativo à pasta de trabalho' },
+        find: { type: 'string', description: 'Trecho exato a localizar (único no arquivo)' },
+        replace: { type: 'string', description: 'Texto que substitui o trecho (vazio = remover)' },
+        replaceAll: {
+          type: 'boolean',
+          description: 'Substituir todas as ocorrências em vez de exigir trecho único (default false)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_search_files',
+    description:
+      'Busca um texto (ou expressão regular) dentro dos arquivos da pasta de trabalho e retorna as ' +
+      'linhas que casam, no formato arquivo:linha. Use para localizar em qual documento está uma ' +
+      'informação antes de ler o arquivo inteiro.',
+    inputSchema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string', description: 'Texto ou regex a procurar' },
+        path: { type: 'string', description: 'Subpasta onde buscar (default: raiz da pasta de trabalho)' },
+        regex: { type: 'boolean', description: 'Tratar query como expressão regular (default false)' },
+        caseSensitive: {
+          type: 'boolean',
+          description: 'Diferenciar maiúsculas/minúsculas (default false)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_delete_file',
+    description:
+      'Exclui um arquivo (ou uma pasta, com recursive: true) da pasta de trabalho da conversa. ' +
+      'A exclusão é definitiva — na dúvida, confirme com o usuário antes.',
+    inputSchema: {
+      type: 'object',
+      required: ['path'],
+      properties: {
+        path: { type: 'string', description: 'Caminho relativo à pasta de trabalho' },
+        recursive: {
+          type: 'boolean',
+          description: 'Necessário para excluir pastas com conteúdo (default false)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_move_file',
+    description:
+      'Move ou renomeia um arquivo/pasta dentro da pasta de trabalho da conversa.',
+    inputSchema: {
+      type: 'object',
+      required: ['from', 'to'],
+      properties: {
+        from: { type: 'string', description: 'Caminho atual, relativo à pasta de trabalho' },
+        to: { type: 'string', description: 'Novo caminho, relativo à pasta de trabalho' },
+        overwrite: {
+          type: 'boolean',
+          description: 'Substituir o destino se já existir (default false)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_fetch_url',
+    description:
+      'Lê o conteúdo de uma URL (página HTML, markdown, Word/Excel/PowerPoint/PDF publicado, página ou ' +
+      'arquivo de SharePoint) convertido para markdown. Use quando o usuário citar um link ou quando uma ' +
+      'informação estiver em uma página conhecida. Conteúdos longos voltam em partes: continue com o ' +
+      'offset indicado no fim da resposta.',
+    inputSchema: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: { type: 'string', description: 'URL http(s) a ler' },
+        offset: {
+          type: 'number',
+          description: 'Posição (em caracteres) para continuar a leitura (default 0)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_web_search',
+    description:
+      'Busca na web (DuckDuckGo) e devolve títulos, URLs e trechos dos resultados. Use para descobrir ' +
+      'fontes e dados atuais (pesquisas de mercado, docs, notícias); depois leia as páginas relevantes ' +
+      'com portal_fetch_url e cite as URLs reais. Na rede corporativa alguns sites são bloqueados: se ' +
+      'um fetch falhar, siga para outro resultado em vez de insistir.',
+    inputSchema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string', description: 'Termos de busca (como se digitasse no buscador)' },
+        maxResults: {
+          type: 'number',
+          description: 'Máximo de resultados (default 8, teto 15)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_spawn_subagent',
+    description:
+      'Dispara um subagente: uma instância independente do modelo com persona e tarefa próprias, que ' +
+      'trabalha em paralelo e devolve a resposta final. Use para consultar outras personas (ex: party ' +
+      'mode do BMAD, revisor independente, comitê de especialistas) ou para delegar uma subtarefa de ' +
+      'leitura/análise. Várias chamadas na MESMA rodada rodam em paralelo. O subagente tem apenas ' +
+      'ferramentas de leitura (arquivos, BMAD, conhecimento, URLs), não conversa com o usuário e não ' +
+      'vê a conversa nem os outros subagentes: dê a ele todo o contexto necessário no campo task — ' +
+      'numa discussão entre personas, inclua na task o que as outras já disseram e peça reação, senão ' +
+      'as respostas saem duplicadas.',
+    inputSchema: {
+      type: 'object',
+      required: ['task'],
+      properties: {
+        task: {
+          type: 'string',
+          description:
+            'Tarefa completa e autocontida: contexto relevante da conversa + o que o subagente deve produzir',
+        },
+        label: {
+          type: 'string',
+          description: 'Nome curto da persona/tarefa para exibição na UI, ex: "PM John" (recomendado)',
+        },
+        personaPath: {
+          type: 'string',
+          description:
+            'Arquivo de persona (.md) a usar como instruções: caminho na instalação BMAD ' +
+            '(ex: _bmad/bmm/agents/pm.md) ou na pasta de trabalho',
+        },
+        personaAgent: {
+          type: 'string',
+          description: 'Nome (ou id) de um agente do portal a usar como persona',
+        },
+        systemPrompt: {
+          type: 'string',
+          description: 'Instruções de sistema diretas (alternativa a personaPath/personaAgent)',
+        },
+        modelId: {
+          type: 'string',
+          description: 'Modelo do subagente (default: o mesmo da conversa)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_ask_user',
+    description:
+      'Faz uma pergunta ao usuário com opções clicáveis e pausa a resposta até ele responder. Use nas ' +
+      'elicitações estruturadas (workflows BMAD, decisões de rumo) em vez de terminar a resposta com a ' +
+      'pergunta solta no texto. Não use para perguntas retóricas nem quando a resposta já está na conversa.',
+    inputSchema: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: { type: 'string', description: 'A pergunta, curta e direta' },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Até 6 opções de resposta (o usuário sempre pode digitar outra coisa)',
+        },
+      },
+    },
+  },
+  {
     name: 'bmad_read_file',
     description:
       'Lê um arquivo da instalação global do BMAD (workflows, templates, configs — compartilhada por todos os projetos). ' +
@@ -107,6 +293,25 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
     },
   },
   {
+    name: 'bmad_write_custom',
+    description:
+      'Grava um arquivo de override de customização em _bmad/custom/ da instalação global do BMAD ' +
+      '(somente .toml, ex: _bmad/custom/bmad-create-prd.user.toml). É a ÚNICA escrita permitida na ' +
+      'instalação BMAD — use na skill bmad-customize para persistir customizações, que passam a valer ' +
+      'para todas as conversas do portal.',
+    inputSchema: {
+      type: 'object',
+      required: ['path', 'content'],
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Caminho relativo à raiz do BMAD, dentro de _bmad/custom/ e terminando em .toml',
+        },
+        content: { type: 'string', description: 'Conteúdo TOML completo do arquivo' },
+      },
+    },
+  },
+  {
     name: 'portal_load_skill',
     description:
       'Carrega o conteúdo completo de uma skill do catálogo listado nas instruções da conversa. ' +
@@ -124,6 +329,48 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
         input: {
           type: 'string',
           description: 'Pedido do usuário, para skills que usam marcador de input (opcional)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_search_knowledge',
+    description:
+      'Busca trechos relevantes nas bases de conhecimento habilitadas da conversa (documentação ' +
+      'sincronizada de SharePoint/GitHub Pages, docs enviados pelo usuário…). Use SEMPRE que a ' +
+      'pergunta puder ser respondida por um documento listado no bloco "Bases de conhecimento" ' +
+      'das instruções — não responda de memória sobre esses assuntos. A busca é por ' +
+      'palavras-chave: prefira termos específicos do domínio; se não achar, tente sinônimos.',
+    inputSchema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Palavras-chave da busca, ex: "limite transferência aprovação alçada"',
+        },
+        base: {
+          type: 'string',
+          description: 'Restringe a uma base pelo nome (opcional; default: todas as habilitadas)',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_read_knowledge',
+    description:
+      'Lê um documento inteiro de uma base de conhecimento. Use depois de portal_search_knowledge, ' +
+      'quando os trechos retornados não bastarem. Documentos longos voltam em partes: continue com ' +
+      'o offset indicado no fim da resposta.',
+    inputSchema: {
+      type: 'object',
+      required: ['base', 'doc'],
+      properties: {
+        base: { type: 'string', description: 'Nome da base, como aparece nas instruções/busca' },
+        doc: { type: 'string', description: 'Nome do documento, ex: politica-de-credito.md' },
+        offset: {
+          type: 'number',
+          description: 'Posição (em caracteres) para continuar a leitura (default 0)',
         },
       },
     },
@@ -234,12 +481,34 @@ export const BUILTIN_TOOL_NAMES = BUILTIN_TOOLS.map((t) => t.name);
 export const READONLY_BUILTIN_TOOL_NAMES = [
   'portal_read_file',
   'portal_list_files',
+  'portal_search_files',
+  'portal_fetch_url',
+  'portal_web_search',
   'portal_load_skill',
+  'portal_search_knowledge',
+  'portal_read_knowledge',
+  'portal_ask_user',
+  'portal_spawn_subagent',
   'bmad_read_file',
   'bmad_list_files',
 ];
-/** Ferramentas da instalação global do BMAD (somente leitura, compartilhada). */
-export const BMAD_TOOL_NAMES = ['bmad_read_file', 'bmad_list_files'];
+/**
+ * Ferramentas oferecidas aos subagentes (portal_spawn_subagent): só leitura,
+ * sem spawn (nada de recursão) e sem interação com o usuário.
+ */
+export const SUBAGENT_TOOL_NAMES = [
+  'portal_read_file',
+  'portal_list_files',
+  'portal_search_files',
+  'portal_fetch_url',
+  'portal_web_search',
+  'portal_search_knowledge',
+  'portal_read_knowledge',
+  'bmad_read_file',
+  'bmad_list_files',
+];
+/** Ferramentas da instalação global do BMAD (a escrita é restrita a _bmad/custom/). */
+export const BMAD_TOOL_NAMES = ['bmad_read_file', 'bmad_list_files', 'bmad_write_custom'];
 /**
  * Ferramentas que SÓ existem em conversas de projeto. As demais valem em
  * qualquer conversa: as de arquivo/comando usam a pasta de trabalho da sessão
@@ -280,7 +549,7 @@ export function resolveInProject(workRoot: string, relPath: string): string {
 }
 
 /** Resolve um caminho dentro da instalação global do BMAD (somente leitura). */
-function resolveInBmad(relPath: string): string {
+export function resolveInBmad(relPath: string): string {
   const root = bmadRootDir();
   if (!fs.existsSync(root)) {
     throw new Error('BMAD não está instalado. Instale pela tela de um projeto (painel BMAD).');
@@ -293,7 +562,7 @@ function resolveInBmad(relPath: string): string {
   return resolved;
 }
 
-function readFileClamped(file: string, label: string): string {
+export function readFileClamped(file: string, label: string): string {
   let stat: fs.Stats;
   try {
     stat = fs.statSync(file);
@@ -370,15 +639,88 @@ function listEntries(
   }
 }
 
-export function dispatchBuiltinTool(
+/** Limites da busca em arquivos. */
+const SEARCH_MAX_MATCHES = 100;
+const SEARCH_MAX_FILES = 2_000;
+const SEARCH_FILE_LIMIT = 1024 * 1024;
+const SEARCH_LINE_CLAMP = 240;
+/** Teto por chamada de portal_fetch_url (o modelo continua com offset). */
+const URL_READ_CAP = 24_000;
+const BINARY_EXTENSIONS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.pdf', '.zip', '.gz', '.tar', '.7z',
+  '.xlsx', '.xlsm', '.xls', '.docx', '.doc', '.pptx', '.ppt', '.bin', '.exe', '.dylib', '.so',
+  '.woff', '.woff2', '.ttf', '.mp3', '.mp4', '.mov', '.vsix',
+]);
+
+/** Arquivos de texto da pasta, em caminhos relativos (pula meta/node_modules/binários). */
+function walkTextFiles(dir: string, base: string, acc: string[]): void {
+  if (acc.length >= SEARCH_MAX_FILES) return;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (acc.length >= SEARCH_MAX_FILES) return;
+    if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules' || entry.name === '.git') {
+      continue;
+    }
+    const rel = base ? path.join(base, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      walkTextFiles(path.join(dir, entry.name), rel, acc);
+    } else if (entry.isFile() && !BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+      acc.push(rel);
+    }
+  }
+}
+
+export async function dispatchBuiltinTool(
   name: string,
   input: unknown,
   workRoot: string,
   projectId: string,
-): ToolOutcome {
+  /** Bases vinculadas ao agente da sessão — entram na busca mesmo desabilitadas. */
+  agentBaseIds: string[] = [],
+): Promise<ToolOutcome> {
   const args = (input ?? {}) as Record<string, unknown>;
   try {
     switch (name) {
+      case 'portal_search_knowledge': {
+        const query = asString(args.query, 'query');
+        const baseFilter =
+          typeof args.base === 'string' && args.base.trim() ? args.base.trim() : undefined;
+        const hits = searchKnowledge(query, projectId || undefined, agentBaseIds, baseFilter);
+        if (!hits.length) {
+          return {
+            ok: true,
+            content:
+              'Nenhum trecho encontrado para essa busca. Tente outras palavras-chave (sinônimos, ' +
+              'siglas, termos do índice das bases) ou leia um documento do índice com portal_read_knowledge.',
+          };
+        }
+        const body = hits
+          .map(
+            (hit, i) =>
+              `[${i + 1}] Base "${hit.baseName}" — ${hit.docName}` +
+              (hit.heading ? ` — seção "${hit.heading}"` : '') +
+              `\n${hit.snippet}`,
+          )
+          .join('\n\n---\n\n');
+        return {
+          ok: true,
+          content: `${body}\n\n(Trechos parciais — para o documento completo use portal_read_knowledge com a base e o doc indicados.)`,
+        };
+      }
+      case 'portal_read_knowledge': {
+        const base = asString(args.base, 'base');
+        const doc = asString(args.doc, 'doc');
+        const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
+        return {
+          ok: true,
+          content: readKnowledgeDoc(base, doc, projectId || undefined, agentBaseIds, offset),
+        };
+      }
       case 'portal_save_knowledge': {
         const baseName = asString(args.base, 'base').trim();
         const scope = args.scope === 'project' ? 'project' : 'global';
@@ -505,9 +847,157 @@ export function dispatchBuiltinTool(
         listEntries(dir, rel === '.' ? '' : rel, args.recursive === true, acc);
         return { ok: true, content: acc.length ? acc.join('\n') : '(pasta vazia)' };
       }
+      case 'portal_edit_file': {
+        const rel = asString(args.path, 'path');
+        const find = asString(args.find, 'find');
+        const replace = typeof args.replace === 'string' ? args.replace : '';
+        const file = resolveInProject(workRoot, rel);
+        const content = readFileClamped(file, rel);
+        let count = 0;
+        for (let i = content.indexOf(find); i >= 0; i = content.indexOf(find, i + find.length)) {
+          count++;
+        }
+        if (!count) {
+          throw new Error(
+            `Trecho não encontrado em ${rel} — o campo "find" deve bater exatamente, incluindo espaços e quebras de linha`,
+          );
+        }
+        if (count > 1 && args.replaceAll !== true) {
+          throw new Error(
+            `O trecho aparece ${count} vezes em ${rel} — inclua linhas vizinhas para torná-lo único, ou use replaceAll: true`,
+          );
+        }
+        const updated =
+          args.replaceAll === true
+            ? content.split(find).join(replace)
+            : content.replace(find, () => replace);
+        fs.writeFileSync(file, updated, 'utf8');
+        const n = args.replaceAll === true ? count : 1;
+        return { ok: true, content: `${rel}: ${n} ocorrência${n === 1 ? '' : 's'} substituída${n === 1 ? '' : 's'}` };
+      }
+      case 'portal_search_files': {
+        const query = asString(args.query, 'query');
+        const rel = typeof args.path === 'string' && args.path ? args.path : '.';
+        const dir = resolveInProject(workRoot, rel);
+        const flags = args.caseSensitive === true ? '' : 'i';
+        let pattern: RegExp;
+        try {
+          pattern = args.regex === true
+            ? new RegExp(query, flags)
+            : new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+        } catch (err) {
+          throw new Error(`Expressão regular inválida: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        const files: string[] = [];
+        walkTextFiles(dir, rel === '.' ? '' : rel, files);
+        const matches: string[] = [];
+        for (const fileRel of files) {
+          if (matches.length >= SEARCH_MAX_MATCHES) break;
+          const abs = path.resolve(workRoot, fileRel);
+          let text: string;
+          try {
+            if (fs.statSync(abs).size > SEARCH_FILE_LIMIT) continue;
+            text = fs.readFileSync(abs, 'utf8');
+          } catch {
+            continue;
+          }
+          if (text.includes('\0')) continue;
+          const lines = text.split('\n');
+          for (let i = 0; i < lines.length && matches.length < SEARCH_MAX_MATCHES; i++) {
+            if (pattern.test(lines[i])) {
+              matches.push(`${fileRel}:${i + 1}: ${lines[i].trim().slice(0, SEARCH_LINE_CLAMP)}`);
+            }
+          }
+        }
+        if (!matches.length) {
+          return {
+            ok: true,
+            content:
+              'Nenhuma linha encontrada. Tente outros termos ou liste os arquivos com portal_list_files.',
+          };
+        }
+        const suffix =
+          matches.length >= SEARCH_MAX_MATCHES
+            ? `\n… (limite de ${SEARCH_MAX_MATCHES} resultados atingido — refine a busca)`
+            : '';
+        return { ok: true, content: matches.join('\n') + suffix };
+      }
+      case 'portal_delete_file': {
+        const rel = asString(args.path, 'path');
+        const target = resolveInProject(workRoot, rel);
+        if (!fs.existsSync(target)) throw new Error(`Não existe: ${rel}`);
+        if (fs.statSync(target).isDirectory()) {
+          if (args.recursive !== true) {
+            throw new Error(`${rel} é uma pasta — para excluir com o conteúdo, passe recursive: true`);
+          }
+          fs.rmSync(target, { recursive: true, force: true });
+          return { ok: true, content: `Pasta excluída: ${rel}` };
+        }
+        fs.rmSync(target, { force: true });
+        return { ok: true, content: `Arquivo excluído: ${rel}` };
+      }
+      case 'portal_move_file': {
+        const fromRel = asString(args.from, 'from');
+        const toRel = asString(args.to, 'to');
+        const from = resolveInProject(workRoot, fromRel);
+        const to = resolveInProject(workRoot, toRel);
+        if (!fs.existsSync(from)) throw new Error(`Não existe: ${fromRel}`);
+        if (fs.existsSync(to) && args.overwrite !== true) {
+          throw new Error(`Destino já existe: ${toRel} (use overwrite: true para substituir)`);
+        }
+        fs.mkdirSync(path.dirname(to), { recursive: true });
+        fs.renameSync(from, to);
+        return { ok: true, content: `Movido: ${fromRel} → ${toRel}` };
+      }
+      case 'portal_fetch_url': {
+        const url = normalizeSourceUrl(asString(args.url, 'url'));
+        const { content } = await fetchSourceContent(url);
+        const offset = typeof args.offset === 'number' && args.offset > 0 ? Math.floor(args.offset) : 0;
+        if (offset >= content.length && content.length > 0) {
+          throw new Error(`Offset ${offset} além do fim do conteúdo (${content.length} caracteres)`);
+        }
+        const chunk = content.slice(offset, offset + URL_READ_CAP);
+        const remaining = content.length - (offset + chunk.length);
+        const footer =
+          remaining > 0
+            ? `\n\n… (continua — chame de novo com offset=${offset + chunk.length} para os ${remaining} caracteres restantes)`
+            : '';
+        return {
+          ok: true,
+          content: `# ${url} (caracteres ${offset}–${offset + chunk.length} de ${content.length})\n\n${chunk}${footer}`,
+        };
+      }
+      case 'portal_web_search': {
+        const query = asString(args.query, 'query');
+        const max =
+          typeof args.maxResults === 'number' && args.maxResults > 0
+            ? Math.min(15, Math.floor(args.maxResults))
+            : 8;
+        const results = await searchWeb(query, max);
+        const lines = results.map(
+          (r, i) =>
+            `${i + 1}. **${r.title}**\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`,
+        );
+        return {
+          ok: true,
+          content: `# Busca: ${query} (${results.length} resultados)\n\n${lines.join('\n\n')}`,
+        };
+      }
       case 'bmad_read_file': {
         const rel = asString(args.path, 'path');
         return { ok: true, content: readFileClamped(resolveInBmad(rel), rel) };
+      }
+      case 'bmad_write_custom': {
+        const rel = asString(args.path, 'path');
+        const content = asString(args.content, 'content');
+        const abs = resolveInBmad(rel);
+        const customRoot = path.join(bmadRootDir(), '_bmad', 'custom');
+        if (!abs.startsWith(customRoot + path.sep) || !abs.toLowerCase().endsWith('.toml')) {
+          throw new Error('Só é permitido gravar arquivos .toml dentro de _bmad/custom/');
+        }
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, content, 'utf8');
+        return { ok: true, content: `Override gravado na instalação BMAD: ${rel}` };
       }
       case 'bmad_list_files': {
         const rel = typeof args.path === 'string' && args.path ? args.path : '.';

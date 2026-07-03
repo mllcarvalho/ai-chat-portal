@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { BmadStatus, Project } from '@aiportal/shared';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { BmadStatus } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { api } from '../../api/client';
@@ -10,11 +10,9 @@ import { EmptyState, Panel } from '../pages/PageShell';
  * Painel da integração BMAD: a instalação é GLOBAL (vale para todos os
  * projetos); só os documentos gerados ficam na pasta deste projeto.
  */
-function BmadPanel({ project }: { project: Project }) {
-  const newSession = useSessions((s) => s.newSession);
+function BmadPanel() {
   const loadAgents = useCatalog((s) => s.loadAgents);
   const loadSkills = useCatalog((s) => s.loadSkills);
-  const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const [status, setStatus] = useState<BmadStatus | undefined>();
   const [apiError, setApiError] = useState<string | undefined>();
@@ -68,18 +66,24 @@ function BmadPanel({ project }: { project: Project }) {
     }
   };
 
+  // o BMAD vem embutido: se por algum motivo ainda não está instalado (ex.: a
+  // ativação rodou sem Node), dispara a instalação sozinho — uma vez por visita
+  const autoInstallTried = useRef(false);
+  useEffect(() => {
+    if (!status || status.installed || status.installing || status.error) return;
+    if (autoInstallTried.current) return;
+    autoInstallTried.current = true;
+    void install();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  // instalado e saudável = nada a mostrar: as personas já estão no seletor de
+  // agente do chat e as ações na barra BMAD — o painel só aparece para
+  // instalar, acompanhar a instalação ou reportar erro
+  if (status?.installed && !status.installing && !status.error && !apiError) return null;
+
   return (
-    <Panel
-      title="BMAD — time de produto"
-      count={status?.installed ? status.agents.length : undefined}
-      actions={
-        status?.installed && !status.installing ? (
-          <button className="btn btn--sm" onClick={() => void install()} title="Reinstalar / atualizar">
-            ↻ Atualizar
-          </button>
-        ) : undefined
-      }
-    >
+    <Panel title="BMAD — time de produto">
       {apiError && !status && (
         <EmptyState
           icon="⚠️"
@@ -101,17 +105,20 @@ function BmadPanel({ project }: { project: Project }) {
       {status && !status.installed && !status.installing && (
         <EmptyState
           icon="🅱️"
-          title="BMAD não instalado"
+          title={status.error ? 'BMAD não instalado' : 'Preparando o BMAD…'}
           hint={
             <>
-              Instala o bmad-method (módulo BMM) uma única vez, valendo para todos os projetos:
-              personas viram agentes no chat e os workflows viram comandos <code>/bmad-*</code>.
+              O BMAD (módulo BMM) é instalado automaticamente, uma única vez, valendo para todos
+              os projetos: personas viram agentes no chat e os workflows viram comandos{' '}
+              <code>/bmad-*</code>.
             </>
           }
           action={
-            <button className="btn btn--primary" onClick={() => void install()}>
-              ⤓ Instalar BMAD
-            </button>
+            status.error ? (
+              <button className="btn btn--primary" onClick={() => void install()}>
+                ↻ Tentar instalar de novo
+              </button>
+            ) : undefined
           }
         />
       )}
@@ -127,38 +134,6 @@ function BmadPanel({ project }: { project: Project }) {
           {status.error}
         </p>
       )}
-      {status?.installed && !status.installing && (
-        <>
-          {status.agents.map((agent) => (
-            <div className="page-list-item page-list-item--static" key={agent.presetId}>
-              <span className="item-card__name">
-                {agent.icon ?? '🅱️'} {agent.name}
-              </span>
-              <span className="item-card__desc">{agent.description || '—'}</span>
-              <span className="page-list-item__actions">
-                <span
-                  role="button"
-                  className="mini-btn"
-                  title="Nova conversa neste projeto com esta persona"
-                  onClick={() => {
-                    setView('chat');
-                    void newSession(project.id, { agentId: agent.presetId });
-                  }}
-                >
-                  Conversar →
-                </span>
-              </span>
-            </div>
-          ))}
-          <p className="page-hint" style={{ marginTop: 10 }}>
-            Instalação global: as personas e os +{status.skillCount} workflows (<code>/bmad-…</code>)
-            valem em todos os projetos. Os documentos gerados ficam em{' '}
-            <code>_bmad-output/</code> do projeto da conversa. Digite <code>/bmad</code> no chat
-            para ver os comandos (ex: <code>/bmad-create-prd</code>, <code>/bmad-party-mode</code>,{' '}
-            <code>/bmad-help</code>).
-          </p>
-        </>
-      )}
     </Panel>
   );
 }
@@ -171,7 +146,6 @@ export function ProjectHome() {
   const newSession = useSessions((s) => s.newSession);
   const selectSession = useSessions((s) => s.selectSession);
   const openProject = useSessions((s) => s.openProject);
-  const openPanel = useUi((s) => s.openPanel);
   const setView = useUi((s) => s.setView);
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
@@ -219,15 +193,6 @@ export function ProjectHome() {
         <div className="page__actions">
           <button className="btn btn--primary" onClick={() => void newSession(project.id)}>
             ＋ Nova conversa
-          </button>
-          <button className="btn" onClick={() => openPanel({ kind: 'files' })}>
-            📄 Arquivos
-          </button>
-          <button className="btn" onClick={() => setView('skills')}>
-            ⚡ Skills
-          </button>
-          <button className="btn" onClick={() => setView('knowledge')}>
-            📚 Conhecimento
           </button>
           <button className="btn btn--danger" onClick={() => void removeProject()} title="Remover projeto do portal">
             Remover
@@ -283,7 +248,7 @@ export function ProjectHome() {
               </div>
             </Panel>
 
-            <BmadPanel project={project} />
+            <BmadPanel />
           </div>
         </div>
       </div>

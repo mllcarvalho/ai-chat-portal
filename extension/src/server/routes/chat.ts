@@ -5,6 +5,7 @@ import { SseStream } from '../sse';
 import { runChat } from '../../chat/agentLoop';
 import { cancelRequest } from '../../chat/activeRequests';
 import { resolveApproval } from '../../chat/approvals';
+import { resolveQuestion } from '../../chat/questions';
 import { getSession } from '../../storage/sessionStore';
 
 const MAX_ATTACHMENT_CHARS = 512 * 1024;
@@ -37,6 +38,17 @@ export function registerChatRoutes(router: Router): void {
 
   router.post('/api/chat/:requestId/cancel', ({ res, params }) => {
     const ok = cancelRequest(params.requestId);
+    sendJson(res, ok ? 200 : 404, { ok });
+  });
+
+  // resposta da UI a um user_question (pergunta do portal_ask_user)
+  router.post('/api/chat/:requestId/question', ({ res, params, body }) => {
+    const { callId, answer } = (body ?? {}) as { callId?: string; answer?: string };
+    if (!callId || typeof answer !== 'string' || !answer.trim()) {
+      sendError(res, 400, 'callId e answer são obrigatórios');
+      return;
+    }
+    const ok = resolveQuestion(params.requestId, callId, answer.trim());
     sendJson(res, ok ? 200 : 404, { ok });
   });
 

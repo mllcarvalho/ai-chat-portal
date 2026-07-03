@@ -6,6 +6,8 @@ import { Sidebar } from './components/layout/Sidebar';
 import { ChatView } from './components/chat/ChatView';
 import { ProjectHome } from './components/panels/ProjectHome';
 import { Welcome } from './components/layout/Welcome';
+import { HomeScreen } from './components/layout/HomeScreen';
+import { LoginScreen } from './components/auth/LoginScreen';
 import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
 import { SkillsPage } from './components/pages/SkillsPage';
 import { AgentsPage } from './components/pages/AgentsPage';
@@ -25,6 +27,7 @@ export function App() {
   const loadProjects = useSessions((s) => s.loadProjects);
   const loadSessions = useSessions((s) => s.loadSessions);
   const panel = useUi((s) => s.panel);
+  const loggedIn = useUi((s) => s.loggedIn);
   const [booted, setBooted] = useState(false);
 
   useEffect(() => {
@@ -39,6 +42,7 @@ export function App() {
 
   if (!booted) return null;
   if (!health?.ok) return <OnboardingScreen />;
+  if (!loggedIn) return <LoginScreen />;
 
   return (
     <div className="app-root">
@@ -63,6 +67,7 @@ function MainArea() {
 
   return (
     <main className="main-area">
+      {view === 'home' && <HomeScreen />}
       {view === 'skills' && <SkillsPage />}
       {view === 'agents' && <AgentsPage />}
       {view === 'mcps' && <McpServersPage />}

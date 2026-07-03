@@ -4,6 +4,7 @@ import { useChat } from '../../stores/chatStore';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
+import { BmadActions } from './BmadActions';
 
 export function ChatView() {
   const session = useSessions((s) => s.current);
@@ -47,7 +48,7 @@ export function ChatView() {
           )}
           {session.messages.length === 0 && !isStreaming && (
             <div className="empty-state" style={{ paddingTop: '12vh' }}>
-              Envie uma mensagem para começar.
+              Envie uma mensagem para começar — ou dispare uma ação BMAD pelos botões abaixo.
               <br />
               Dica: digite <strong>/</strong> para usar comandos das suas skills.
             </div>
@@ -67,6 +68,7 @@ export function ChatView() {
             ↓ ir para o fim
           </button>
         )}
+        <BmadActions />
         <Composer />
       </div>
     </>

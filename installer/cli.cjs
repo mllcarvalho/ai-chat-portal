@@ -30,6 +30,8 @@ const { homedir, platform } = require('os');
 const { join } = require('path');
 
 const pkgDir = __dirname;
+// nome publicado no npm (muda entre a linha estável e a beta) — usado nas mensagens
+const pkgName = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).name;
 const isWindows = platform() === 'win32';
 const runtimePath = join(homedir(), 'AIChatPortal', 'runtime.json');
 
@@ -99,7 +101,7 @@ const vsix = join(pkgDir, 'ai-product-bmad-chat.vsix');
 if (!existsSync(vsix)) {
   fail(
     'O .vsix não está no pacote.\n' +
-      '  - Via npx: rode npx ai-product-bmad-chat@latest\n' +
+      `  - Via npx: rode npx ${pkgName}@latest\n` +
       '  - No repositório: rode npm run release para gerá-lo',
   );
 }
@@ -201,7 +203,7 @@ async function main() {
     fail(
       'O servidor do portal não respondeu.\n' +
         '  - Causa mais comum: o VS Code já estava aberto e não carregou a extensão recém-instalada.\n' +
-        '    Feche TODAS as janelas do VS Code e rode npx ai-product-bmad-chat de novo.\n' +
+        `    Feche TODAS as janelas do VS Code e rode npx ${pkgName} de novo.\n` +
         '  - Se persistir, abra o VS Code e confira se "AI Product BMAD Chat" aparece na aba\n' +
         '    Extensions; depois rode o comando "AI Product BMAD Chat: Abrir no Navegador"',
     );
@@ -244,7 +246,7 @@ async function main() {
 
   console.log('\n\x1b[32m✦ Tudo pronto!\x1b[0m');
   console.log(`  URL do portal: ${url}`);
-  console.log('  Para reabrir depois: npx ai-product-bmad-chat (instantâneo) ou, no VS Code,');
+  console.log(`  Para reabrir depois: npx ${pkgName} (instantâneo) ou, no VS Code,`);
   console.log('  Cmd/Ctrl+Shift+P → "AI Product BMAD Chat: Abrir no Navegador"\n');
 }
 

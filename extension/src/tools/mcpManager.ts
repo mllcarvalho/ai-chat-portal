@@ -15,11 +15,12 @@ import {
   listProxies,
   saveProxy,
 } from '../storage/mcpProxyStore';
-import { getPortalRoot, mcpStatePath } from '../storage/paths';
-import { dispatcherFor, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
+import { GLOBAL_ROOT, getPortalRoot, mcpStatePath } from '../storage/paths';
+import { dispatcherFor, netProcessEnv, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
 import { withTimeout } from '../util';
 
-const START_TIMEOUT = 20_000;
+// primeiro boot de servidor stdio pode ser lento (venv, imports, STS via proxy)
+const START_TIMEOUT = 45_000;
 const CALL_TIMEOUT = 120_000;
 const TOKEN_TIMEOUT = 15_000;
 const CONNECT_TIMEOUT = 20_000;
@@ -51,23 +52,26 @@ interface McpState {
 
 const servers = new Map<string, ServerState>();
 
-function mcpJsonPath(): string | undefined {
+/**
+ * Onde os servidores ficam persistidos. Com o repo do portal aberto no VS Code
+ * usamos <repo>/.vscode/mcp.json — assim o Copilot do VS Code enxerga os mesmos
+ * servidores. Sem o repo (instalação só da extensão, via npx), caímos num
+ * mcp.json global em ~/AIChatPortal: quem spawna os processos é o próprio
+ * portal, então nada aqui depende de workspace aberto.
+ */
+function mcpJsonPath(): string {
   const root = getPortalRoot();
-  return root ? path.join(root, '.vscode', 'mcp.json') : undefined;
+  return root ? path.join(root, '.vscode', 'mcp.json') : path.join(GLOBAL_ROOT, 'mcp.json');
 }
 
-/** Lê <repo>/.vscode/mcp.json no formato padrão do VS Code ({ "servers": {...} }). */
+/** Lê o mcp.json no formato padrão do VS Code ({ "servers": {...} }). */
 export function readMcpJson(): Record<string, McpServerEntry> {
-  const file = mcpJsonPath();
-  if (!file) return {};
-  const raw = readJson<{ servers?: Record<string, McpServerEntry> }>(file);
+  const raw = readJson<{ servers?: Record<string, McpServerEntry> }>(mcpJsonPath());
   return raw?.servers ?? {};
 }
 
 function writeMcpJson(entries: Record<string, McpServerEntry>): void {
-  const file = mcpJsonPath();
-  if (!file) throw new Error('Abra o repositório do portal no VS Code para gerenciar MCPs');
-  writeJsonAtomic(file, { servers: entries });
+  writeJsonAtomic(mcpJsonPath(), { servers: entries });
 }
 
 function readState(): McpState {
@@ -261,8 +265,10 @@ async function connect(entry: McpServerEntry): Promise<Client> {
     const transport = new StdioClientTransport({
       command: entry.command,
       args: entry.args ?? [],
-      env: { ...getDefaultEnvironment(), ...(entry.env ?? {}) },
-      cwd: entry.cwd ?? getPortalRoot(),
+      // getDefaultEnvironment é mínimo (HOME/PATH/etc): sem o netProcessEnv o
+      // processo fica sem proxy/CA corporativos e trava em qualquer chamada externa
+      env: { ...getDefaultEnvironment(), ...netProcessEnv(), ...(entry.env ?? {}) },
+      cwd: entry.cwd ?? getPortalRoot() ?? GLOBAL_ROOT,
       stderr: 'ignore',
     });
     await client.connect(transport);
@@ -377,6 +383,14 @@ function toInfo(name: string, state: ServerState): McpServerInfo {
   };
 }
 
+/** Tools do servidor (nome + descrição) para a UI — vazio se não estiver rodando. */
+export function listServerTools(name: string): Array<{ name: string; description: string }> {
+  syncFromDisk();
+  const state = servers.get(name);
+  if (!state) throw new Error(`Servidor MCP "${name}" não está configurado`);
+  return state.tools.map((t) => ({ name: t.name, description: t.description }));
+}
+
 export function listServers(): McpServerInfo[] {
   syncFromDisk();
   return [...servers.entries()]
@@ -387,6 +401,19 @@ export function listServers(): McpServerInfo[] {
 export function addServer(name: string, entry: McpServerEntry): void {
   const entries = readMcpJson();
   if (entries[name] || isProxy(name)) throw new Error(`Já existe um servidor chamado "${name}"`);
+  entries[name] = entry;
+  writeMcpJson(entries);
+  syncFromDisk();
+}
+
+/**
+ * Cria OU substitui a entry no mcp.json (setups guiados que o usuário refaz —
+ * ex: ConsumerLab após credencial expirar — devem sobrescrever, não recusar).
+ * O syncFromDisk derruba o servidor antigo se a config mudou.
+ */
+export function upsertServer(name: string, entry: McpServerEntry): void {
+  if (isProxy(name)) throw new Error(`Já existe um proxy OAuth2 chamado "${name}"`);
+  const entries = readMcpJson();
   entries[name] = entry;
   writeMcpJson(entries);
   syncFromDisk();

@@ -203,7 +203,9 @@ export function ChatHeader() {
             >
               Sem agente
             </button>
-            {agents.map((a) => (
+            {agents
+              .filter((a) => a.enabled !== false || a.id === session.agentId)
+              .map((a) => (
               <button
                 key={a.id}
                 className={`dropdown__item${a.id === session.agentId ? ' dropdown__item--sel' : ''}`}

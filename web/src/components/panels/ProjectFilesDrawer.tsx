@@ -4,10 +4,35 @@ import { api } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { ExcalidrawPreview } from '../common/ExcalidrawPreview';
 import { Markdown } from '../common/Markdown';
 import { Modal } from '../common/Modal';
 
 const isMarkdown = (path: string) => /\.(md|markdown)$/i.test(path);
+const isHtml = (path: string) => /\.html?$/i.test(path);
+const isExcalidraw = (path: string) => /\.excalidraw$/i.test(path);
+
+/**
+ * Preview embutido para artefatos visuais (mocks HTML do BMAD UX em iframe
+ * isolado, wireframes .excalidraw em SVG). Arquivos truncados não têm preview:
+ * o conteúdo incompleto renderizaria quebrado.
+ */
+function FilePreview(props: { path: string; content: string }) {
+  if (isHtml(props.path)) {
+    return (
+      <iframe
+        className="html-preview"
+        title={props.path}
+        sandbox="allow-scripts"
+        srcDoc={props.content}
+      />
+    );
+  }
+  if (isExcalidraw(props.path)) return <ExcalidrawPreview content={props.content} />;
+  return null;
+}
+
+const hasPreview = (path: string) => isHtml(path) || isExcalidraw(path);
 
 /** Limite por arquivo enviado (o servidor recusa acima de 2 MB). */
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
@@ -146,6 +171,8 @@ export function ProjectFilesDrawer() {
   const [reader, setReader] = useState(false);
   /** Edição do arquivo aberto (vale para o drawer e para a visão ampliada). */
   const [editing, setEditing] = useState(false);
+  /** Ver o código-fonte em vez do preview (arquivos .html/.excalidraw). */
+  const [showSource, setShowSource] = useState(false);
   const [draft, setDraft] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [width, setWidth] = useState<number | undefined>(savedPanelWidth);
@@ -185,6 +212,7 @@ export function ProjectFilesDrawer() {
 
   const openFile = async (entry: FileEntry) => {
     setEditing(false);
+    setShowSource(false);
     try {
       const data = projectId
         ? await api.projectFileContent(projectId, entry.path)
@@ -242,6 +270,15 @@ export function ProjectFilesDrawer() {
     try {
       if (projectId) await api.downloadProjectFile(projectId, path);
       else if (workspaceSessionId) await api.downloadSessionFile(workspaceSessionId, path);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const revealFile = async (path: string) => {
+    try {
+      if (projectId) await api.revealProjectFile(projectId, path);
+      else if (workspaceSessionId) await api.revealSessionFile(workspaceSessionId, path);
     } catch (err) {
       toast((err as Error).message, 'error');
     }
@@ -390,15 +427,11 @@ export function ProjectFilesDrawer() {
       <div className="files-panel__body">
         {viewing ? (
           <div className="file-viewer">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <button className="btn btn--ghost btn--sm" onClick={() => void closeViewer()}>
                 ← voltar
               </button>
-              <span
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 12.5, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              >
-                {viewing.path}
-              </span>
+              <span style={{ flex: 1 }} />
               {editing ? (
                 <>
                   <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
@@ -409,25 +442,69 @@ export function ProjectFilesDrawer() {
                   </button>
                 </>
               ) : (
-                <button
-                  className="btn btn--sm"
-                  title={
-                    viewing.truncated
-                      ? 'Arquivo grande demais para editar aqui'
-                      : 'Editar o conteúdo do arquivo'
-                  }
-                  disabled={viewing.truncated}
-                  onClick={startEdit}
-                >
-                  ✏️ Editar
-                </button>
+                <>
+                  {hasPreview(viewing.path) && !viewing.truncated && (
+                    <button
+                      className="btn btn--sm"
+                      title={showSource ? 'Ver o preview' : 'Ver o código-fonte'}
+                      aria-label={showSource ? 'Ver o preview' : 'Ver o código-fonte'}
+                      onClick={() => setShowSource((v) => !v)}
+                    >
+                      {showSource ? '👁' : '</>'}
+                    </button>
+                  )}
+                  <button
+                    className="btn btn--sm"
+                    title={
+                      viewing.truncated
+                        ? 'Arquivo grande demais para editar aqui'
+                        : 'Editar o conteúdo do arquivo'
+                    }
+                    aria-label="Editar"
+                    disabled={viewing.truncated}
+                    onClick={startEdit}
+                  >
+                    ✏️
+                  </button>
+                </>
               )}
-              <button className="btn btn--sm" title="Abrir em visão maior" onClick={() => setReader(true)}>
-                ⤢ Ampliar
+              <button
+                className="btn btn--sm"
+                title="Ampliar (visão maior)"
+                aria-label="Ampliar"
+                onClick={() => setReader(true)}
+              >
+                ⤢
               </button>
-              <button className="btn btn--sm" title="Baixar arquivo" onClick={() => void downloadFile(viewing.path)}>
-                ⬇ Baixar
+              <button
+                className="btn btn--sm"
+                title="Baixar arquivo"
+                aria-label="Baixar"
+                onClick={() => void downloadFile(viewing.path)}
+              >
+                ⬇
               </button>
+              <button
+                className="btn btn--sm"
+                title="Mostrar na pasta local (Finder/Explorador de Arquivos)"
+                aria-label="Mostrar na pasta local"
+                onClick={() => void revealFile(viewing.path)}
+              >
+                📂
+              </button>
+            </div>
+            <div
+              title={viewing.path}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                color: 'var(--text-dim)',
+                wordBreak: 'break-all',
+                lineHeight: 1.4,
+                marginBottom: 8,
+              }}
+            >
+              {viewing.path}
             </div>
             {editing ? (
               <textarea
@@ -436,6 +513,8 @@ export function ProjectFilesDrawer() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
+            ) : hasPreview(viewing.path) && !showSource && !viewing.truncated ? (
+              <FilePreview path={viewing.path} content={viewing.content} />
             ) : (
               <pre>{viewing.content}</pre>
             )}
@@ -479,18 +558,28 @@ export function ProjectFilesDrawer() {
                   </button>
                 </>
               ) : (
-                <button
-                  className="btn btn--sm"
-                  title={
-                    viewing.truncated
-                      ? 'Arquivo grande demais para editar aqui'
-                      : 'Editar o markdown bruto do arquivo'
-                  }
-                  disabled={viewing.truncated}
-                  onClick={startEdit}
-                >
-                  ✏️ Editar
-                </button>
+                <>
+                  {hasPreview(viewing.path) && !viewing.truncated && (
+                    <button
+                      className="btn btn--sm"
+                      onClick={() => setShowSource((v) => !v)}
+                    >
+                      {showSource ? '👁 Preview' : '</> Código'}
+                    </button>
+                  )}
+                  <button
+                    className="btn btn--sm"
+                    title={
+                      viewing.truncated
+                        ? 'Arquivo grande demais para editar aqui'
+                        : 'Editar o conteúdo bruto do arquivo'
+                    }
+                    disabled={viewing.truncated}
+                    onClick={startEdit}
+                  >
+                    ✏️ Editar
+                  </button>
+                </>
               )}
             </div>
             {editing ? (
@@ -502,6 +591,8 @@ export function ProjectFilesDrawer() {
               />
             ) : isMarkdown(viewing.path) ? (
               <Markdown text={viewing.content} />
+            ) : hasPreview(viewing.path) && !showSource && !viewing.truncated ? (
+              <FilePreview path={viewing.path} content={viewing.content} />
             ) : (
               <pre>{viewing.content}</pre>
             )}

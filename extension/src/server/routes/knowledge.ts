@@ -9,6 +9,7 @@ import {
   getBase,
   listBases,
   listDocs,
+  moveDoc,
   patchBase,
   readDoc,
   syncRemoteDocs,
@@ -168,6 +169,23 @@ export function registerKnowledgeRoutes(router: Router): void {
       return;
     }
     sendJson(res, 200, await syncRemoteDocs(params.id, input.name));
+  });
+
+  router.post('/api/knowledge/:id/docs/move', ({ res, params, body }) => {
+    const input = (body ?? {}) as { name?: string; toBaseId?: string };
+    if (!input.name?.trim() || !input.toBaseId?.trim()) {
+      sendError(res, 400, 'Informe o documento (name) e a base de destino (toBaseId)');
+      return;
+    }
+    if (!getBase(params.id) || !getBase(input.toBaseId)) {
+      sendError(res, 404, 'Base não encontrada');
+      return;
+    }
+    try {
+      sendJson(res, 200, moveDoc(params.id, input.name.trim(), input.toBaseId.trim()));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   router.delete('/api/knowledge/:id/docs/:name', ({ res, params }) => {

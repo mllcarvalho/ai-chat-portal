@@ -7,7 +7,7 @@
  */
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,12 +109,11 @@ log('Empacotando a extensão…');
 run('npm run package -w ai-chat-portal-extension');
 
 const extDir = join(root, 'extension');
-const vsix = readdirSync(extDir)
-  .filter((f) => f.endsWith('.vsix'))
-  .map((f) => join(extDir, f))
-  .sort()
-  .pop();
-if (!vsix) fail('Arquivo .vsix não foi gerado');
+// o vsix EXATO da versão recém-empacotada — nada de sort() lexicográfico, que
+// escolhia um vsix velho quando havia vários (ex: "0.2.9" > "0.2.11" como string)
+const extVersion = JSON.parse(readFileSync(join(extDir, 'package.json'), 'utf8')).version;
+const vsix = join(extDir, `ai-chat-portal-extension-${extVersion}.vsix`);
+if (!existsSync(vsix)) fail(`Arquivo .vsix não foi gerado (${vsix})`);
 
 log('Instalando a extensão no VS Code…');
 code(['--install-extension', vsix, '--force']);
@@ -132,9 +131,7 @@ if (!/github\.copilot-chat/i.test(installed)) {
 
 // ---------- 5. garantir servidor ativo ----------
 
-const expectedVersion = JSON.parse(
-  readFileSync(join(extDir, 'package.json'), 'utf8'),
-).version;
+const expectedVersion = extVersion;
 
 async function healthCheck(port) {
   try {

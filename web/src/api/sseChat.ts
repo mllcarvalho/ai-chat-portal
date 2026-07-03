@@ -7,6 +7,7 @@ export interface ChatStreamHandlers {
   onText: (data: ChatSseEvents['text']) => void;
   onToolCall: (data: ChatSseEvents['tool_call']) => void;
   onApprovalRequest: (data: ChatSseEvents['approval_request']) => void;
+  onUserQuestion: (data: ChatSseEvents['user_question']) => void;
   onToolResult: (data: ChatSseEvents['tool_result']) => void;
   onDone: (data: ChatSseEvents['done']) => void;
   /** Chega depois do done: credits reais medidos na cota da licença. */
@@ -72,6 +73,9 @@ export async function streamChat(
         break;
       case 'approval_request':
         handlers.onApprovalRequest(data as ChatSseEvents['approval_request']);
+        break;
+      case 'user_question':
+        handlers.onUserQuestion(data as ChatSseEvents['user_question']);
         break;
       case 'tool_result':
         handlers.onToolResult(data as ChatSseEvents['tool_result']);

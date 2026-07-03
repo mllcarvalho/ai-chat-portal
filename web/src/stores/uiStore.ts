@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
-/** Conteúdo da área principal: chat ou as páginas de gestão (tela cheia). */
-export type MainView = 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
+/** Conteúdo da área principal: home (MESA/PROJETO), chat ou as páginas de gestão. */
+export type MainView = 'home' | 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
@@ -26,11 +26,19 @@ export interface ConfirmOptions {
 }
 
 const HIDE_TOOL_CARDS_KEY = 'aiportal.hideToolCards';
+const LOGGED_IN_KEY = 'aiportal.loggedIn';
 
 interface UiState {
   view: MainView;
   panel: PanelKind;
   toasts: Toast[];
+  /**
+   * Login RACF feito neste navegador — persiste entre refreshes (localStorage).
+   * Para trocar de usuário ou atualizar a senha do proxy, o botão ↻ ao lado do
+   * nome do usuário (rodapé da sidebar) volta para a tela de login.
+   */
+  loggedIn: boolean;
+  setLoggedIn: (loggedIn: boolean) => void;
   /**
    * Oculta os cards técnicos de ferramentas (portal_write_file etc.) no chat.
    * Pedidos de aprovação aparecem sempre, independente desta preferência.
@@ -59,9 +67,14 @@ interface UiState {
 let toastSeq = 1;
 
 export const useUi = create<UiState>((set, get) => ({
-  view: 'chat',
+  view: 'home',
   panel: { kind: 'none' },
   toasts: [],
+  loggedIn: localStorage.getItem(LOGGED_IN_KEY) === '1',
+  setLoggedIn: (loggedIn) => {
+    localStorage.setItem(LOGGED_IN_KEY, loggedIn ? '1' : '0');
+    set({ loggedIn });
+  },
   hideToolCards: localStorage.getItem(HIDE_TOOL_CARDS_KEY) === '1',
   setHideToolCards: (hide) => {
     localStorage.setItem(HIDE_TOOL_CARDS_KEY, hide ? '1' : '0');

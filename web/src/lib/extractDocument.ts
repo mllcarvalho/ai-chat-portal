@@ -8,10 +8,10 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
  */
 
 const SHEET_EXTENSIONS = ['.xlsx', '.xlsm', '.xls'];
-const CONVERTIBLE_EXTENSIONS = [...SHEET_EXTENSIONS, '.docx', '.pdf'];
+const CONVERTIBLE_EXTENSIONS = [...SHEET_EXTENSIONS, '.docx', '.pptx', '.pdf'];
 
 /** Rótulo dos formatos conversíveis, para mensagens da UI. */
-export const CONVERTIBLE_LABEL = 'Excel (.xlsx/.xls), Word (.docx) ou PDF';
+export const CONVERTIBLE_LABEL = 'Excel (.xlsx/.xls), Word (.docx), PowerPoint (.pptx) ou PDF';
 
 function extOf(name: string): string {
   const dot = name.lastIndexOf('.');
@@ -28,10 +28,58 @@ export async function extractDocumentText(file: File): Promise<string> {
   if (ext === '.doc') {
     throw new Error('Formato .doc (Word antigo) não é suportado — salve como .docx.');
   }
+  if (ext === '.ppt') {
+    throw new Error('Formato .ppt (PowerPoint antigo) não é suportado — salve como .pptx.');
+  }
   if (SHEET_EXTENSIONS.includes(ext)) return extractSheet(file);
   if (ext === '.docx') return extractDocx(file);
+  if (ext === '.pptx') return extractPptx(file);
   if (ext === '.pdf') return extractPdf(file);
   throw new Error(`Formato não suportado: ${ext || file.name}`);
+}
+
+const XML_ENTITIES: Record<string, string> = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&apos;': "'",
+};
+
+function decodeXml(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&(amp|lt|gt|quot|apos);/g, (m) => XML_ENTITIES[m]);
+}
+
+/** Uma seção markdown por slide, com um parágrafo por bloco de texto (<a:p>). */
+async function extractPptx(file: File): Promise<string> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const slideNumber = (path: string) => Number(/slide(\d+)\.xml$/.exec(path)?.[1] ?? 0);
+  const slides = Object.keys(zip.files)
+    .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
+    .sort((a, b) => slideNumber(a) - slideNumber(b));
+  const sections: string[] = [];
+  for (const path of slides) {
+    const xml = await zip.files[path].async('string');
+    const paragraphs: string[] = [];
+    for (const block of xml.match(/<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/g) ?? []) {
+      const text = (block.match(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g) ?? [])
+        .map((run) => run.replace(/<a:t(?:\s[^>]*)?>|<\/a:t>/g, ''))
+        .join('')
+        .trim();
+      if (text) paragraphs.push(decodeXml(text));
+    }
+    if (paragraphs.length) {
+      sections.push(`## Slide ${slideNumber(path)}\n\n${paragraphs.join('\n\n')}`);
+    }
+  }
+  if (!sections.length) {
+    throw new Error('A apresentação não tem texto extraível (slides só com imagens?).');
+  }
+  return sections.join('\n\n');
 }
 
 /** Uma seção markdown por aba, com o conteúdo em CSV. */

@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
@@ -60,6 +61,7 @@ export function SkillsPage() {
   const confirm = useUi((s) => s.confirm);
   const [filter, setFilter] = useState<ScopeFilter>('all');
   const [draft, setDraft] = useState<Draft | undefined>();
+  const [expandContent, setExpandContent] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -129,6 +131,20 @@ export function SkillsPage() {
       a.download = `${command}.md`;
       a.click();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const emailShare = async (id: string) => {
+    try {
+      const result = await api.shareByEmail('skill', id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
     } catch (err) {
       toast((err as Error).message, 'error');
     }
@@ -285,6 +301,19 @@ export function SkillsPage() {
                 >
                   ⬇ Baixar
                 </span>
+                {!isBmadAsset(skill.id) && (
+                  <span
+                    role="button"
+                    className="mini-btn"
+                    title="Enviar por email (abre o cliente com o .md anexado — re-importável pelo botão Importar)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void emailShare(skill.id);
+                    }}
+                  >
+                    ✉️
+                  </span>
+                )}
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
@@ -369,7 +398,16 @@ export function SkillsPage() {
               />
             </div>
             <div className="field page-card__grow">
-              <label>Conteúdo (markdown — use {'{{input}}'} para o texto digitado após o /comando)</label>
+              <div className="field__label-row">
+                <label>Conteúdo (markdown — use {'{{input}}'} para o texto digitado após o /comando)</label>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => setExpandContent(true)}
+                  title="Editar em tela cheia (com visualização do markdown)"
+                >
+                  ⤢ Expandir
+                </button>
+              </div>
               <textarea
                 className="page-card__editor"
                 value={draft.content}
@@ -402,6 +440,16 @@ export function SkillsPage() {
           </Panel>
         )}
       </div>
+
+      {draft && expandContent && (
+        <MarkdownEditorModal
+          title={`Conteúdo da skill${draft.name.trim() ? ` "${draft.name.trim()}"` : ''} (markdown)`}
+          value={draft.content}
+          onChange={(value) => setDraft({ ...draft, content: value })}
+          placeholder={'Resuma o texto a seguir em 5 bullets:\n\n{{input}}'}
+          onClose={() => setExpandContent(false)}
+        />
+      )}
     </PageShell>
   );
 }

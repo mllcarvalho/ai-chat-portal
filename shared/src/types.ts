@@ -13,12 +13,31 @@ export interface Config {
   devOrigins?: string[];
   /** Rede corporativa para as conexões dos proxies MCP (proxy/CA). */
   network?: NetworkConfig;
+  /** Autenticação Microsoft para ler SharePoint via Graph. */
+  microsoft?: MicrosoftGraphConfig;
+  /** Último usuário RACF informado no login (a senha nunca é persistida). */
+  racfUser?: string;
+}
+
+/**
+ * App do Entra ID usado no login Microsoft (SharePoint). Obrigatório: a
+ * Microsoft não pré-autoriza o client ID do próprio VS Code a pedir escopos
+ * de SharePoint no Graph (erro AADSTS65002), então o login só funciona com um
+ * app registrado no tenant.
+ */
+export interface MicrosoftGraphConfig {
+  /** Application (client) ID do app registrado no Entra ID. */
+  clientId?: string;
+  /** Tenant: 'organizations' (default), 'common' ou o ID/domínio do tenant. */
+  tenant?: string;
 }
 
 /** Proxy e CA corporativos usados nas conexões dos proxies MCP (token + gateway). */
 export interface NetworkConfig {
   /** Ex.: http://proxy.empresa:8080 — usado para hosts HTTPS/HTTP. */
   httpsProxy?: string;
+  /** HTTP_PROXY dos rc/env — normalmente o mesmo valor do httpsProxy. */
+  httpProxy?: string;
   /** Lista separada por vírgula de hosts que NÃO passam pelo proxy. */
   noProxy?: string;
   /** Caminho de um arquivo PEM com a(s) CA(s) internas (NODE_EXTRA_CA_CERTS). */
@@ -207,6 +226,11 @@ export interface AgentPreset {
   /** null/ausente = todas as ferramentas. */
   enabledTools?: string[] | null;
   /**
+   * Agente disponível para uso (ausente = habilitado). Desabilitado some dos
+   * seletores mas continua gerenciável nas Configurações (usado pelos BMAD).
+   */
+  enabled?: boolean;
+  /**
    * Skills vinculadas (aditivo, nunca restringe): garantidas no catálogo das
    * conversas do agente e incluídas no export.
    */
@@ -273,6 +297,53 @@ export interface McpServerInfo {
   error?: string;
   toolCount: number;
   toolNames: string[];
+}
+
+/** Conta AWS visível no SSO durante o setup do ConsumerLab. */
+export interface ConsumerLabAccount {
+  id: string;
+  name: string;
+}
+
+/**
+ * Setup guiado do MCP ConsumerLab (Itaú): o portal verifica pré-requisitos,
+ * clona o repositório do servidor, instala dependências (uv sync), faz o
+ * login SSO na AWS e registra o servidor stdio — replicando o setup.sh usado
+ * no fluxo manual do VS Code. As fases `awaiting-*` pausam esperando uma
+ * escolha do usuário na UI (conta e, quando houver mais de uma, role).
+ */
+export interface ConsumerLabStatus {
+  running: boolean;
+  phase:
+    | 'idle'
+    | 'prereqs'
+    | 'repo'
+    | 'deps'
+    | 'sso-login'
+    | 'accounts'
+    | 'awaiting-account'
+    | 'roles'
+    | 'awaiting-role'
+    | 'profile'
+    | 'register'
+    | 'done'
+    | 'error';
+  /** Rótulo humano da fase atual, para a UI exibir sem switch próprio. */
+  phaseLabel: string;
+  /** Cauda do log acumulado dos comandos (estilo instalador do BMAD). */
+  log: string;
+  error?: string;
+  /** Portal SSO usado na rodada atual (ex: "Landing Zone (itaulzprod)"). */
+  ssoPortal?: string;
+  /** Outro portal SSO disponível para tentar quando a conta não aparece na lista. */
+  altSsoPortal?: string;
+  /** Preenchido na fase awaiting-account (já filtrado por "consumer" quando possível). */
+  accounts?: ConsumerLabAccount[];
+  /** Preenchido na fase awaiting-role. */
+  roles?: string[];
+  /** Profile AWS resultante (ex: 872813764471_CONSUMER). */
+  profile?: string;
+  repoPath?: string;
 }
 
 /** Agente (chat mode) encontrado no VS Code — importável como AgentPreset. */

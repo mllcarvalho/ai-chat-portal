@@ -1,9 +1,13 @@
 import TurndownService from 'turndown';
 import { gfm } from '@joplin/turndown-plugin-gfm';
+import { netStatus, requestInitFor } from '../tools/netEnv';
+import { binaryKindFor, extractBinaryText } from './extractBinary';
 
 const FETCH_TIMEOUT_MS = 20_000;
 /** HTML bruto pode ser bem maior que o markdown final, então o teto é maior que DOC_LIMIT. */
 const FETCH_LIMIT = 2 * 1024 * 1024;
+/** Word/PDF/Excel comprimem muito texto; o teto de download é maior. */
+const BINARY_FETCH_LIMIT = 20 * 1024 * 1024;
 
 /** Valida a URL e reescreve páginas de arquivo do GitHub (blob) para o conteúdo bruto. */
 export function normalizeSourceUrl(raw: string): string {
@@ -39,6 +43,34 @@ export function docNameForUrl(raw: string): string {
 }
 
 /**
+ * O undici esconde a causa real ("fetch failed") em err.cause — desce a
+ * cadeia até o erro de rede de verdade (ENOTFOUND, ECONNREFUSED, cert…).
+ */
+function fetchErrorDetail(err: unknown): string {
+  const messages: string[] = [];
+  let current: unknown = err;
+  while (current) {
+    if (current instanceof AggregateError && current.errors.length) {
+      current = current.errors[0];
+      continue;
+    }
+    if (current instanceof Error) {
+      const code = (current as NodeJS.ErrnoException).code;
+      messages.push(
+        code && !current.message.includes(code) ? `${current.message} (${code})` : current.message,
+      );
+      current = current.cause;
+      continue;
+    }
+    messages.push(String(current));
+    break;
+  }
+  // com uma causa mais específica na cadeia, o "fetch failed" genérico só polui
+  const specific = messages.filter((m) => m && m !== 'fetch failed');
+  return [...new Set(specific.length ? specific : messages)].join(' — ');
+}
+
+/**
  * Baixa o conteúdo da URL e devolve texto pronto para virar documento:
  * markdown/texto entram como estão; HTML é convertido para markdown.
  */
@@ -46,29 +78,44 @@ export async function fetchRemoteContent(url: string): Promise<string> {
   let res: Response;
   try {
     res = await fetch(url, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
+      ...requestInitFor(url, {
         'User-Agent': 'ai-chat-portal',
         Accept: 'text/markdown, text/html;q=0.9, text/plain;q=0.8, */*;q=0.5',
-      },
+      }),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Falha ao acessar a URL: ${message}`);
+    throw new Error(`Falha ao acessar a URL: ${fetchErrorDetail(err)} · rede: ${netStatus(url)}`);
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      `A URL respondeu ${res.status} (acesso negado) — a página exige autenticação. ` +
+        'Para SharePoint, use o link da página/arquivo no site (*.sharepoint.com).',
+    );
   }
   if (!res.ok) throw new Error(`A URL respondeu ${res.status} ${res.statusText}`);
 
+  const pathname = new URL(res.url || url).pathname.toLowerCase();
   const type = (res.headers.get('content-type') ?? '').toLowerCase();
-  if (/^(image|video|audio|font)\//.test(type) || /application\/(pdf|zip|octet-stream|msword|vnd\.)/.test(type)) {
-    throw new Error(`Conteúdo não suportado (${type.split(';')[0].trim()}) — para PDF/Word/Excel use o Upload`);
+  const kind = binaryKindFor(type, pathname);
+  if (kind) {
+    const declared = Number(res.headers.get('content-length') ?? 0);
+    if (declared > BINARY_FETCH_LIMIT) throw new Error('Arquivo remoto excede o limite de 20 MB');
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.byteLength > BINARY_FETCH_LIMIT) throw new Error('Arquivo remoto excede o limite de 20 MB');
+    return extractBinaryText(kind, data);
+  }
+  if (/^(image|video|audio|font)\//.test(type) || /application\/(zip|octet-stream|msword|vnd\.)/.test(type)) {
+    throw new Error(
+      `Conteúdo não suportado (${type.split(';')[0].trim()}) — formatos aceitos: página HTML, markdown, texto, Word (.docx), Excel (.xlsx), PowerPoint (.pptx) e PDF`,
+    );
   }
   const declared = Number(res.headers.get('content-length') ?? 0);
   if (declared > FETCH_LIMIT) throw new Error('Conteúdo remoto excede o limite de 2 MB');
   const text = await res.text();
   if (Buffer.byteLength(text) > FETCH_LIMIT) throw new Error('Conteúdo remoto excede o limite de 2 MB');
 
-  const pathname = new URL(url).pathname.toLowerCase();
   const isPlain = type.includes('markdown') || /\.(md|markdown|txt)$/.test(pathname);
   const looksHtml = type.includes('html') || /^\s*(<!doctype\s+html|<html[\s>])/i.test(text);
   const markdown = !isPlain && looksHtml ? htmlToMarkdown(text) : text;
@@ -79,7 +126,7 @@ export async function fetchRemoteContent(url: string): Promise<string> {
  * Limpa ruído que não serve ao modelo, mesmo quando a fonte já entrega markdown
  * (ex.: docs.github.com com Accept: text/markdown traz <svg> de ícones e screenshots).
  */
-function sanitizeMarkdown(markdown: string, baseUrl: string): string {
+export function sanitizeMarkdown(markdown: string, baseUrl: string): string {
   let out = markdown
     .replace(/<svg[\s>][\s\S]*?<\/svg\s*>/gi, '')
     .replace(/!\[[^\]]*\]\([^()\s]*\)/g, '')
@@ -100,7 +147,7 @@ function sanitizeMarkdown(markdown: string, baseUrl: string): string {
     .trim();
 }
 
-function htmlToMarkdown(html: string): string {
+export function htmlToMarkdown(html: string): string {
   // foca no conteúdo principal quando a página declara um (evita nav/rodapé no contexto)
   const region =
     /<main[\s>][\s\S]*<\/main>/i.exec(html)?.[0] ??

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import type { McpServerInfo } from '@aiportal/shared';
+import { useEffect, useRef, useState } from 'react';
+import type { ConsumerLabStatus, McpServerInfo } from '@aiportal/shared';
 import { api, type McpProxyInput } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
-type DraftKind = 'stdio' | 'http' | 'gateway' | 'proxy-ts';
+type DraftKind = 'stdio' | 'http' | 'gateway' | 'proxy-ts' | 'consumerlab';
 
 interface McpDraft {
   /** Nome do proxy em edição (só para gateway já salvo). */
@@ -37,6 +37,167 @@ const EMPTY_DRAFT: McpDraft = {
 };
 
 type TestState = { tools: string[] } | { error: string } | undefined;
+
+/**
+ * Setup guiado do ConsumerLab: dispara o fluxo no backend (pré-requisitos →
+ * clone → uv sync → SSO AWS → conta/role → servidor ligado) e acompanha por
+ * polling. Só as escolhas de conta e role dependem do usuário.
+ */
+function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
+  const toast = useUi((s) => s.toast);
+  const [status, setStatus] = useState<ConsumerLabStatus>();
+  const [busy, setBusy] = useState(false);
+  /** Só fecha o painel quando o done acontecer NESTA visita (não em setup antigo). */
+  const sawInProgress = useRef(false);
+  const doneNotified = useRef(false);
+  const logRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = () =>
+      api
+        .getConsumerLab()
+        .then((s) => alive && setStatus(s))
+        .catch(() => undefined);
+    void refresh();
+    const timer = setInterval(() => void refresh(), 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+  }, [status?.log]);
+
+  useEffect(() => {
+    if (!status) return;
+    if (status.phase !== 'done') {
+      if (status.phase !== 'idle') sawInProgress.current = true;
+      return;
+    }
+    if (sawInProgress.current && !doneNotified.current) {
+      doneNotified.current = true;
+      toast('ConsumerLab configurado e ligado.', 'ok');
+      onDone();
+    }
+  }, [status, toast, onDone]);
+
+  const call = async (fn: () => Promise<ConsumerLabStatus>) => {
+    setBusy(true);
+    try {
+      setStatus(await fn());
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const idle = !status || status.phase === 'idle';
+  const failed = status?.phase === 'error';
+  // "done" de uma visita anterior: oferece refazer (útil quando o SSO expira)
+  const doneBefore = status?.phase === 'done' && !sawInProgress.current;
+
+  return (
+    <>
+      <p className="page-hint">
+        Servidor MCP do <strong>Consumer Lab</strong> (Itaú). O portal faz o setup completo:
+        verifica git/python/uv/AWS CLI, baixa o repositório, instala as dependências e abre o
+        browser para o login SSO — você só escolhe a conta AWS quando ela aparecer aqui.
+        Quando as credenciais AWS expirarem, refaça o setup por aqui.
+      </p>
+
+      {(idle || failed || doneBefore) && (
+        <>
+          {failed && (
+            <div className="mcp-test mcp-test--err">
+              <div className="mcp-test__title">✗ {status?.phaseLabel}</div>
+              {status?.error}
+            </div>
+          )}
+          <div className="form-actions">
+            <button className="btn btn--primary" disabled={busy} onClick={() => void call(api.startConsumerLab)}>
+              {failed ? 'Tentar de novo' : doneBefore ? '🔁 Refazer setup' : '🚀 Iniciar setup'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {status && status.phase !== 'idle' && !failed && (
+        <>
+          <div className={`mcp-test ${status.phase === 'done' ? 'mcp-test--ok' : ''}`}>
+            <div className="mcp-test__title">
+              {status.phase === 'done' ? '✓' : '⏳'} {status.phaseLabel}
+            </div>
+            {status.profile && status.phase === 'done' && <>Profile AWS: {status.profile}</>}
+          </div>
+
+          {status.phase === 'awaiting-account' && (
+            <div className="field">
+              <label>Conta AWS{status.ssoPortal ? ` — ${status.ssoPortal}` : ''}</label>
+              <div className="chips">
+                {(status.accounts ?? []).map((account) => (
+                  <button
+                    key={account.id}
+                    className="chip chip--action"
+                    disabled={busy}
+                    onClick={() => void call(() => api.chooseConsumerLab({ accountId: account.id }))}
+                  >
+                    {account.name} · {account.id}
+                  </button>
+                ))}
+              </div>
+              {status.altSsoPortal && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 10 }}
+                  disabled={busy}
+                  onClick={() => void call(api.switchConsumerLabSso)}
+                >
+                  Minha conta não está aqui — entrar no SSO {status.altSsoPortal}
+                </button>
+              )}
+            </div>
+          )}
+
+          {status.phase === 'awaiting-role' && (
+            <div className="field">
+              <label>Role</label>
+              <div className="chips">
+                {(status.roles ?? []).map((role) => (
+                  <button
+                    key={role}
+                    className="chip chip--action"
+                    disabled={busy}
+                    onClick={() => void call(() => api.chooseConsumerLab({ roleName: role }))}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {status.log && (
+            <pre className="mcp-setup-log" ref={logRef}>
+              {status.log}
+            </pre>
+          )}
+
+          {status.running && (
+            <div className="form-actions">
+              <button className="btn" disabled={busy} onClick={() => void call(api.cancelConsumerLab)}>
+                Cancelar setup
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
 
 function ServerForm({ draft, onChange, onClose, onSaved }: {
   draft: McpDraft;
@@ -112,13 +273,22 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
   };
 
   return (
-    <Panel title={draft.editing ? `Editar proxy "${draft.editing}"` : 'Novo servidor'} className="panel--form">
+    <Panel
+      title={
+        draft.editing
+          ? draft.kind === 'consumerlab'
+            ? 'ConsumerLab — reconfigurar'
+            : `Editar proxy "${draft.editing}"`
+          : 'Novo servidor'
+      }
+      className="panel--form"
+    >
       <div className="row">
         <div className="field">
           <label>Nome</label>
           <input
-            value={draft.name}
-            disabled={!!draft.editing}
+            value={draft.kind === 'consumerlab' ? 'consumerlab' : draft.name}
+            disabled={!!draft.editing || draft.kind === 'consumerlab'}
             onChange={(e) => onChange({ ...draft, name: e.target.value })}
             placeholder="ex: jira"
           />
@@ -136,6 +306,7 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
               { value: 'http', label: 'http', hint: 'URL remota (sem auth)' },
               { value: 'gateway', label: 'Gateway OAuth2', hint: 'Proxy pronto: token + gateway remoto' },
               { value: 'proxy-ts', label: 'proxy TypeScript', hint: 'Gera mcps/<nome>.ts no repo' },
+              { value: 'consumerlab', label: 'ConsumerLab (Itaú)', hint: 'Setup automático: repo + AWS SSO' },
             ]}
           />
         </div>
@@ -169,6 +340,8 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
           executado via <code>npx tsx</code>. Edite o arquivo para implementar suas ferramentas.
         </p>
       )}
+
+      {draft.kind === 'consumerlab' && <ConsumerLabSetup onDone={onSaved} />}
 
       {draft.kind === 'gateway' && (
         <>
@@ -254,9 +427,11 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
             {testing ? 'Testando…' : '🔌 Testar conexão'}
           </button>
         )}
-        <button className="btn btn--primary" disabled={busy || !canSubmit} onClick={() => void submit()}>
-          {busy ? 'Salvando…' : draft.kind === 'gateway' && draft.editing ? 'Salvar' : 'Criar servidor'}
-        </button>
+        {draft.kind !== 'consumerlab' && (
+          <button className="btn btn--primary" disabled={busy || !canSubmit} onClick={() => void submit()}>
+            {busy ? 'Salvando…' : draft.kind === 'gateway' && draft.editing ? 'Salvar' : 'Criar servidor'}
+          </button>
+        )}
       </div>
     </Panel>
   );
@@ -281,6 +456,24 @@ export function McpServersPage() {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [pending, setPending] = useState<string | undefined>();
   const [draft, setDraft] = useState<McpDraft | undefined>();
+  /** Servidor com a lista de ferramentas expandida + cache por servidor. */
+  const [toolsOpen, setToolsOpen] = useState<string | undefined>();
+  const [toolsCache, setToolsCache] = useState<Record<string, Array<{ name: string; description: string }>>>({});
+
+  const toggleTools = async (server: McpServerInfo) => {
+    if (toolsOpen === server.name) {
+      setToolsOpen(undefined);
+      return;
+    }
+    setToolsOpen(server.name);
+    try {
+      const tools = await api.listMcpServerTools(server.name);
+      setToolsCache((cache) => ({ ...cache, [server.name]: tools }));
+    } catch (err) {
+      toast((err as Error).message, 'error');
+      setToolsOpen(undefined);
+    }
+  };
 
   const reload = () => api.listMcpServers().then(setServers).catch(() => setServers([]));
 
@@ -366,6 +559,19 @@ export function McpServersPage() {
           {servers.map((server) => {
             const status = statusLabel(server);
             const isProxy = server.kind === 'proxy';
+            // servidor do setup guiado: clicar reabre o painel (trocar conta, refazer SSO)
+            const isConsumerLab = server.kind === 'mcpjson' && server.name === 'consumerlab';
+            const open = isProxy
+              ? () => editProxy(server)
+              : isConsumerLab
+                ? () =>
+                    setDraft({
+                      ...EMPTY_DRAFT,
+                      kind: 'consumerlab',
+                      name: server.name,
+                      editing: server.name,
+                    })
+                : undefined;
             return (
               <div className={`mcp-row${draft?.editing === server.name ? ' mcp-row--active' : ''}`} key={server.name}>
                 <button
@@ -377,9 +583,9 @@ export function McpServersPage() {
                 />
                 <div
                   className="mcp-row__info"
-                  style={isProxy ? { cursor: 'pointer' } : undefined}
-                  onClick={isProxy ? () => editProxy(server) : undefined}
-                  title={isProxy ? 'Editar proxy' : undefined}
+                  style={open ? { cursor: 'pointer' } : undefined}
+                  onClick={open}
+                  title={isProxy ? 'Editar proxy' : isConsumerLab ? 'Reconfigurar (conta, SSO)' : undefined}
                 >
                   <div className="mcp-row__name">
                     {server.name}
@@ -394,14 +600,37 @@ export function McpServersPage() {
                   {server.status === 'error' && server.error && (
                     <div className="mcp-row__error">{server.error}</div>
                   )}
-                  {server.status === 'running' && server.toolNames.length > 0 && (
+                  {server.status === 'running' && server.toolNames.length > 0 && toolsOpen !== server.name && (
                     <div className="mcp-row__tools" title={server.toolNames.join(', ')}>
                       {server.toolNames.slice(0, 6).join(' · ')}
                       {server.toolNames.length > 6 ? ` · +${server.toolNames.length - 6}` : ''}
                     </div>
                   )}
+                  {toolsOpen === server.name && (
+                    <div className="mcp-tool-list" onClick={(e) => e.stopPropagation()}>
+                      {(toolsCache[server.name] ?? []).map((tool) => (
+                        <div className="mcp-tool" key={tool.name}>
+                          <div className="mcp-tool__name">{tool.name}</div>
+                          {tool.description && <div className="mcp-tool__desc">{tool.description}</div>}
+                        </div>
+                      ))}
+                      {!toolsCache[server.name] && <div className="mcp-tool__desc">Carregando…</div>}
+                    </div>
+                  )}
                 </div>
                 <div className="mcp-row__actions">
+                  {server.status === 'running' && server.toolCount > 0 && (
+                    <button
+                      className={`icon-btn${toolsOpen === server.name ? ' icon-btn--active' : ''}`}
+                      title={toolsOpen === server.name ? 'Esconder ferramentas' : 'Ver ferramentas'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleTools(server);
+                      }}
+                    >
+                      🧰
+                    </button>
+                  )}
                   {server.enabled && (
                     <button
                       className="icon-btn"

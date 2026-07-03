@@ -29,19 +29,31 @@ import { describeEnvForPrompt } from '../tools/envCheck';
 import { callMcpTool } from '../tools/mcpManager';
 import { executeCommand } from '../tools/runCommand';
 import { getEnabledToolDefs } from '../tools/toolRegistry';
-import { collectKnowledge } from '../storage/knowledgeStore';
+import { collectKnowledgeContext } from '../storage/knowledgeStore';
 import { buildMessages, type ContextFile } from './messageBuilder';
 import { registerRequest, releaseRequest } from './activeRequests';
 import { waitForApproval } from './approvals';
+import { waitForAnswer } from './questions';
+import { runSubagent, type SubagentOutcome } from './subagent';
 import { creditsRemaining } from '../server/routes/copilot';
 import { withTimeout } from '../util';
 
 const MAX_ROUNDS = 20;
+/** Cada subagente é uma conversa própria no Copilot — teto por rodada. */
+const MAX_SUBAGENTS_PER_ROUND = 8;
 const TOOL_RESULT_CLAMP = 64 * 1024;
 /** Limite por arquivo fixado no contexto da sessão. */
 const CONTEXT_FILE_CLAMP = 64 * 1024;
 /** Ferramentas que dependem da pasta de trabalho existir no disco. */
-const WORKSPACE_FS_TOOLS = ['portal_write_file', 'portal_read_file', 'portal_list_files'];
+const WORKSPACE_FS_TOOLS = [
+  'portal_write_file',
+  'portal_read_file',
+  'portal_list_files',
+  'portal_edit_file',
+  'portal_search_files',
+  'portal_delete_file',
+  'portal_move_file',
+];
 
 /** Lê os arquivos fixados no contexto da sessão; ignora os que sumiram do disco. */
 function readContextFiles(session: Session, workRoot: string): ContextFile[] {
@@ -209,6 +221,14 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
 
     const toolDefs = getEnabledToolDefs(session, agent);
 
+    // bases grandes: com as ferramentas de busca disponíveis, o preâmbulo
+    // recebe só o índice e o modelo recupera o conteúdo sob demanda
+    const knowledgeCtx = collectKnowledgeContext(
+      session.projectId,
+      agent?.knowledgeBaseIds,
+      toolDefs.some((t) => t.name === 'portal_search_knowledge'),
+    );
+
     const messages = buildMessages({
       session,
       project,
@@ -216,7 +236,8 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       instructionSkills,
       commandSkills,
       canLoadSkills: toolDefs.some((t) => t.name === 'portal_load_skill'),
-      knowledge: collectKnowledge(session.projectId, agent?.knowledgeBaseIds),
+      knowledge: knowledgeCtx.snippets,
+      knowledgeIndex: knowledgeCtx.index,
       contextFiles: readContextFiles(session, workRoot),
       envNote: describeEnvForPrompt(),
       maxInputTokens: model.maxInputTokens,
@@ -295,7 +316,36 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
         break;
       }
 
-      // executa as tools sequencialmente e devolve os resultados ao modelo
+      // subagentes da rodada disparam TODOS agora, em paralelo (party mode do
+      // BMAD: cada persona responde ao mesmo tempo); runSubagent nunca rejeita
+      const subagentRuns = new Map<string, Promise<SubagentOutcome>>();
+      for (const call of roundCalls) {
+        if (call.name !== 'portal_spawn_subagent') continue;
+        if (subagentRuns.size >= MAX_SUBAGENTS_PER_ROUND) {
+          subagentRuns.set(
+            call.callId,
+            Promise.resolve({
+              ok: false,
+              content: `Limite de ${MAX_SUBAGENTS_PER_ROUND} subagentes por rodada atingido — divida em rodadas.`,
+              usage: { inputTokens: 0, outputTokens: 0, requests: 0 },
+            }),
+          );
+          continue;
+        }
+        subagentRuns.set(
+          call.callId,
+          runSubagent({
+            input: call.input,
+            parentModel: model,
+            token: cts.token,
+            workRoot,
+            projectId: project?.id ?? '',
+            agentBaseIds: agent?.knowledgeBaseIds ?? [],
+          }),
+        );
+      }
+
+      // executa as demais tools sequencialmente e devolve os resultados ao modelo
       const resultParts: vscode.LanguageModelToolResultPart[] = [];
       for (const call of roundCalls) {
         if (cts.token.isCancellationRequested) {
@@ -335,12 +385,45 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
                   ? 'A aprovação expirou sem resposta do usuário. Não tente o comando de novo; siga pela alternativa manual quando existir.'
                   : 'O usuário negou a execução deste comando. Não insista; siga pela alternativa manual quando existir.';
             }
+          } else if (call.name === 'portal_spawn_subagent') {
+            const outcome = await subagentRuns.get(call.callId)!;
+            ok = outcome.ok;
+            content = outcome.content;
+            // o custo do subagente entra na conta da resposta
+            usage.inputTokens += outcome.usage.inputTokens;
+            usage.outputTokens += outcome.usage.outputTokens;
+            usage.requests += outcome.usage.requests;
+          } else if (call.name === 'portal_ask_user') {
+            const input = (call.input ?? {}) as { question?: unknown; options?: unknown };
+            const question = typeof input.question === 'string' ? input.question.trim() : '';
+            if (!question) throw new Error('Campo "question" é obrigatório');
+            const options = (Array.isArray(input.options) ? input.options : [])
+              .filter((o): o is string => typeof o === 'string' && !!o.trim())
+              .map((o) => o.trim())
+              .slice(0, 6);
+            sse.send('user_question', { callId: call.callId, toolName: call.name, question, options });
+            const outcome = await waitForAnswer(requestId, call.callId, cts.token);
+            if (outcome.kind === 'answered') {
+              content = `Resposta do usuário: ${outcome.answer}`;
+            } else {
+              ok = false;
+              content =
+                outcome.kind === 'timeout'
+                  ? 'A pergunta expirou sem resposta do usuário. Prossiga com a opção mais razoável e deixe explícito o que assumiu.'
+                  : 'A pergunta foi cancelada.';
+            }
           } else if (isBuiltinTool(call.name)) {
             if (!project && PROJECT_ONLY_TOOL_NAMES.includes(call.name)) {
               throw new Error('Esta ferramenta exige uma conversa de projeto');
             }
             if (WORKSPACE_FS_TOOLS.includes(call.name)) ensureDir(workRoot);
-            const outcome = dispatchBuiltinTool(call.name, call.input, workRoot, project?.id ?? '');
+            const outcome = await dispatchBuiltinTool(
+              call.name,
+              call.input,
+              workRoot,
+              project?.id ?? '',
+              agent?.knowledgeBaseIds ?? [],
+            );
             ok = outcome.ok;
             content = outcome.content;
           } else {

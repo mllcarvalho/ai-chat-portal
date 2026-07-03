@@ -1,0 +1,70 @@
+import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
+import { Router, sendError, sendJson } from '../router';
+import { shareByEmail } from '../../tools/emailShare';
+import { exportAgentZip } from '../../storage/agentZip';
+import { exportBaseZip } from '../../storage/knowledgeZip';
+import { getAgent } from '../../storage/agentStore';
+import { getBase } from '../../storage/knowledgeStore';
+import { getSkill } from '../../storage/skillStore';
+
+/**
+ * Envio por email de agentes, skills e bases de conhecimento: gera o mesmo
+ * artefato do export/download (zip do agente com vínculos, zip da base, .md da
+ * skill re-importável) e abre o cliente de email com ele anexado. Ativos do
+ * BMAD ficam de fora — são instalados, não compartilhados.
+ */
+export function registerShareRoutes(router: Router): void {
+  router.post('/api/share/email', async ({ res, body }) => {
+    const input = (body ?? {}) as { kind?: string; id?: string };
+    if (!input.id || !['agent', 'skill', 'knowledge'].includes(input.kind ?? '')) {
+      sendError(res, 400, 'Informe kind (agent | skill | knowledge) e id');
+      return;
+    }
+    if (isBmadAsset(input.id)) {
+      sendError(res, 400, 'Ativos do BMAD não são compartilháveis — a outra pessoa já os tem na instalação');
+      return;
+    }
+    try {
+      let fileName: string;
+      let data: Buffer;
+      let subject: string;
+      if (input.kind === 'agent') {
+        const agent = getAgent(input.id);
+        if (!agent) {
+          sendError(res, 404, 'Agente não encontrado');
+          return;
+        }
+        fileName = `${slugifyCommand(agent.name) || 'agente'}.agent.zip`;
+        data = await exportAgentZip(agent.id);
+        subject = `Agente "${agent.name}" — AI Product BMAD Chat`;
+      } else if (input.kind === 'knowledge') {
+        const base = getBase(input.id);
+        if (!base) {
+          sendError(res, 404, 'Base não encontrada');
+          return;
+        }
+        fileName = `${slugifyCommand(base.name) || 'base'}.zip`;
+        data = await exportBaseZip(base.id);
+        subject = `Base de conhecimento "${base.name}" — AI Product BMAD Chat`;
+      } else {
+        const skill = getSkill(input.id);
+        if (!skill) {
+          sendError(res, 404, 'Skill não encontrada');
+          return;
+        }
+        const command = skill.command ?? slugifyCommand(skill.name);
+        // mesmo formato do botão Baixar da página Skills (re-importável lá)
+        fileName = `${command}.md`;
+        data = Buffer.from(
+          `---\nname: ${skill.name}\ndescription: ${skill.description ?? ''}\ncommand: ${command}\n---\n\n${skill.content}\n`,
+          'utf8',
+        );
+        subject = `Skill "${skill.name}" — AI Product BMAD Chat`;
+      }
+      const result = await shareByEmail(fileName, data, subject);
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+}

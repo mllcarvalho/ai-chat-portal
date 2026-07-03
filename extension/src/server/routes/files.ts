@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as vscode from 'vscode';
 import type { FileEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { resolveInProject, READ_LIMIT, LIST_LIMIT, WRITE_LIMIT } from '../../tools/builtinTools';
@@ -132,6 +133,32 @@ export function registerFileRoutes(
       sendJson(res, 200, { ok: true });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao excluir arquivo');
+    }
+  });
+
+  // abre a pasta do arquivo no gerenciador do sistema (Finder/Explorer/…);
+  // o revealFileInOS do VS Code resolve a diferença de plataforma
+  router.post(`${base}/reveal`, async ({ res, params, body }) => {
+    const root = rootFor(params.id);
+    if (!root) {
+      sendError(res, 404, ownerNotFound);
+      return;
+    }
+    const rel = ((body ?? {}) as { path?: string }).path;
+    if (!rel?.trim()) {
+      sendError(res, 400, 'Parâmetro path é obrigatório');
+      return;
+    }
+    try {
+      const file = resolveInProject(root, rel.trim());
+      if (!fs.existsSync(file)) {
+        sendError(res, 404, 'Arquivo não encontrado');
+        return;
+      }
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(file));
+      sendJson(res, 200, { ok: true });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao abrir a pasta');
     }
   });
 
