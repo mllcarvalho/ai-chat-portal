@@ -70,6 +70,14 @@ export const useChat = create<ChatState>((set, get) => ({
     };
     sessions.mutateCurrent((s) => ({ ...s, messages: [...s.messages, userMessage] }));
 
+    // título otimista na sidebar: mesma regra do servidor (1ª linha da 1ª
+    // mensagem, 60 chars) — sem esperar o fim do stream para refletir
+    if (session.title === 'Nova conversa' && session.messages.length === 0) {
+      const firstLine = text.split('\n')[0] || attachments[0]?.name || 'Nova conversa';
+      const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+      sessions.applyLocalTitle(session.id, session.projectId ?? undefined, title);
+    }
+
     set({ isStreaming: true, streamingParts: [], requestId: undefined });
     const myController = new AbortController();
     abortController = myController;

@@ -29,6 +29,8 @@ interface SessionsState {
   /** Atualização local (streaming) sem ida ao servidor. */
   mutateCurrent: (fn: (session: Session) => Session) => void;
   refreshSummary: (summary: SessionSummary) => void;
+  /** Título otimista na sidebar ao enviar a 1ª mensagem (o servidor grava o mesmo). */
+  applyLocalTitle: (id: string, projectId: string | undefined, title: string) => void;
 }
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -137,5 +139,17 @@ export const useSessions = create<SessionsState>((set, get) => ({
       set({ current: { ...current, title: summary.title } });
     }
     void get().loadSessions(summary.projectId);
+  },
+
+  applyLocalTitle: (id, projectId, title) => {
+    const { current, standalone, byProject } = get();
+    if (current?.id === id) set({ current: { ...current, title } });
+    const patch = (list: SessionSummary[]) =>
+      list.map((s) => (s.id === id ? { ...s, title } : s));
+    if (projectId) {
+      set({ byProject: { ...byProject, [projectId]: patch(byProject[projectId] ?? []) } });
+    } else {
+      set({ standalone: patch(standalone) });
+    }
   },
 }));

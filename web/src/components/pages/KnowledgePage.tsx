@@ -10,6 +10,7 @@ import { api, getToken } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
@@ -33,6 +34,7 @@ export function KnowledgePage() {
   const [newBaseScope, setNewBaseScope] = useState<'global' | 'project'>('global');
   const [busy, setBusy] = useState(false);
   const [baseModal, setBaseModal] = useState(false);
+  const [expandDoc, setExpandDoc] = useState(false);
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteName, setRemoteName] = useState('');
@@ -663,7 +665,16 @@ export function KnowledgePage() {
               <input value={docName} onChange={(e) => setDocName(e.target.value)} />
             </div>
             <div className="field page-card__grow">
-              <label>Conteúdo (markdown)</label>
+              <div className="field__label-row">
+                <label>Conteúdo (markdown)</label>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => setExpandDoc(true)}
+                  title="Editar em tela cheia (com visualização do markdown)"
+                >
+                  ⤢ Expandir
+                </button>
+              </div>
               <textarea
                 className="page-card__editor"
                 value={docContent}
@@ -691,6 +702,16 @@ export function KnowledgePage() {
           </Panel>
         )}
       </div>
+
+      {selected && docName && expandDoc && (
+        <MarkdownEditorModal
+          title={`${docName} (markdown)`}
+          value={docContent}
+          onChange={setDocContent}
+          placeholder="Cole aqui o conteúdo que o assistente deve conhecer…"
+          onClose={() => setExpandDoc(false)}
+        />
+      )}
 
       {baseModal && (
         <Modal title="Nova base de conhecimento" onClose={() => setBaseModal(false)}>

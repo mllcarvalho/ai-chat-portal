@@ -13,6 +13,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { formatMultiplier } from '../chat/MessageBubble';
+import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
@@ -662,24 +663,13 @@ export function AgentsPage() {
         />
       )}
       {draft && expandInstructions && (
-        <Modal
+        <MarkdownEditorModal
           title="Instruções do agente (markdown)"
-          wide
+          value={draft.instructions}
+          onChange={(value) => setDraft({ ...draft, instructions: value })}
+          placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
           onClose={() => setExpandInstructions(false)}
-          footer={
-            <button className="btn btn--primary" onClick={() => setExpandInstructions(false)}>
-              Concluir
-            </button>
-          }
-        >
-          <textarea
-            className="modal-editor"
-            value={draft.instructions}
-            onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
-            placeholder="Você é um analista de produto sênior. Sempre estruture respostas com…"
-            autoFocus
-          />
-        </Modal>
+        />
       )}
     </PageShell>
   );
