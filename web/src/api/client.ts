@@ -2,6 +2,7 @@ import type {
   AgentPreset,
   BmadStatus,
   Config,
+  ConsumerLabStatus,
   CopilotQuota,
   FileEntry,
   HealthInfo,
@@ -251,6 +252,12 @@ export const api = {
     request<McpServerInfo>('POST', '/api/mcp/proxies', input),
   testMcpProxy: (input: McpProxyInput) =>
     request<{ ok: boolean; tools: string[] }>('POST', '/api/mcp/proxies/test', input),
+  getConsumerLab: () => request<ConsumerLabStatus>('GET', '/api/mcp/consumerlab'),
+  startConsumerLab: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/setup'),
+  chooseConsumerLab: (choice: { accountId?: string; roleName?: string }) =>
+    request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/choose', choice),
+  switchConsumerLabSso: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/switch-sso'),
+  cancelConsumerLab: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/cancel'),
 
   listVsCodeAgents: () => request<VsCodeAgent[]>('GET', '/api/vscode-agents'),
 

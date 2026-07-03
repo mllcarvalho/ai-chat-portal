@@ -299,6 +299,53 @@ export interface McpServerInfo {
   toolNames: string[];
 }
 
+/** Conta AWS visível no SSO durante o setup do ConsumerLab. */
+export interface ConsumerLabAccount {
+  id: string;
+  name: string;
+}
+
+/**
+ * Setup guiado do MCP ConsumerLab (Itaú): o portal verifica pré-requisitos,
+ * clona o repositório do servidor, instala dependências (uv sync), faz o
+ * login SSO na AWS e registra o servidor stdio — replicando o setup.sh usado
+ * no fluxo manual do VS Code. As fases `awaiting-*` pausam esperando uma
+ * escolha do usuário na UI (conta e, quando houver mais de uma, role).
+ */
+export interface ConsumerLabStatus {
+  running: boolean;
+  phase:
+    | 'idle'
+    | 'prereqs'
+    | 'repo'
+    | 'deps'
+    | 'sso-login'
+    | 'accounts'
+    | 'awaiting-account'
+    | 'roles'
+    | 'awaiting-role'
+    | 'profile'
+    | 'register'
+    | 'done'
+    | 'error';
+  /** Rótulo humano da fase atual, para a UI exibir sem switch próprio. */
+  phaseLabel: string;
+  /** Cauda do log acumulado dos comandos (estilo instalador do BMAD). */
+  log: string;
+  error?: string;
+  /** Portal SSO usado na rodada atual (ex: "Landing Zone (itaulzprod)"). */
+  ssoPortal?: string;
+  /** Outro portal SSO disponível para tentar quando a conta não aparece na lista. */
+  altSsoPortal?: string;
+  /** Preenchido na fase awaiting-account (já filtrado por "consumer" quando possível). */
+  accounts?: ConsumerLabAccount[];
+  /** Preenchido na fase awaiting-role. */
+  roles?: string[];
+  /** Profile AWS resultante (ex: 872813764471_CONSUMER). */
+  profile?: string;
+  repoPath?: string;
+}
+
 /** Agente (chat mode) encontrado no VS Code — importável como AgentPreset. */
 export interface VsCodeAgent {
   id: string;
