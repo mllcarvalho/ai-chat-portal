@@ -19,7 +19,6 @@ import { addServer, setServerEnabled } from './mcpManager';
 export const CONSUMERLAB_SERVER_NAME = 'consumerlab';
 const REPO_URL = 'https://github.com/itau-corp/itau-vy4-modules-mcp-server-consumerlab.git';
 const REPO_DIR_NAME = 'itau-vy4-modules-mcp-server-consumerlab';
-const SSO_REGION = 'us-east-1';
 const AWS_REGION = 'sa-east-1';
 const LEGACY_TMP_PROFILE = '_itau_sso_tmp';
 const LOG_LIMIT = 8000;
@@ -29,22 +28,27 @@ const LOG_LIMIT = 8000;
  * conta não aparecer na lista, o usuário troca para o próximo portal pela UI
  * (cada portal exige um login próprio no browser, então não dá para "validar
  * nos dois" de uma vez sem forçar duas autenticações em todo mundo).
+ * Cada portal tem a PRÓPRIA região de SSO — a Landing Zone vive em us-east-1,
+ * o CTPRO em sa-east-1; registrar/listar na região errada falha o login.
  */
 interface SsoPortal {
   label: string;
   session: string;
   startUrl: string;
+  ssoRegion: string;
 }
 const SSO_PORTALS: SsoPortal[] = [
   {
     label: 'Landing Zone (itaulzprod)',
     session: 'itau-sso',
     startUrl: 'https://itaulzprod.awsapps.com/start',
+    ssoRegion: 'us-east-1',
   },
   {
     label: 'CTPRO (itau-pro-ctpro-01)',
     session: 'itau-sso-ctpro',
     startUrl: 'https://itau-pro-ctpro-01.awsapps.com/start',
+    ssoRegion: 'sa-east-1',
   },
 ];
 
@@ -304,22 +308,22 @@ async function ssoLogin(): Promise<void> {
     // CLI < 2.7: login via profile temporário com campos SSO diretos
     upsertConfigBlock(`profile ${LEGACY_TMP_PROFILE}`, {
       sso_start_url: portal.startUrl,
-      sso_region: SSO_REGION,
+      sso_region: portal.ssoRegion,
       sso_account_id: '000000000000',
       sso_role_name: '_placeholder',
-      region: SSO_REGION,
+      region: portal.ssoRegion,
       output: 'json',
     });
     const login = await run('aws', ['sso', 'login', '--profile', LEGACY_TMP_PROFILE], { timeoutMs: 600_000 });
     if (login.code !== 0) fail('Falha no login SSO. Verifique sua conexão e tente novamente.');
   } else {
-    if (!readAwsConfig().includes(`[sso-session ${portal.session}]`)) {
-      upsertConfigBlock(`sso-session ${portal.session}`, {
-        sso_start_url: portal.startUrl,
-        sso_region: SSO_REGION,
-        sso_registration_scopes: 'sso:account:access',
-      });
-    }
+    // sempre reescreve o bloco: um bloco antigo com região/URL erradas não
+    // pode sobreviver só porque o header já existe no ~/.aws/config
+    upsertConfigBlock(`sso-session ${portal.session}`, {
+      sso_start_url: portal.startUrl,
+      sso_region: portal.ssoRegion,
+      sso_registration_scopes: 'sso:account:access',
+    });
     const login = await run('aws', ['sso', 'login', '--sso-session', portal.session], { timeoutMs: 600_000 });
     if (login.code !== 0) fail('Falha no login SSO. Verifique sua conexão e tente novamente.');
   }
@@ -357,7 +361,7 @@ async function listAccounts(): Promise<void> {
   setPhase('accounts');
   const result = await run(
     'aws',
-    ['sso', 'list-accounts', '--access-token', state.accessToken!, '--region', SSO_REGION, '--output', 'json'],
+    ['sso', 'list-accounts', '--access-token', state.accessToken!, '--region', currentPortal().ssoRegion, '--output', 'json'],
     { timeoutMs: 60_000, quiet: true, logAs: 'aws sso list-accounts (token omitido)' },
   );
   if (result.code !== 0) fail('Não foi possível listar as contas AWS. O token pode ter expirado — tente de novo.');
@@ -393,7 +397,7 @@ async function listRoles(accountId: string): Promise<void> {
       '--account-id',
       accountId,
       '--region',
-      SSO_REGION,
+      currentPortal().ssoRegion,
       '--output',
       'json',
     ],
@@ -424,7 +428,7 @@ async function finishSetup(accountId: string, roleName: string): Promise<void> {
   if (state.legacySso) {
     upsertConfigBlock(`profile ${profile}`, {
       sso_start_url: portal.startUrl,
-      sso_region: SSO_REGION,
+      sso_region: portal.ssoRegion,
       sso_account_id: accountId,
       sso_role_name: roleName,
       region: AWS_REGION,
