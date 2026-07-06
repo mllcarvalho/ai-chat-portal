@@ -11,7 +11,7 @@ import {
   searchKnowledge,
   writeDoc,
 } from '../storage/knowledgeStore';
-import { createSkill, getSkill, listSkills } from '../storage/skillStore';
+import { createSkill, getSkill, listSkills, readSkillAsset } from '../storage/skillStore';
 import { normalizeSourceUrl } from '../storage/remoteFetch';
 import { searchWeb } from './webSearch';
 
@@ -334,6 +334,27 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
     },
   },
   {
+    name: 'portal_read_skill_file',
+    description:
+      'Lê um arquivo ANEXO da pasta de uma skill do portal (referências, templates, exemplos). ' +
+      'Os anexos disponíveis são listados junto do conteúdo da skill (ativa, carregada ou por /comando). ' +
+      'Use quando as instruções da skill citarem um desses arquivos.',
+    inputSchema: {
+      type: 'object',
+      required: ['command', 'path'],
+      properties: {
+        command: {
+          type: 'string',
+          description: 'Comando da skill dona do arquivo (sem a barra)',
+        },
+        path: {
+          type: 'string',
+          description: 'Caminho relativo do anexo, exatamente como listado (ex: references/guia.md)',
+        },
+      },
+    },
+  },
+  {
     name: 'portal_search_knowledge',
     description:
       'Busca trechos relevantes nas bases de conhecimento habilitadas da conversa (documentação ' +
@@ -485,6 +506,7 @@ export const READONLY_BUILTIN_TOOL_NAMES = [
   'portal_fetch_url',
   'portal_web_search',
   'portal_load_skill',
+  'portal_read_skill_file',
   'portal_search_knowledge',
   'portal_read_knowledge',
   'portal_ask_user',
@@ -502,6 +524,7 @@ export const SUBAGENT_TOOL_NAMES = [
   'portal_search_files',
   'portal_fetch_url',
   'portal_web_search',
+  'portal_read_skill_file',
   'portal_search_knowledge',
   'portal_read_knowledge',
   'bmad_read_file',
@@ -816,10 +839,28 @@ export async function dispatchBuiltinTool(
         const content = skill.content.includes('{{input}}')
           ? skill.content.replaceAll('{{input}}', input)
           : skill.content;
+        const filesNote = skill.files?.length
+          ? `\n\nAnexos desta skill (leia com portal_read_skill_file quando as instruções citarem): ${skill.files.join(', ')}`
+          : '';
         return {
           ok: true,
-          content: `Skill "${skill.name}" carregada. Siga estas instruções agora:\n\n${content}`,
+          content: `Skill "${skill.name}" carregada. Siga estas instruções agora:\n\n${content}${filesNote}`,
         };
+      }
+      case 'portal_read_skill_file': {
+        const command = asString(args.command, 'command').trim().replace(/^\//, '').toLowerCase();
+        const rel = asString(args.path, 'path');
+        const visible = listSkills(projectId || undefined);
+        const meta = visible.find((s) => s.command === command);
+        if (!meta) throw new Error(`Skill "${command}" não encontrada.`);
+        const text = readSkillAsset(meta.id, rel);
+        if (text === undefined) {
+          const available = getSkill(meta.id)?.files ?? [];
+          throw new Error(
+            `Anexo "${rel}" não existe na skill "${command}". Anexos disponíveis: ${available.join(', ') || '(nenhum)'}`,
+          );
+        }
+        return { ok: true, content: text };
       }
       case 'portal_write_file': {
         const rel = asString(args.path, 'path');

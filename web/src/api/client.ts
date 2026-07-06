@@ -217,6 +217,10 @@ export const api = {
   patchSkill: (id: string, patch: Partial<SkillWithContent>) =>
     request<SkillWithContent>('PATCH', `/api/skills/${id}`, patch),
   deleteSkill: (id: string) => request<{ ok: boolean }>('DELETE', `/api/skills/${id}`),
+  uploadSkillFile: (id: string, path: string, contentBase64: string) =>
+    request<SkillWithContent>('POST', `/api/skills/${id}/files`, { path, contentBase64 }),
+  deleteSkillFile: (id: string, path: string) =>
+    request<SkillWithContent>('POST', `/api/skills/${id}/files/delete`, { path }),
 
   listAgents: () => request<AgentPreset[]>('GET', '/api/agents'),
   createAgent: (input: Partial<AgentPreset>) => request<AgentPreset>('POST', '/api/agents', input),

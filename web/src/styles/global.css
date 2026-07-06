@@ -3555,3 +3555,30 @@ button.chip--action:disabled {
   margin: 0;
   font-size: 13.5px;
 }
+
+/* ---------- anexos da skill (página Skills) ---------- */
+
+.skill-assets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skill-asset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.skill-asset code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

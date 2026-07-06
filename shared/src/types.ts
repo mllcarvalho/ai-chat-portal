@@ -204,6 +204,11 @@ export function slugifyCommand(name: string): string {
 export interface SkillWithContent extends Skill {
   /** Markdown da instrução ou template do comando ({{input}} é substituído). */
   content: string;
+  /**
+   * Anexos da pasta da skill (referências, templates…), como caminhos
+   * relativos. O modelo os lê com a ferramenta portal_read_skill_file.
+   */
+  files?: string[];
 }
 
 /** Prefixo dos ids de skills/agentes registrados pela integração BMAD. */

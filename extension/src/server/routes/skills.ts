@@ -2,10 +2,12 @@ import { Router, sendError, sendJson } from '../router';
 import {
   createSkill,
   deleteSkill,
+  deleteSkillAsset,
   getSkill,
   listAllSkills,
   listSkills,
   updateSkill,
+  writeSkillAsset,
 } from '../../storage/skillStore';
 
 export function registerSkillRoutes(router: Router): void {
@@ -76,5 +78,35 @@ export function registerSkillRoutes(router: Router): void {
   router.delete('/api/skills/:id', ({ res, params }) => {
     const ok = deleteSkill(params.id);
     sendJson(res, ok ? 200 : 404, { ok });
+  });
+
+  // --- anexos da pasta da skill (referências, templates…) --------------------
+
+  router.post('/api/skills/:id/files', ({ res, params, body }) => {
+    const input = (body ?? {}) as { path?: string; contentBase64?: string };
+    if (!input.path?.trim() || typeof input.contentBase64 !== 'string') {
+      sendError(res, 400, 'path e contentBase64 são obrigatórios');
+      return;
+    }
+    const ok = writeSkillAsset(params.id, input.path.trim(), Buffer.from(input.contentBase64, 'base64'));
+    if (!ok) {
+      sendError(res, 400, 'Skill não encontrada ou caminho inválido');
+      return;
+    }
+    sendJson(res, 200, getSkill(params.id));
+  });
+
+  router.post('/api/skills/:id/files/delete', ({ res, params, body }) => {
+    const input = (body ?? {}) as { path?: string };
+    if (!input.path?.trim()) {
+      sendError(res, 400, 'path é obrigatório');
+      return;
+    }
+    const ok = deleteSkillAsset(params.id, input.path.trim());
+    if (!ok) {
+      sendError(res, 404, 'Anexo não encontrado');
+      return;
+    }
+    sendJson(res, 200, getSkill(params.id));
   });
 }

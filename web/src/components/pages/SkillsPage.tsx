@@ -17,6 +17,8 @@ interface Draft {
   description: string;
   command: string;
   content: string;
+  /** Anexos da pasta da skill (só em skills já salvas). */
+  files?: string[];
 }
 
 const EMPTY: Draft = {
@@ -64,6 +66,36 @@ export function SkillsPage() {
   const [expandContent, setExpandContent] = useState(false);
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const assetInput = useRef<HTMLInputElement>(null);
+
+  const uploadAsset = async (file: File) => {
+    if (!draft?.id) return;
+    setBusy(true);
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      }
+      const updated = await api.uploadSkillFile(draft.id, file.name, btoa(bin));
+      setDraft((d) => (d && d.id === updated.id ? { ...d, files: updated.files } : d));
+      toast('Anexo adicionado à skill.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeAsset = async (path: string) => {
+    if (!draft?.id) return;
+    try {
+      const updated = await api.deleteSkillFile(draft.id, path);
+      setDraft((d) => (d && d.id === updated.id ? { ...d, files: updated.files } : d));
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
 
   const contextProjectId = session?.projectId ?? viewProjectId ?? undefined;
   const projectName = (id?: string) => projects.find((p) => p.id === id)?.name ?? 'projeto';
@@ -161,6 +193,7 @@ export function SkillsPage() {
         description: full.description,
         command: full.command ?? '',
         content: full.content,
+        files: full.files,
       });
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -414,6 +447,54 @@ export function SkillsPage() {
                 onChange={(e) => setDraft({ ...draft, content: e.target.value })}
                 placeholder={'Resuma o texto a seguir em 5 bullets:\n\n{{input}}'}
               />
+            </div>
+            <div className="field">
+              <div className="field__label-row">
+                <label>Anexos (referências, templates — o modelo lê sob demanda)</label>
+                {draft.id && (
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    disabled={busy}
+                    onClick={() => assetInput.current?.click()}
+                  >
+                    ⬆ Anexar arquivo
+                  </button>
+                )}
+              </div>
+              <input
+                ref={assetInput}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadAsset(file);
+                  e.target.value = '';
+                }}
+              />
+              {!draft.id ? (
+                <p className="page-hint" style={{ margin: 0 }}>
+                  Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.
+                </p>
+              ) : (draft.files ?? []).length === 0 ? (
+                <p className="page-hint" style={{ margin: 0 }}>
+                  Nenhum anexo — esta skill é só o markdown acima.
+                </p>
+              ) : (
+                <div className="skill-assets">
+                  {(draft.files ?? []).map((file) => (
+                    <div className="skill-asset" key={file}>
+                      <code>{file}</code>
+                      <button
+                        className="icon-btn icon-btn--danger"
+                        title="Remover anexo"
+                        onClick={() => void removeAsset(file)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="form-actions">
               <button className="btn" onClick={() => setDraft(undefined)}>

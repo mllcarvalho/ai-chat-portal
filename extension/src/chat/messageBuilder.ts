@@ -128,7 +128,7 @@ export function buildPreamble(opts: {
     blocks.push(envNote);
   }
   for (const skill of instructionSkills) {
-    blocks.push(`## Skill ativa: ${skill.name}\n${skill.content}`);
+    blocks.push(`## Skill ativa: ${skill.name}\n${skill.content}${skillFilesNote(skill)}`);
   }
   // catálogo leve (nome + descrição) das skills NÃO ativas, para o modelo
   // carregar sob demanda com portal_load_skill quando o pedido casar
@@ -187,6 +187,15 @@ export function buildPreamble(opts: {
   return blocks.join('\n\n');
 }
 
+/** Nota sobre os anexos da pasta da skill (lidos com portal_read_skill_file). */
+function skillFilesNote(skill: SkillWithContent): string {
+  if (!skill.files?.length) return '';
+  return (
+    `\n\n> Anexos desta skill — quando as instruções citarem um destes arquivos, leia-o com a ` +
+    `ferramenta portal_read_skill_file (command: ${skill.command}): ${skill.files.join(', ')}`
+  );
+}
+
 /** Expande "/comando resto" usando o campo command das skills visíveis. */
 export function expandSlashCommand(text: string, commandSkills: SkillWithContent[]): string {
   const match = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text.trim());
@@ -194,10 +203,12 @@ export function expandSlashCommand(text: string, commandSkills: SkillWithContent
   const [, command, rest] = match;
   const skill = commandSkills.find((s) => s.command === command);
   if (!skill) return text;
-  if (skill.content.includes('{{input}}')) {
-    return skill.content.replaceAll('{{input}}', rest);
-  }
-  return rest ? `${skill.content}\n\n${rest}` : skill.content;
+  const expanded = skill.content.includes('{{input}}')
+    ? skill.content.replaceAll('{{input}}', rest)
+    : rest
+      ? `${skill.content}\n\n${rest}`
+      : skill.content;
+  return expanded + skillFilesNote(skill);
 }
 
 function userText(message: ChatMessage): string {
