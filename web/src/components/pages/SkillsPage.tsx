@@ -6,6 +6,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
+import { parseSkillZip } from '../../lib/skillZipImport';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
@@ -141,30 +142,25 @@ export function SkillsPage() {
       if (/\.zip$/i.test(file.name)) {
         const JSZip = (await import('jszip')).default;
         const zip = await JSZip.loadAsync(await file.arrayBuffer());
-        // skill.md na raiz (export do portal); tolera outro nome de .md na raiz
-        const mdEntry =
-          zip.file('skill.md') ?? zip.file(/^[^/]+\.md$/i)[0] ?? undefined;
-        if (!mdEntry) {
-          toast('O zip não contém um skill.md — não é um export de skill do portal.', 'error');
+        // aceita o .skill.zip do portal E uma pasta de skill zipada do disco
+        // (skill.md/SKILL.md em qualquer caixa, mesmo dentro de uma subpasta)
+        const result = await parseSkillZip(zip);
+        if (!result) {
+          toast('O zip não contém um skill.md/SKILL.md — não é um zip de skill.', 'error');
           return;
         }
-        const parsed = parseSkillFile(await mdEntry.async('string'));
-        const pendingFiles: Array<{ path: string; base64: string }> = [];
-        for (const entry of Object.values(zip.files)) {
-          if (entry.dir || entry.name === mdEntry.name) continue;
-          pendingFiles.push({ path: entry.name, base64: await entry.async('base64') });
-        }
+        const parsed = parseSkillFile(result.markdown);
         setDraft({
           ...draftBase(),
           name: parsed.name ?? file.name.replace(/\.(skill\.)?zip$/i, ''),
           description: parsed.description ?? '',
           command: parsed.command ?? '',
           content: parsed.content,
-          pendingFiles: pendingFiles.length ? pendingFiles : undefined,
+          pendingFiles: result.files.length ? result.files : undefined,
         });
         toast(
-          pendingFiles.length
-            ? `Skill importada com ${pendingFiles.length} anexo(s) — revise e salve para gravar tudo.`
+          result.files.length
+            ? `Skill importada com ${result.files.length} anexo(s) — revise e salve para gravar tudo.`
             : 'Conteúdo importado — revise os campos e salve.',
           'ok',
         );
