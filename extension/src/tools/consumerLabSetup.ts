@@ -121,7 +121,9 @@ function setPhase(phase: ConsumerLabStatus['phase']): void {
 
 function appendLog(text: string): void {
   if (!text) return;
-  const merged = state.status.log + text;
+  // erros de rede dos comandos (aws/pip/git) podem citar a URL do proxy com a
+  // senha do RACF — mascara tudo que entra no log (best-effort por chunk)
+  const merged = state.status.log + maskProxyUrl(text);
   state.status.log = merged.length > LOG_LIMIT ? merged.slice(-LOG_LIMIT) : merged;
 }
 
@@ -700,7 +702,11 @@ async function setupRepository(): Promise<string> {
 
 async function installDependencies(repoPath: string): Promise<void> {
   setPhase('deps');
-  const sync = await run('uv', ['sync', '--native-tls'], { cwd: repoPath, timeoutMs: 900_000 });
+  const sync = await run('uv', ['sync', '--native-tls'], {
+    cwd: repoPath,
+    timeoutMs: 900_000,
+    env: netProcessEnv(),
+  });
   if (sync.code !== 0)
     fail('Falha ao instalar dependências. Tente manualmente: uv sync --native-tls (na pasta do repositório).');
 }
@@ -709,6 +715,11 @@ async function ssoLogin(): Promise<void> {
   const portal = currentPortal();
   setPhase('sso-login');
   appendLog(`\nO browser vai abrir para o login SSO — ${portal.label}. Autentique-se e volte aqui.\n`);
+  // proxy e CA corporativos no ambiente do aws: o git passa pelo proxy do git
+  // config, mas o aws depende de HTTPS_PROXY/AWS_CA_BUNDLE — sem eles o
+  // register/login falha na rede corporativa mesmo com o browser abrindo
+  const env = netProcessEnv();
+  let loginArgs: string[];
   if (state.legacySso) {
     // CLI < 2.7: login via profile temporário com campos SSO diretos
     upsertConfigBlock(`profile ${LEGACY_TMP_PROFILE}`, {
@@ -719,8 +730,7 @@ async function ssoLogin(): Promise<void> {
       region: portal.ssoRegion,
       output: 'json',
     });
-    const login = await run('aws', ['sso', 'login', '--profile', LEGACY_TMP_PROFILE], { timeoutMs: 600_000 });
-    if (login.code !== 0) fail('Falha no login SSO. Verifique sua conexão e tente novamente.');
+    loginArgs = ['sso', 'login', '--profile', LEGACY_TMP_PROFILE];
   } else {
     // sempre reescreve o bloco: um bloco antigo com região/URL erradas não
     // pode sobreviver só porque o header já existe no ~/.aws/config
@@ -729,9 +739,25 @@ async function ssoLogin(): Promise<void> {
       sso_region: portal.ssoRegion,
       sso_registration_scopes: 'sso:account:access',
     });
-    const login = await run('aws', ['sso', 'login', '--sso-session', portal.session], { timeoutMs: 600_000 });
-    if (login.code !== 0) fail('Falha no login SSO. Verifique sua conexão e tente novamente.');
+    loginArgs = ['sso', 'login', '--sso-session', portal.session];
   }
+  let login = await run('aws', loginArgs, { timeoutMs: 600_000, env });
+  if (login.code !== 0 && !state.cancelled) {
+    // fluxo PKCE (browser + redirect local) falha em máquina travada — o
+    // device code só precisa que o usuário abra a URL do log em QUALQUER
+    // navegador e digite o código (CLI >= 2.22; em CLIs antigas o flag não
+    // existe e este retry falha rápido, mantendo o erro original visível)
+    appendLog(
+      '\nO fluxo pelo browser falhou — tentando com código de dispositivo: ' +
+        'abra a URL que aparecer ABAIXO em qualquer navegador e digite o código mostrado.\n',
+    );
+    login = await run('aws', [...loginArgs, '--use-device-code'], { timeoutMs: 600_000, env });
+  }
+  if (login.code !== 0)
+    fail(
+      'Falha no login SSO. Confira as últimas linhas do log acima (erro de proxy/rede é a causa ' +
+        'mais comum na rede corporativa) e tente novamente.',
+    );
 
   // token do cache (~/.aws/sso/cache/*.json mais recente com accessToken)
   const cacheDir = path.join(os.homedir(), '.aws', 'sso', 'cache');
@@ -767,7 +793,7 @@ async function listAccounts(): Promise<void> {
   const result = await run(
     'aws',
     ['sso', 'list-accounts', '--access-token', state.accessToken!, '--region', currentPortal().ssoRegion, '--output', 'json'],
-    { timeoutMs: 60_000, quiet: true, logAs: 'aws sso list-accounts (token omitido)' },
+    { timeoutMs: 60_000, quiet: true, logAs: 'aws sso list-accounts (token omitido)', env: netProcessEnv() },
   );
   if (result.code !== 0) fail('Não foi possível listar as contas AWS. O token pode ter expirado — tente de novo.');
   let all: ConsumerLabAccount[] = [];
@@ -806,7 +832,7 @@ async function listRoles(accountId: string): Promise<void> {
       '--output',
       'json',
     ],
-    { timeoutMs: 60_000, quiet: true, logAs: `aws sso list-account-roles --account-id ${accountId} (token omitido)` },
+    { timeoutMs: 60_000, quiet: true, logAs: `aws sso list-account-roles --account-id ${accountId} (token omitido)`, env: netProcessEnv() },
   );
   if (result.code !== 0) fail('Não foi possível listar as roles da conta. O token pode ter expirado — tente de novo.');
   let roles: string[] = [];
