@@ -92,12 +92,31 @@ export function SkillsPage() {
 
   const removeAsset = async (path: string) => {
     if (!draft?.id) return;
+    const ok = await confirm({
+      title: 'Remover anexo',
+      message: `Remover "${path}" da pasta desta skill? O arquivo é apagado do disco.`,
+      confirmLabel: 'Remover',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const updated = await api.deleteSkillFile(draft.id, path);
       setDraft((d) => (d && d.id === updated.id ? { ...d, files: updated.files } : d));
     } catch (err) {
       toast((err as Error).message, 'error');
     }
+  };
+
+  const discardPending = async (path: string) => {
+    const ok = await confirm({
+      title: 'Descartar anexo do import',
+      message: `Não gravar "${path}" ao salvar esta skill?`,
+      confirmLabel: 'Descartar',
+    });
+    if (!ok) return;
+    setDraft((d) =>
+      d ? { ...d, pendingFiles: d.pendingFiles?.filter((f) => f.path !== path) } : d,
+    );
   };
 
   const contextProjectId = session?.projectId ?? viewProjectId ?? undefined;
@@ -498,7 +517,12 @@ export function SkillsPage() {
             </div>
             <div className="field">
               <div className="field__label-row">
-                <label>Anexos (referências, templates — o modelo lê sob demanda)</label>
+                <label>
+                  Anexos
+                  {(draft.files?.length ?? 0) + (draft.pendingFiles?.length ?? 0) > 0 &&
+                    ` (${(draft.files?.length ?? 0) + (draft.pendingFiles?.length ?? 0)})`}{' '}
+                  — referências e templates que o modelo lê sob demanda
+                </label>
                 {draft.id && (
                   <button
                     className="btn btn--sm btn--ghost"
@@ -526,38 +550,43 @@ export function SkillsPage() {
                     : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}
                 </p>
               ) : (
+                <>
                 <div className="skill-assets">
                   {(draft.files ?? []).map((file) => (
-                    <div className="skill-asset" key={file}>
+                    <span className="skill-asset" key={file} title={file}>
                       <code>{file}</code>
                       <button
-                        className="icon-btn icon-btn--danger"
+                        className="skill-asset__remove"
                         title="Remover anexo"
                         onClick={() => void removeAsset(file)}
                       >
                         ✕
                       </button>
-                    </div>
+                    </span>
                   ))}
                   {(draft.pendingFiles ?? []).map((file) => (
-                    <div className="skill-asset" key={`pending:${file.path}`}>
+                    <span
+                      className="skill-asset skill-asset--pending"
+                      key={`pending:${file.path}`}
+                      title={`${file.path} — será gravado ao salvar a skill`}
+                    >
                       <code>{file.path}</code>
-                      <span className="skill-asset__pending">grava ao salvar</span>
                       <button
-                        className="icon-btn icon-btn--danger"
-                        title="Descartar anexo do import"
-                        onClick={() =>
-                          setDraft({
-                            ...draft,
-                            pendingFiles: draft.pendingFiles?.filter((f) => f.path !== file.path),
-                          })
-                        }
+                        className="skill-asset__remove"
+                        title="Descartar (não grava ao salvar)"
+                        onClick={() => void discardPending(file.path)}
                       >
                         ✕
                       </button>
-                    </div>
+                    </span>
                   ))}
                 </div>
+                {(draft.pendingFiles?.length ?? 0) > 0 && (
+                  <p className="page-hint" style={{ margin: '6px 0 0' }}>
+                    Os anexos em laranja vieram do import e serão gravados quando você salvar.
+                  </p>
+                )}
+                </>
               )}
             </div>
             <div className="form-actions">
