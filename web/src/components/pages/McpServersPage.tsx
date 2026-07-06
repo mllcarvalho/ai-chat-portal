@@ -323,6 +323,7 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
  */
 function IuclickSetup({ onDone }: { onDone: () => void }) {
   const toast = useUi((s) => s.toast);
+  const confirm = useUi((s) => s.confirm);
   const [status, setStatus] = useState<IuclickStatus>();
   const [cookies, setCookies] = useState('');
   const [token, setToken] = useState('');
@@ -383,6 +384,29 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
       toast(result.message, 'ok');
       setCookies('');
       setToken('');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Faxina: remove o IUClick de todos os locais (para o "removi e ainda dá 403"). */
+  const purge = async () => {
+    const ok = await confirm({
+      title: 'Remover e limpar o IUClick',
+      message:
+        'Remove o servidor IUClick de todos os locais (mcp.json ativo e global, estado e credenciais guardadas). ' +
+        'Use se o IUClick continuar dando erro (ex.: 403) mesmo depois de removido.',
+      confirmLabel: 'Limpar tudo',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await api.purgeIuclick();
+      toast(result.message, 'ok');
+      onDone();
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -467,6 +491,11 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                     ? '🪄 Detectar credenciais'
                     : '🪄 Detectar e configurar'}
               </button>
+              {status?.installed && (
+                <button className="btn btn--danger" disabled={busy} onClick={() => void purge()}>
+                  🧹 Remover e limpar tudo
+                </button>
+              )}
             </div>
 
             <details className="mcp-fallback">

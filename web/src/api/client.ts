@@ -269,6 +269,7 @@ export const api = {
   startIuclick: (creds?: { cookies?: string; token?: string }) =>
     request<IuclickStatus>('POST', '/api/mcp/iuclick/setup', creds ?? {}),
   cancelIuclick: () => request<IuclickStatus>('POST', '/api/mcp/iuclick/cancel'),
+  purgeIuclick: () => request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/purge'),
   reauthIuclick: (creds: { cookies: string; token: string }) =>
     request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/credentials', creds),
   autodetectIuclick: () =>

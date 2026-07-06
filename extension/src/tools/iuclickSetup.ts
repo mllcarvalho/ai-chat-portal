@@ -9,7 +9,7 @@ import {
   hasIuclickCredentials,
   saveIuclickCredentials,
 } from '../storage/iuclickStore';
-import { readMcpJson, setServerEnabled, stopServer, upsertServer } from './mcpManager';
+import { readMcpJson, removeServer, setServerEnabled, stopServer, upsertServer } from './mcpManager';
 import { netProcessEnv, resolveShellEnv } from './netEnv';
 import { captureIuclickCredentials } from './iuclickAuth';
 
@@ -332,6 +332,23 @@ export async function autoDetectIuclick(): Promise<{ message: string }> {
   }
   const result = await reauthIuclick(cap.cookies, cap.token);
   return { message: `${result.message} — via ${cap.browser}/${cap.profile}.` };
+}
+
+/**
+ * Faxina completa do IUClick: para o servidor, remove a entrada de TODOS os
+ * mcp.json alcançáveis (ativo + ~/AIChatPortal), zera o estado e apaga as
+ * credenciais do SecretStorage. Resolve o "removi e ainda dá 403", que era a
+ * entrada sobrevivendo no mcp.json do outro contexto (repo aberto vs fechado)
+ * e o autoStart religando o servidor com o cookie velho.
+ */
+export async function purgeIuclick(): Promise<{ message: string }> {
+  await removeServer(IUCLICK_SERVER_NAME);
+  state = { status: emptyStatus() };
+  return {
+    message:
+      'IUClick removido: entradas do mcp.json (todos os locais), estado e credenciais foram limpos. ' +
+      'Se o servidor ainda aparecer, feche e reabra o VS Code.',
+  };
 }
 
 export async function cancelIuclickSetup(): Promise<IuclickStatus> {

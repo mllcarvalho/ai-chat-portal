@@ -80,6 +80,22 @@ function writeMcpJson(entries: Record<string, McpServerEntry>): void {
   writeJsonAtomic(mcpJsonPath(), { servers: entries });
 }
 
+/**
+ * Todos os mcp.json que podem conter uma entrada: o ATIVO (que depende do repo
+ * do portal estar aberto) e o GLOBAL (~/AIChatPortal). Sem isto, remover um
+ * servidor num contexto deixava a entrada "órfã" no outro arquivo — e o
+ * autoStart a ressuscitava quando o contexto virava (ex.: IUClick voltando a
+ * dar 403 depois de "removido"). Dedup preserva o caso repo-fechado (1 arquivo).
+ */
+function allMcpJsonPaths(): string[] {
+  return [...new Set([mcpJsonPath(), path.join(GLOBAL_ROOT, 'mcp.json')])];
+}
+
+/** Idem para o mcp-state.json (flag enabled): ativo (portal-data) + global. */
+function allStatePaths(): string[] {
+  return [...new Set([mcpStatePath(), path.join(GLOBAL_ROOT, 'mcp-state.json')])];
+}
+
 function readState(): McpState {
   return readJson<McpState>(mcpStatePath()) ?? { enabled: {} };
 }
@@ -461,16 +477,32 @@ export async function removeServer(name: string): Promise<void> {
   await stopServer(name);
   if (isProxy(name)) {
     await deleteProxy(name);
-  } else {
-    const entries = readMcpJson();
-    if (!entries[name]) throw new Error(`Servidor MCP "${name}" não encontrado`);
-    delete entries[name];
-    writeMcpJson(entries);
-    if (name === IUCLICK_SERVER_NAME) await clearIuclickCredentials();
+    const state = readState();
+    delete state.enabled[name];
+    writeState(state);
+    syncFromDisk();
+    return;
   }
-  const state = readState();
-  delete state.enabled[name];
-  writeState(state);
+  // purga de TODOS os mcp.json e mcp-state.json alcançáveis (ativo + global),
+  // não só o do contexto atual — senão sobra sujeira que ressuscita depois.
+  // Idempotente: remover algo que já sumiu é sucesso, não erro.
+  for (const p of allMcpJsonPaths()) {
+    const raw = readJson<{ servers?: Record<string, McpServerEntry> }>(p);
+    if (raw?.servers && name in raw.servers) {
+      delete raw.servers[name];
+      writeJsonAtomic(p, raw);
+    }
+  }
+  for (const p of allStatePaths()) {
+    const st = readJson<McpState>(p);
+    if (st?.enabled && name in st.enabled) {
+      delete st.enabled[name];
+      writeJsonAtomic(p, st);
+    }
+  }
+  // credenciais de sessão do IUClick sempre saem junto (mesmo se a entrada já
+  // não estava no arquivo ativo) — é o que causava o "removeu e ainda dá 403"
+  if (name === IUCLICK_SERVER_NAME) await clearIuclickCredentials();
   syncFromDisk();
 }
 

@@ -28,6 +28,7 @@ import {
   autoDetectIuclick,
   cancelIuclickSetup,
   getIuclickStatus,
+  purgeIuclick,
   reauthIuclick,
   startIuclickSetup,
 } from '../../tools/iuclickSetup';
@@ -182,6 +183,15 @@ export function registerToolRoutes(router: Router): void {
 
   router.post('/api/mcp/iuclick/cancel', async ({ res }) => {
     sendJson(res, 200, await cancelIuclickSetup());
+  });
+
+  // faxina completa: remove o IUClick de todos os mcp.json + estado + credenciais
+  router.post('/api/mcp/iuclick/purge', async ({ res }) => {
+    try {
+      sendJson(res, 200, { ok: true, ...(await purgeIuclick()) });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   // detecção automática: lê os cookies do navegador e busca o X-UserToken,
