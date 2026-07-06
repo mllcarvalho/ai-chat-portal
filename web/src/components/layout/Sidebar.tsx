@@ -98,6 +98,8 @@ export function Sidebar() {
   const setView = useUi((s) => s.setView);
   const collapsed = useUi((s) => s.sidebarCollapsed);
   const toggleSidebar = useUi((s) => s.toggleSidebar);
+  const menuCollapsed = useUi((s) => s.menuCollapsed);
+  const toggleMenu = useUi((s) => s.toggleMenu);
 
   if (collapsed) {
     return (
@@ -241,14 +243,30 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__footer">
-        {NAV_ITEMS.map((item) => (
-          <button key={item.view} className="sidebar__footer-btn" onClick={() => setView(item.view)}>
-            {item.icon} {item.label}
-          </button>
-        ))}
-        <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
-          ⚙️ Configurações
+        <button
+          className="sidebar__footer-toggle"
+          onClick={toggleMenu}
+          title={menuCollapsed ? 'Mostrar menu' : 'Minimizar menu'}
+        >
+          Menu
+          <span className="sidebar__footer-toggle-chevron">{menuCollapsed ? '▸' : '▾'}</span>
         </button>
+        {!menuCollapsed && (
+          <>
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.view}
+                className="sidebar__footer-btn"
+                onClick={() => setView(item.view)}
+              >
+                {item.icon} {item.label}
+              </button>
+            ))}
+            <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
+              ⚙️ Configurações
+            </button>
+          </>
+        )}
         <UserBadge />
       </div>
     </aside>

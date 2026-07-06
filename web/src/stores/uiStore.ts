@@ -36,6 +36,7 @@ export interface ConfirmOptions {
 const HIDE_TOOL_CARDS_KEY = 'aiportal.hideToolCards';
 const LOGGED_IN_KEY = 'aiportal.loggedIn';
 const SIDEBAR_COLLAPSED_KEY = 'aiportal.sidebarCollapsed';
+const MENU_COLLAPSED_KEY = 'aiportal.menuCollapsed';
 
 interface UiState {
   view: MainView;
@@ -57,6 +58,9 @@ interface UiState {
   /** Sidebar recolhida num trilho de ícones — persiste entre refreshes. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+  /** Grupo de páginas do rodapé da sidebar (Agentes, Skills…) minimizado. */
+  menuCollapsed: boolean;
+  toggleMenu: () => void;
   /** Incrementa quando uma ferramenta mexe nos arquivos — o painel Arquivos recarrega sozinho. */
   filesVersion: number;
   bumpFilesVersion: () => void;
@@ -97,6 +101,12 @@ export const useUi = create<UiState>((set, get) => ({
     const collapsed = !get().sidebarCollapsed;
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
     set({ sidebarCollapsed: collapsed });
+  },
+  menuCollapsed: localStorage.getItem(MENU_COLLAPSED_KEY) === '1',
+  toggleMenu: () => {
+    const collapsed = !get().menuCollapsed;
+    localStorage.setItem(MENU_COLLAPSED_KEY, collapsed ? '1' : '0');
+    set({ menuCollapsed: collapsed });
   },
   filesVersion: 0,
   bumpFilesVersion: () => set({ filesVersion: get().filesVersion + 1 }),
