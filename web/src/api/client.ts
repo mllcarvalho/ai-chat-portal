@@ -219,6 +219,8 @@ export const api = {
   deleteSkill: (id: string) => request<{ ok: boolean }>('DELETE', `/api/skills/${id}`),
   uploadSkillFile: (id: string, path: string, contentBase64: string) =>
     request<SkillWithContent>('POST', `/api/skills/${id}/files`, { path, contentBase64 }),
+  downloadSkillExport: (id: string, fileName: string) =>
+    downloadFromUrl(`/api/skills/${id}/export`, fileName),
   deleteSkillFile: (id: string, path: string) =>
     request<SkillWithContent>('POST', `/api/skills/${id}/files/delete`, { path }),
 

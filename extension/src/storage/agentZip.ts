@@ -3,7 +3,14 @@ import { slugifyCommand, type AgentPreset, type SessionMode } from '@aiportal/sh
 import { createAgent, getAgent, listAgents, updateAgent } from './agentStore';
 import { getBase } from './knowledgeStore';
 import { exportBaseZip, importBaseZip } from './knowledgeZip';
-import { createSkill, getSkill, listAllSkills, updateSkill } from './skillStore';
+import {
+  createSkill,
+  getSkill,
+  listAllSkills,
+  readSkillAssetRaw,
+  updateSkill,
+  writeSkillAsset,
+} from './skillStore';
 
 /** agent.json dentro do zip — sem ids, que são gerados no import. */
 interface AgentZipMeta {
@@ -26,6 +33,8 @@ interface SkillZipEntry {
   command?: string;
   content?: string;
   originId?: string;
+  /** Anexos da pasta da skill: caminho relativo → conteúdo em base64. */
+  files?: Record<string, string>;
 }
 
 export function agentHasLinks(agent: AgentPreset): boolean {
@@ -63,12 +72,18 @@ export async function exportAgentZip(agentId: string): Promise<Buffer> {
   for (const id of agent.skillIds ?? []) {
     const skill = getSkill(id);
     if (!skill) continue;
+    let files: Record<string, string> | undefined;
+    for (const rel of skill.files ?? []) {
+      const data = readSkillAssetRaw(id, rel);
+      if (data) (files ??= {})[rel] = data.toString('base64');
+    }
     const entry: SkillZipEntry = {
       name: skill.name,
       description: skill.description,
       command: skill.command,
       content: skill.content,
       originId: skill.importedFrom ?? skill.id,
+      files,
     };
     zip.file(
       uniquePath('skills', slugifyCommand(skill.command ?? skill.name), '.json'),
@@ -115,6 +130,15 @@ export async function importAgentZip(zipData: Buffer): Promise<AgentPreset> {
       const existing = item.originId
         ? listAllSkills().find((s) => s.id === item.originId || s.importedFrom === item.originId)
         : undefined;
+      const writeAssets = (skillId: string) => {
+        for (const [rel, base64] of Object.entries(item.files ?? {})) {
+          try {
+            writeSkillAsset(skillId, rel, Buffer.from(base64, 'base64'));
+          } catch {
+            // anexo problemático não derruba o import da skill
+          }
+        }
+      };
       if (existing) {
         updateSkill(existing.id, {
           name: item.name.trim(),
@@ -122,6 +146,7 @@ export async function importAgentZip(zipData: Buffer): Promise<AgentPreset> {
           content: item.content ?? '',
           ...(item.command ? { command: item.command } : {}),
         });
+        writeAssets(existing.id);
         skillIds.push(existing.id);
         continue;
       }
@@ -133,7 +158,10 @@ export async function importAgentZip(zipData: Buffer): Promise<AgentPreset> {
         content: item.content ?? '',
         importedFrom: item.originId,
       });
-      if (skill) skillIds.push(skill.id);
+      if (skill) {
+        writeAssets(skill.id);
+        skillIds.push(skill.id);
+      }
     } catch {
       // skill ilegível — importa o resto
     }

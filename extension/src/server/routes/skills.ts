@@ -1,4 +1,5 @@
 import { Router, sendError, sendJson } from '../router';
+import { exportSkillFile } from '../../storage/skillZip';
 import {
   createSkill,
   deleteSkill,
@@ -16,6 +17,21 @@ export function registerSkillRoutes(router: Router): void {
   router.get('/api/skills', ({ res, query }) => {
     const projectId = query.get('projectId') || undefined;
     sendJson(res, 200, projectId ? listSkills(projectId) : listAllSkills());
+  });
+
+  // download da skill: .md simples, ou .skill.zip quando ela tem anexos
+  router.get('/api/skills/:id/export', async ({ res, params }) => {
+    const file = await exportSkillFile(params.id);
+    if (!file) {
+      sendError(res, 404, 'Skill não encontrada');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': file.contentType,
+      'Content-Length': file.data.length,
+      'Content-Disposition': `attachment; filename="${file.fileName}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    });
+    res.end(file.data);
   });
 
   router.get('/api/skills/:id', ({ res, params }) => {

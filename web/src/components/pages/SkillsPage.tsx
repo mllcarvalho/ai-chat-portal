@@ -19,6 +19,8 @@ interface Draft {
   content: string;
   /** Anexos da pasta da skill (só em skills já salvas). */
   files?: string[];
+  /** Anexos vindos de um import .zip — gravados quando a skill for salva. */
+  pendingFiles?: Array<{ path: string; base64: string }>;
 }
 
 const EMPTY: Draft = {
@@ -127,35 +129,75 @@ export function SkillsPage() {
       projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
     });
 
-  // importa um .md: o conteúdo vai para o editor e o usuário completa
-  // nome, comando, escopo e descrição antes de salvar
-  const importFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const parsed = parseSkillFile(String(reader.result ?? ''));
+  const draftBase = () => ({
+    scope: (filterProjectId ? 'project' : 'global') as 'global' | 'project',
+    projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
+  });
+
+  // importa um .md (ou .skill.zip com anexos): o conteúdo vai para o editor e
+  // o usuário completa nome, comando, escopo e descrição antes de salvar
+  const importFile = async (file: File) => {
+    try {
+      if (/\.zip$/i.test(file.name)) {
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(await file.arrayBuffer());
+        // skill.md na raiz (export do portal); tolera outro nome de .md na raiz
+        const mdEntry =
+          zip.file('skill.md') ?? zip.file(/^[^/]+\.md$/i)[0] ?? undefined;
+        if (!mdEntry) {
+          toast('O zip não contém um skill.md — não é um export de skill do portal.', 'error');
+          return;
+        }
+        const parsed = parseSkillFile(await mdEntry.async('string'));
+        const pendingFiles: Array<{ path: string; base64: string }> = [];
+        for (const entry of Object.values(zip.files)) {
+          if (entry.dir || entry.name === mdEntry.name) continue;
+          pendingFiles.push({ path: entry.name, base64: await entry.async('base64') });
+        }
+        setDraft({
+          ...draftBase(),
+          name: parsed.name ?? file.name.replace(/\.(skill\.)?zip$/i, ''),
+          description: parsed.description ?? '',
+          command: parsed.command ?? '',
+          content: parsed.content,
+          pendingFiles: pendingFiles.length ? pendingFiles : undefined,
+        });
+        toast(
+          pendingFiles.length
+            ? `Skill importada com ${pendingFiles.length} anexo(s) — revise e salve para gravar tudo.`
+            : 'Conteúdo importado — revise os campos e salve.',
+          'ok',
+        );
+        return;
+      }
+      const parsed = parseSkillFile(await file.text());
       if (!parsed.content) {
         toast('O arquivo está vazio.', 'error');
         return;
       }
       setDraft({
-        scope: filterProjectId ? 'project' : 'global',
-        projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
+        ...draftBase(),
         name: parsed.name ?? file.name.replace(/\.(md|markdown|txt)$/i, ''),
         description: parsed.description ?? '',
         command: parsed.command ?? '',
         content: parsed.content,
       });
       toast('Conteúdo importado — revise os campos e salve.', 'ok');
-    };
-    reader.onerror = () => toast('Não foi possível ler o arquivo.', 'error');
-    reader.readAsText(file);
+    } catch {
+      toast('Não foi possível ler o arquivo.', 'error');
+    }
   };
 
-  // baixa a skill como .md com frontmatter (re-importável pelo botão Importar)
+  // baixa a skill: .md com frontmatter, ou .skill.zip quando ela tem anexos
+  // (os dois re-importáveis pelo botão Importar)
   const download = async (skill: Skill) => {
     try {
       const full = await api.getSkill(skill.id);
       const command = full.command ?? slugifyCommand(full.name);
+      if (full.files?.length) {
+        await api.downloadSkillExport(skill.id, `${command}.skill.zip`);
+        return;
+      }
       const md = `---\nname: ${full.name}\ndescription: ${full.description}\ncommand: ${command}\n---\n\n${full.content}\n`;
       const url = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }));
       const a = document.createElement('a');
@@ -225,9 +267,19 @@ export function SkillsPage() {
         command: draft.command.trim().replace(/^\//, '') || undefined,
         content: draft.content,
       };
-      if (draft.id) await api.patchSkill(draft.id, payload);
-      else await api.createSkill(payload);
-      toast('Skill salva.', 'ok');
+      const saved = draft.id
+        ? await api.patchSkill(draft.id, payload)
+        : await api.createSkill(payload);
+      // anexos que vieram de um import .zip entram depois que a skill existe
+      for (const file of draft.pendingFiles ?? []) {
+        await api.uploadSkillFile(saved.id, file.path, file.base64);
+      }
+      toast(
+        draft.pendingFiles?.length
+          ? `Skill salva com ${draft.pendingFiles.length} anexo(s).`
+          : 'Skill salva.',
+        'ok',
+      );
       setDraft(undefined);
       await loadSkills();
     } catch (err) {
@@ -247,16 +299,16 @@ export function SkillsPage() {
           <input
             ref={fileInput}
             type="file"
-            accept=".md,.markdown,.txt"
+            accept=".md,.markdown,.txt,.zip"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) importFile(file);
+              if (file) void importFile(file);
               e.target.value = '';
             }}
           />
           <button className="btn" onClick={() => fileInput.current?.click()}>
-            ⬆ Importar .md
+            ⬆ Importar (.md ou .zip)
           </button>
           <button className="btn btn--primary" onClick={newDraft}>
             ＋ Nova skill
@@ -471,13 +523,11 @@ export function SkillsPage() {
                   e.target.value = '';
                 }}
               />
-              {!draft.id ? (
+              {(draft.files ?? []).length === 0 && (draft.pendingFiles ?? []).length === 0 ? (
                 <p className="page-hint" style={{ margin: 0 }}>
-                  Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.
-                </p>
-              ) : (draft.files ?? []).length === 0 ? (
-                <p className="page-hint" style={{ margin: 0 }}>
-                  Nenhum anexo — esta skill é só o markdown acima.
+                  {draft.id
+                    ? 'Nenhum anexo — esta skill é só o markdown acima.'
+                    : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}
                 </p>
               ) : (
                 <div className="skill-assets">
@@ -488,6 +538,24 @@ export function SkillsPage() {
                         className="icon-btn icon-btn--danger"
                         title="Remover anexo"
                         onClick={() => void removeAsset(file)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                  {(draft.pendingFiles ?? []).map((file) => (
+                    <div className="skill-asset" key={`pending:${file.path}`}>
+                      <code>{file.path}</code>
+                      <span className="skill-asset__pending">grava ao salvar</span>
+                      <button
+                        className="icon-btn icon-btn--danger"
+                        title="Descartar anexo do import"
+                        onClick={() =>
+                          setDraft({
+                            ...draft,
+                            pendingFiles: draft.pendingFiles?.filter((f) => f.path !== file.path),
+                          })
+                        }
                       >
                         ✕
                       </button>

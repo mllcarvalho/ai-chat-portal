@@ -6,6 +6,7 @@ import { exportBaseZip } from '../../storage/knowledgeZip';
 import { getAgent } from '../../storage/agentStore';
 import { getBase } from '../../storage/knowledgeStore';
 import { getSkill } from '../../storage/skillStore';
+import { exportSkillFile } from '../../storage/skillZip';
 
 /**
  * Envio por email de agentes, skills e bases de conhecimento: gera o mesmo
@@ -52,13 +53,11 @@ export function registerShareRoutes(router: Router): void {
           sendError(res, 404, 'Skill não encontrada');
           return;
         }
-        const command = skill.command ?? slugifyCommand(skill.name);
-        // mesmo formato do botão Baixar da página Skills (re-importável lá)
-        fileName = `${command}.md`;
-        data = Buffer.from(
-          `---\nname: ${skill.name}\ndescription: ${skill.description ?? ''}\ncommand: ${command}\n---\n\n${skill.content}\n`,
-          'utf8',
-        );
+        // mesmo artefato do botão Baixar (re-importável): .md simples ou
+        // .skill.zip quando a skill tem anexos
+        const file = (await exportSkillFile(input.id))!;
+        fileName = file.fileName;
+        data = file.data;
         subject = `Skill "${skill.name}" — AI Product BMAD Chat`;
       }
       const result = await shareByEmail(fileName, data, subject);

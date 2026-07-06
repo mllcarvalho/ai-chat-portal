@@ -3582,3 +3582,10 @@ button.chip--action:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.skill-asset__pending {
+  font-size: 11px;
+  color: var(--warning);
+  white-space: nowrap;
+  margin-left: auto;
+}

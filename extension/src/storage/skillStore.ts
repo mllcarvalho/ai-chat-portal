@@ -315,6 +315,19 @@ export function readSkillAsset(id: string, rel: string): string | undefined {
   }
 }
 
+/** Lê um anexo com os bytes originais (export em zip — sem truncar). */
+export function readSkillAssetRaw(id: string, rel: string): Buffer | undefined {
+  const folder = findSkillFolder(id);
+  if (!folder) return undefined;
+  const target = resolveAsset(folder, rel);
+  if (!target) return undefined;
+  try {
+    return fs.readFileSync(target);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Grava um anexo (upload da UI). Cria subpastas do caminho se preciso. */
 export function writeSkillAsset(id: string, rel: string, data: Buffer): boolean {
   const folder = findSkillFolder(id);
