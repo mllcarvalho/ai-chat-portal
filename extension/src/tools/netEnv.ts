@@ -331,12 +331,17 @@ function vsCodeProxySetting(): string | undefined {
   }
 }
 
+/** Esconde a senha de uma URL de proxy (http://user:senha@host) para exibição. */
+export function maskProxyUrl(url: string): string {
+  return url.replace(/(\/\/[^:/@]+:)[^@]*@/, '$1****@');
+}
+
 /** Resumo do que está configurado, para anexar a erros de timeout. */
 export function netStatus(urlStr?: string): string {
   const proxyRaw = netConfig().httpsProxy
-    ? `${netConfig().httpsProxy} (config)`
+    ? `${maskProxyUrl(netConfig().httpsProxy!)} (config)`
     : process.env.HTTPS_PROXY || process.env.https_proxy
-      ? `${process.env.HTTPS_PROXY || process.env.https_proxy} (env)`
+      ? `${maskProxyUrl(process.env.HTTPS_PROXY || process.env.https_proxy || '')} (env)`
       : 'nenhum';
   const ca = caPath();
   let caStatus = 'nenhum';
@@ -364,6 +369,6 @@ export function netStatus(urlStr?: string): string {
     }
   }
   const vsProxy = vsCodeProxySetting();
-  const vsPart = vsProxy ? `; http.proxy do VS Code=${vsProxy} (vale para o fetch da extensão)` : '';
+  const vsPart = vsProxy ? `; http.proxy do VS Code=${maskProxyUrl(vsProxy)} (vale para o fetch da extensão)` : '';
   return `proxy=${proxyRaw}; CA=${caStatus}; ${applied}${vsPart}`;
 }

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import type { DiagnosticCheck, DiagnosticsReport } from '@aiportal/shared';
-import { netProcessEnv, netStatus, resolveShellEnv } from './netEnv';
+import { netProcessEnv, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
 
 /**
  * Diagnóstico do ambiente da máquina — roda em background quando o portal
@@ -246,18 +246,67 @@ async function checkGitNetwork(): Promise<void> {
   });
 }
 
-/** Testa alcançar o GitHub de verdade (repo público, sem credencial). */
+const label = 'Conectividade com o GitHub';
+
+/**
+ * O git alcançou o servidor mas o proxy/HTTP quebrou o protocolo? Esses erros
+ * significam que a rede FUNCIONA — é um problema de protocolo (clássico: proxy
+ * corporativo + HTTP/2), não de conectividade. Por isso forçamos HTTP/1.1 no
+ * teste e tratamos esses casos como "alcançou".
+ */
+function gitReachedButProtocol(output: string): boolean {
+  return /expected flush|protocol error|RPC failed|early EOF|unexpected disconnect|The requested URL returned error: 4\d\d/i.test(
+    output,
+  );
+}
+
+/**
+ * Testa alcançar o GitHub de verdade. Primário: `fetch` ao endpoint git-over-
+ * HTTPS pelo MESMO caminho de rede do portal (proxy + CA via undici) — é o que
+ * reflete se o portal e os clones vão funcionar. Confirmação: `git ls-remote`
+ * forçando HTTP/1.1 (evita o "expected flush after ref listing" de proxies que
+ * não suportam HTTP/2). Só reporta falha se ambos indicarem rede indisponível.
+ */
 async function checkGithub(): Promise<void> {
-  const r = await cmd('git', ['ls-remote', REPO_TESTE, 'HEAD'], 30_000);
+  const refsUrl = `${REPO_TESTE}/info/refs?service=git-upload-pack`;
+  // 1) fetch pelo dispatcher do portal (proxy/CA) — 200 = alcançou de fato
+  try {
+    const res = await fetch(refsUrl, {
+      ...requestInitFor(refsUrl, { 'User-Agent': 'git/2.40', Accept: '*/*' }),
+      signal: AbortSignal.timeout(20_000),
+    } as RequestInit);
+    if (res.status === 200) {
+      update({ id: 'github', label, status: 'ok', detail: 'alcançável via HTTPS (proxy/CA OK)' });
+      return;
+    }
+  } catch {
+    // sem rede pelo fetch — tenta o git abaixo
+  }
+
+  // 2) git ls-remote forçando HTTP/1.1 (contorna o bug de HTTP/2 no proxy)
+  const r = await cmd(
+    'git',
+    ['-c', 'http.version=HTTP/1.1', 'ls-remote', REPO_TESTE, 'HEAD'],
+    30_000,
+  );
   if (r.code === 0) {
-    update({ id: 'github', label: 'Conectividade com o GitHub', status: 'ok', detail: 'git ls-remote OK' });
+    update({ id: 'github', label, status: 'ok', detail: 'git ls-remote OK' });
     return;
   }
-  // última linha do erro do git é a mais informativa (502, SSL, resolve…)
+  if (gitReachedButProtocol(r.output)) {
+    update({
+      id: 'github',
+      label,
+      status: 'warn',
+      detail: (r.output.split('\n').filter(Boolean).pop() ?? '').slice(0, 200),
+      hint: 'O GitHub foi alcançado, mas o proxy interferiu no protocolo do git (comum com HTTP/2). Se um clone falhar, rode: git config --global http.version HTTP/1.1',
+    });
+    return;
+  }
   const lastLine = r.output.split('\n').filter(Boolean).pop() ?? 'sem detalhes';
   update({
     id: 'github',
-    label: 'Conectividade com o GitHub',
+    label,
     status: 'fail',
     detail: lastLine.slice(0, 300),
     hint: `Não foi possível alcançar o github.com — verifique VPN/rede e o proxy. (${netStatus(REPO_TESTE)})`,
@@ -360,6 +409,10 @@ export async function fixDiagnostic(fixId: string): Promise<string> {
         if (r.code !== 0) throw new Error(`git config http.sslCAInfo falhou: ${r.output}`);
         applied.push('CA corporativa');
       }
+      // proxies corporativos costumam quebrar o HTTP/2 do git ("expected flush
+      // after ref listing") — HTTP/1.1 é o caminho compatível
+      await cmd('git', ['config', '--global', 'http.version', 'HTTP/1.1']);
+      applied.push('HTTP/1.1');
       return `Git configurado: ${applied.join(' + ')}.`;
     }
     default:
