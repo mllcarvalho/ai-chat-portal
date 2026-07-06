@@ -8,8 +8,9 @@ import { BmadActions } from './BmadActions';
 
 export function ChatView() {
   const session = useSessions((s) => s.current);
-  const streamingParts = useChat((s) => s.streamingParts);
-  const isStreaming = useChat((s) => s.isStreaming);
+  // stream DESTA sessão — outras conversas podem estar gerando em paralelo
+  const stream = useChat((s) => (session ? s.streams[session.id] : undefined));
+  const isStreaming = !!stream;
   const listRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
@@ -17,7 +18,7 @@ export function ChatView() {
   useEffect(() => {
     const el = listRef.current;
     if (el && pinnedToBottom) el.scrollTop = el.scrollHeight;
-  }, [session?.messages.length, streamingParts, pinnedToBottom]);
+  }, [session?.messages.length, stream?.parts, pinnedToBottom]);
 
   if (!session) return null;
 
@@ -35,13 +36,13 @@ export function ChatView() {
           {session.messages.map((message) => (
             <MessageBubble key={message.id} message={message} />
           ))}
-          {isStreaming && (
+          {stream && (
             <MessageBubble
               streaming
               message={{
                 id: 'streaming',
                 role: 'assistant',
-                parts: streamingParts,
+                parts: stream.parts,
                 createdAt: '',
               }}
             />

@@ -60,16 +60,22 @@ export function getToolCatalog(session?: Session, agent?: AgentPreset): ToolInfo
   return infos;
 }
 
+/** Teto da API do Copilot: requests com mais de 128 tools são rejeitadas. */
+const MAX_MODEL_TOOLS = 128;
+
 /**
  * Ferramentas efetivamente enviadas ao modelo, conforme o modo da sessão:
- * ask = nenhuma; plan = só leitura; agent = builtins habilitadas +
- * todas as ferramentas dos servidores MCP ligados.
+ * ask = nenhuma; plan = só leitura; agent = builtins habilitadas + as
+ * ferramentas dos servidores MCP ligados, até o teto de 128 da API.
+ * MCPs entram por servidor inteiro (na ordem em que estão ligados): servidor
+ * que não couber fica de fora e é reportado em droppedServers — meio servidor
+ * se comporta pior que servidor desligado.
  */
 export function getEnabledToolDefs(
   session: Session,
   agent?: AgentPreset,
-): vscode.LanguageModelChatTool[] {
-  if (session.mode === 'ask') return [];
+): { defs: vscode.LanguageModelChatTool[]; droppedServers: string[] } {
+  if (session.mode === 'ask') return { defs: [], droppedServers: [] };
 
   const defs: vscode.LanguageModelChatTool[] = [];
   const enabled = effectiveEnabled(session, agent);
@@ -85,14 +91,26 @@ export function getEnabledToolDefs(
       inputSchema: tool.inputSchema,
     });
   }
+
+  const droppedServers: string[] = [];
   if (session.mode === 'agent') {
+    const byServer = new Map<string, ReturnType<typeof listRunningTools>>();
     for (const tool of listRunningTools()) {
-      defs.push({
-        name: tool.qualifiedName,
-        description: `[MCP ${tool.serverName}] ${tool.description}`,
-        inputSchema: (tool.inputSchema ?? undefined) as object | undefined,
-      });
+      byServer.set(tool.serverName, [...(byServer.get(tool.serverName) ?? []), tool]);
+    }
+    for (const [server, tools] of byServer) {
+      if (defs.length + tools.length > MAX_MODEL_TOOLS) {
+        droppedServers.push(server);
+        continue;
+      }
+      for (const tool of tools) {
+        defs.push({
+          name: tool.qualifiedName,
+          description: `[MCP ${tool.serverName}] ${tool.description}`,
+          inputSchema: (tool.inputSchema ?? undefined) as object | undefined,
+        });
+      }
     }
   }
-  return defs;
+  return { defs, droppedServers };
 }

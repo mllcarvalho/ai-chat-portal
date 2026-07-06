@@ -4,6 +4,8 @@ import { getToken } from './client';
 
 export interface ChatStreamHandlers {
   onMeta: (data: ChatSseEvents['meta']) => void;
+  /** Aviso não-fatal do servidor (ex.: MCPs fora do limite de tools). */
+  onNotice: (data: ChatSseEvents['notice']) => void;
   onText: (data: ChatSseEvents['text']) => void;
   onToolCall: (data: ChatSseEvents['tool_call']) => void;
   onApprovalRequest: (data: ChatSseEvents['approval_request']) => void;
@@ -64,6 +66,9 @@ export async function streamChat(
     switch (name) {
       case 'meta':
         handlers.onMeta(data as ChatSseEvents['meta']);
+        break;
+      case 'notice':
+        handlers.onNotice(data as ChatSseEvents['notice']);
         break;
       case 'text':
         handlers.onText(data as ChatSseEvents['text']);

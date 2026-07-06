@@ -199,8 +199,9 @@ export function BmadActions() {
   const skills = useCatalog((s) => s.skills);
   const agents = useCatalog((s) => s.agents);
   const send = useChat((s) => s.send);
-  const isStreaming = useChat((s) => s.isStreaming);
   const session = useSessions((s) => s.current);
+  // só o stream desta sessão bloqueia os botões — outras conversas rodam em paralelo
+  const isStreaming = useChat((s) => (session ? !!s.streams[session.id] : false));
   const patchCurrent = useSessions((s) => s.patchCurrent);
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(COLLAPSED_KEY) === '1',

@@ -32,6 +32,8 @@ export type ChatFinishReason = 'stop' | 'cancelled' | 'max_rounds' | 'error';
 /** Eventos SSE emitidos por POST /api/chat, na ordem em que ocorrem. */
 export interface ChatSseEvents {
   meta: { requestId: string; userMessageId: string; assistantMessageId: string };
+  /** Aviso não-fatal sobre a request (ex.: MCPs fora do limite de tools) — vira toast na UI. */
+  notice: { message: string };
   text: { delta: string };
   tool_call: { callId: string; toolName: string; input: unknown };
   /**

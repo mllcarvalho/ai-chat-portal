@@ -361,6 +361,12 @@ select:focus {
   position: relative;
 }
 
+.session-item__spinner {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+}
+
 .session-item:hover,
 .project-item:hover {
   background: var(--bg-hover);
@@ -677,6 +683,17 @@ select:focus {
   50% {
     opacity: 0;
   }
+}
+
+.thinking-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.thinking-row__label {
+  font-size: 12.5px;
+  color: var(--text-faint);
 }
 
 .thinking {

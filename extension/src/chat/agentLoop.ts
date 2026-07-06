@@ -220,7 +220,15 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       );
     }
 
-    const toolDefs = getEnabledToolDefs(session, agent);
+    const { defs: toolDefs, droppedServers } = getEnabledToolDefs(session, agent);
+    if (droppedServers.length) {
+      sse.send('notice', {
+        message:
+          `A API do Copilot aceita no máximo 128 ferramentas por conversa — ` +
+          `os MCPs ${droppedServers.join(', ')} ficaram de fora desta resposta. ` +
+          `Desligue outros servidores MCP na página de MCPs para usá-los.`,
+      });
+    }
 
     // bases grandes: com as ferramentas de busca disponíveis, o preâmbulo
     // recebe só o índice e o modelo recupera o conteúdo sob demanda

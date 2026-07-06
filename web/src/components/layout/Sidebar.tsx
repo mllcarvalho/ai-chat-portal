@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '@aiportal/shared';
+import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi, type MainView } from '../../stores/uiStore';
 import { UserBadge } from './UserBadge';
@@ -7,6 +8,8 @@ import itauLogo from '../../assets/itau-logo.png';
 
 function SessionItem({ session }: { session: SessionSummary }) {
   const current = useSessions((s) => s.current);
+  // conversa gerando resposta (inclusive em background) ganha um spinner
+  const streaming = useChat((s) => !!s.streams[session.id]);
   const selectSession = useSessions((s) => s.selectSession);
   const setView = useUi((s) => s.setView);
   const renameSession = useSessions((s) => s.renameSession);
@@ -54,6 +57,7 @@ function SessionItem({ session }: { session: SessionSummary }) {
       }}
       title={session.title}
     >
+      {streaming && <span className="spinner session-item__spinner" title="Gerando resposta…" />}
       <span className="session-item__title">{session.title}</span>
       <span
         className={`session-item__menu${confirming ? ' session-item__menu--confirm' : ''}`}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { MessagePart } from '@aiportal/shared';
 import { useChat } from '../../stores/chatStore';
+import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { Markdown } from '../common/Markdown';
 
@@ -79,10 +80,16 @@ export function ToolCallCard(props: {
   const { call, result, running } = props;
   const [open, setOpen] = useState(false);
   const [freeAnswer, setFreeAnswer] = useState('');
-  const pendingApproval = useChat((s) => s.pendingApproval);
-  const pendingQuestion = useChat((s) => s.pendingQuestion);
-  const respondApproval = useChat((s) => s.respondApproval);
-  const respondQuestion = useChat((s) => s.respondQuestion);
+  // o card renderiza dentro da sessão aberta — pendências vêm do stream dela
+  const sessionId = useSessions((s) => s.current?.id);
+  const stream = useChat((s) => (sessionId ? s.streams[sessionId] : undefined));
+  const pendingApproval = stream?.pendingApproval;
+  const pendingQuestion = stream?.pendingQuestion;
+  const doRespondApproval = useChat((s) => s.respondApproval);
+  const doRespondQuestion = useChat((s) => s.respondQuestion);
+  const respondApproval = (approved: boolean) =>
+    sessionId && doRespondApproval(sessionId, approved);
+  const respondQuestion = (answer: string) => sessionId && doRespondQuestion(sessionId, answer);
   const hideToolCards = useUi((s) => s.hideToolCards);
   const awaitingApproval = !result && pendingApproval?.callId === call.callId;
   const awaitingQuestion = !result && pendingQuestion?.callId === call.callId;

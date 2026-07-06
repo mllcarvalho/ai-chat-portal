@@ -25,7 +25,8 @@ export function Composer() {
   const patchCurrent = useSessions((s) => s.patchCurrent);
   const send = useChat((s) => s.send);
   const stop = useChat((s) => s.stop);
-  const isStreaming = useChat((s) => s.isStreaming);
+  // só o stream DESTA sessão bloqueia o envio — outras conversas rodam em paralelo
+  const isStreaming = useChat((s) => (session ? !!s.streams[session.id] : false));
   const skills = useCatalog((s) => s.skills);
   const loadSkills = useCatalog((s) => s.loadSkills);
   const composerSeed = useUi((s) => s.composerSeed);
@@ -289,7 +290,11 @@ export function Composer() {
           onKeyDown={onKeyDown}
         />
         {isStreaming ? (
-          <button className="composer__send composer__send--stop" onClick={stop} title="Parar geração">
+          <button
+            className="composer__send composer__send--stop"
+            onClick={() => session && stop(session.id)}
+            title="Parar geração"
+          >
             ■
           </button>
         ) : (

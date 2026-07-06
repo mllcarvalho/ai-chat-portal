@@ -28,6 +28,12 @@ interface SessionsState {
   closeSession: () => void;
   /** Atualização local (streaming) sem ida ao servidor. */
   mutateCurrent: (fn: (session: Session) => Session) => void;
+  /**
+   * Atualização local de UMA sessão, aplicada só se ela estiver aberta —
+   * streams em background usam isto para não escrever na conversa errada
+   * (fora da tela, o servidor persiste e o selectSession recarrega).
+   */
+  mutateSession: (id: string, fn: (session: Session) => Session) => void;
   refreshSummary: (summary: SessionSummary) => void;
   /** Título otimista na sidebar ao enviar a 1ª mensagem (o servidor grava o mesmo). */
   applyLocalTitle: (id: string, projectId: string | undefined, title: string) => void;
@@ -131,6 +137,11 @@ export const useSessions = create<SessionsState>((set, get) => ({
   mutateCurrent: (fn) => {
     const { current } = get();
     if (current) set({ current: fn(current) });
+  },
+
+  mutateSession: (id, fn) => {
+    const { current } = get();
+    if (current?.id === id) set({ current: fn(current) });
   },
 
   refreshSummary: (summary) => {

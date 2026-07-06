@@ -90,16 +90,26 @@ export function MessageBubble(props: { message: ChatMessage; streaming?: boolean
     // tool_result é renderizado dentro do card do respectivo tool_call
   });
 
+  // o modelo está "pensando" quando não há atividade visível no fim do stream:
+  // resposta ainda vazia, ou a última tool terminou e a próxima rodada (texto
+  // ou nova tool) ainda não começou — sem isso a resposta parece travada,
+  // principalmente com os cards técnicos ocultos
+  const lastPart = message.parts[message.parts.length - 1];
+  const modelThinking = streaming && (!lastPart || lastPart.type === 'tool_result');
+
   return (
     <div className="msg msg--assistant">
       <span className="msg__role">Assistente</span>
       <div className="msg__body">
         {rendered}
-        {streaming && message.parts.length === 0 && (
-          <span className="thinking">
-            <span />
-            <span />
-            <span />
+        {modelThinking && (
+          <span className="thinking-row">
+            <span className="thinking">
+              <span />
+              <span />
+              <span />
+            </span>
+            <span className="thinking-row__label">pensando…</span>
           </span>
         )}
         {message.error && (
