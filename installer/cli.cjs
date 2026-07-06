@@ -229,12 +229,16 @@ async function main() {
   log('Abrindo o portal no navegador…');
   try {
     if (isWindows) {
-      // explorer.exe abre o navegador padrão de forma confiável em cmd, PowerShell
-      // E Git Bash/MSYS; o antigo `cmd /c start` falha silenciosamente em vários
-      // Git Bash. explorer.exe retorna status 1 mesmo com sucesso, então só caímos
-      // no fallback se ele NÃO conseguiu nem iniciar (r.error).
-      const r = spawnSync('explorer.exe', [url], { stdio: 'ignore' });
-      if (r.error) spawnSync('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
+      // explorer.exe NÃO aceita URL com query string (?token=…): ignora e abre a
+      // pasta Documentos. rundll32 FileProtocolHandler entrega a URL completa ao
+      // navegador padrão e funciona em cmd, PowerShell E Git Bash/MSYS.
+      const r = spawnSync('rundll32.exe', ['url.dll,FileProtocolHandler', url], {
+        stdio: 'ignore',
+      });
+      if (r.error || r.status !== 0) {
+        // fallback: start do cmd (escapa & que quebraria a query string no cmd)
+        spawnSync('cmd', ['/c', 'start', '', url.replace(/&/g, '^&')], { stdio: 'ignore' });
+      }
     } else if (platform() === 'darwin') {
       spawnSync('open', [url], { stdio: 'ignore' });
     } else {

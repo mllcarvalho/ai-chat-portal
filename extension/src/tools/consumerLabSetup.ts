@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as vscode from 'vscode';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type {
@@ -64,6 +65,7 @@ const PHASE_LABELS: Record<ConsumerLabStatus['phase'], string> = {
   idle: 'Aguardando início',
   prereqs: 'Verificando pré-requisitos (git, python, uv, AWS CLI)…',
   repo: 'Baixando o repositório do servidor…',
+  'repo-auth': 'Autorização do GitHub — confirme na janela do VS Code (Sign in with browser)',
   deps: 'Instalando dependências (uv sync)…',
   'sso-login': 'Login SSO na AWS — conclua a autenticação no browser',
   accounts: 'Buscando contas AWS disponíveis…',
@@ -148,6 +150,8 @@ function run(
     logAs?: string;
     /** Spawna direto (sem cmd.exe no Windows) — evita expansão de %VAR% nos args. */
     direct?: boolean;
+    /** Overrides de env por cima do process.env (valor undefined REMOVE a chave). */
+    env?: Record<string, string | undefined>;
   } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
@@ -156,10 +160,14 @@ function run(
       return;
     }
     const useShell = process.platform === 'win32' && !opts.direct;
+    const env: NodeJS.ProcessEnv = { ...process.env, ...opts.env };
+    for (const key of Object.keys(env)) {
+      if (env[key] === undefined) delete env[key];
+    }
     appendLog(`\n$ ${opts.logAs ?? [command, ...args].join(' ')}\n`);
     const child = spawn(command, useShell ? args.map(quoteArg) : args, {
       cwd: opts.cwd,
-      env: process.env,
+      env,
       shell: useShell,
     });
     state.child = child;
@@ -581,6 +589,60 @@ async function checkPrerequisites(): Promise<void> {
   if (problems.length) fail(problems.join('\n'));
 }
 
+/**
+ * Env para git interativo: REMOVE o askpass do VS Code — herdado no spawn, ele
+ * manda o pedido de credencial para uma caixinha DENTRO do VS Code (que o
+ * usuário, olhando o portal no browser, nunca vê → clone "trava" até o
+ * timeout). Sem ele, o git cai no credential helper normal (Git Credential
+ * Manager), que abre a janela "Connect to GitHub" na tela do usuário.
+ * GIT_TERMINAL_PROMPT=0 evita o prompt de usuário/senha num terminal que não
+ * existe (a GUI do GCM não depende de terminal).
+ */
+const GIT_INTERACTIVE_ENV: Record<string, string | undefined> = {
+  GIT_ASKPASS: undefined,
+  VSCODE_GIT_ASKPASS_NODE: undefined,
+  VSCODE_GIT_ASKPASS_MAIN: undefined,
+  VSCODE_GIT_ASKPASS_EXTRA_ARGS: undefined,
+  VSCODE_GIT_IPC_HANDLE: undefined,
+  GIT_TERMINAL_PROMPT: '0',
+};
+
+/** Args de auth do git com o token da sessão (token NUNCA vai para o log — use logAs). */
+function gitAuthArgs(token: string): string[] {
+  const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+  return ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}`];
+}
+
+/**
+ * Token da conta GitHub já conectada no VS Code (a mesma do Copilot). Sem
+ * sessão com escopo de repo, o createIfNone abre o fluxo do próprio VS Code:
+ * notificação "Allow signing in with GitHub" → Sign in with your browser.
+ */
+async function githubSessionToken(): Promise<string | undefined> {
+  try {
+    const silent = await vscode.authentication.getSession('github', ['repo'], { silent: true });
+    if (silent) return silent.accessToken;
+  } catch {
+    // sem sessão silenciosa — segue para o fluxo interativo
+  }
+  setPhase('repo-auth');
+  try {
+    const session = await vscode.authentication.getSession('github', ['repo'], {
+      createIfNone: true,
+    });
+    return session?.accessToken;
+  } catch {
+    return undefined; // usuário cancelou ou o fluxo falhou
+  } finally {
+    setPhase('repo');
+  }
+}
+
+const CLONE_FAIL_MSG =
+  'Falha ao clonar o repositório do ConsumerLab. Rode UMA vez no Git Bash: ' +
+  `git clone ${REPO_URL} — conclua o login na janela "Connect to GitHub" (Sign in with your browser) ` +
+  'e refaça o setup por aqui. Se a janela não abrir, verifique seu acesso ao GitHub corporativo (SSO Itaú).';
+
 async function setupRepository(): Promise<string> {
   setPhase('repo');
   const parent = path.join(dataRoot(), 'mcp');
@@ -588,12 +650,49 @@ async function setupRepository(): Promise<string> {
   const repoPath = path.join(parent, REPO_DIR_NAME);
   if (fs.existsSync(path.join(repoPath, '.git'))) {
     appendLog('Repositório já existe — atualizando…\n');
-    const pull = await run('git', ['pull', '--ff-only'], { cwd: repoPath, timeoutMs: 120_000 });
+    const pull = await run('git', ['pull', '--ff-only'], {
+      cwd: repoPath,
+      timeoutMs: 120_000,
+      env: GIT_INTERACTIVE_ENV,
+    });
     if (pull.code !== 0) appendLog('⚠ Não foi possível atualizar (seguindo com a versão local).\n');
-  } else {
-    const clone = await run('git', ['clone', REPO_URL, repoPath], { timeoutMs: 300_000 });
-    if (clone.code !== 0)
-      fail('Falha ao clonar o repositório. Verifique seu acesso ao GitHub corporativo (SSO Itaú).');
+    state.status.repoPath = repoPath;
+    return repoPath;
+  }
+
+  // clone anterior abortado deixa a pasta sem .git — limpa para o git não recusar
+  fs.rmSync(repoPath, { recursive: true, force: true });
+
+  // credencial já cacheada? teste rápido SEM abrir janela nenhuma
+  const probe = await run('git', ['ls-remote', REPO_URL, 'HEAD'], {
+    timeoutMs: 45_000,
+    quiet: true,
+    logAs: 'git ls-remote (teste de acesso ao repositório)',
+    env: { ...GIT_INTERACTIVE_ENV, GCM_INTERACTIVE: 'false' },
+  });
+
+  if (probe.code !== 0) {
+    appendLog(
+      '\nSem credencial do GitHub nesta máquina. Se abrir a janela "Connect to GitHub", ' +
+        'conclua o login por ela (Sign in with your browser) — o setup continua sozinho.\n',
+    );
+  }
+  const clone = await run('git', ['clone', REPO_URL, repoPath], {
+    timeoutMs: 300_000,
+    env: GIT_INTERACTIVE_ENV,
+  });
+  if (clone.code !== 0) {
+    // sem GCM (ou login cancelado): tenta a conta GitHub do próprio VS Code
+    appendLog('\nClone falhou — tentando com a conta GitHub conectada no VS Code…\n');
+    const token = await githubSessionToken();
+    if (!token) fail(CLONE_FAIL_MSG);
+    fs.rmSync(repoPath, { recursive: true, force: true }); // clone abortado deixa a pasta suja
+    const retry = await run('git', [...gitAuthArgs(token), 'clone', REPO_URL, repoPath], {
+      timeoutMs: 300_000,
+      logAs: 'git clone (autenticado com a conta GitHub do VS Code)',
+      env: GIT_INTERACTIVE_ENV,
+    });
+    if (retry.code !== 0) fail(CLONE_FAIL_MSG);
   }
   state.status.repoPath = repoPath;
   return repoPath;

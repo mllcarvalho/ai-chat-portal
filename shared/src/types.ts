@@ -334,6 +334,7 @@ export interface ConsumerLabStatus {
     | 'idle'
     | 'prereqs'
     | 'repo'
+    | 'repo-auth'
     | 'deps'
     | 'sso-login'
     | 'accounts'
