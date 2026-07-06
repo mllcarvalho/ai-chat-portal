@@ -136,6 +136,12 @@ select:focus {
   min-width: 0;
 }
 
+.env-banner__action {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 .env-banner__close {
   flex-shrink: 0;
   border: none;
@@ -2444,6 +2450,27 @@ select:focus {
   margin-top: 2px;
 }
 
+/* variações usadas na página de Diagnóstico */
+.check-item__mark--warn {
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  color: var(--warning);
+}
+.check-item__mark--run {
+  color: var(--text-faint);
+}
+.check-item__text {
+  flex: 1;
+  min-width: 0;
+}
+.check-item__hint--action {
+  color: var(--text);
+}
+.check-item__fix {
+  flex-shrink: 0;
+  align-self: center;
+}
+
 /* ---------- toasts ---------- */
 
 .toasts {
@@ -2526,6 +2553,33 @@ button.chip--action:disabled {
   font-size: 12px;
   opacity: 0.75;
   max-width: 68ch;
+}
+
+/* modal de ferramentas de um servidor MCP (busca + lista) */
+.mcp-tools-search {
+  width: 100%;
+  margin-bottom: 12px;
+}
+.mcp-tools-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 56vh;
+  overflow-y: auto;
+}
+.mcp-tools-modal-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mcp-tools-modal-item .mcp-tool__desc {
+  opacity: 0.85;
+  max-width: none;
+  line-height: 1.5;
 }
 .icon-btn--active {
   background: var(--tool-soft);
@@ -2910,6 +2964,111 @@ button.chip--action:disabled {
 .mcp-test__title {
   font-weight: 600;
   margin-bottom: 6px;
+}
+
+/* ---------- painéis de setup guiado (ConsumerLab, IUClick) ---------- */
+.mcp-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* cada preocupação (credenciais, servidor) num bloco próprio — sem empilhar
+   várias .form-actions com bordas tracejadas concorrendo entre si */
+.mcp-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-block__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcp-block__title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.mcp-block__pill {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--text-dim);
+}
+.mcp-block__hint {
+  font-size: 12.5px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.55;
+}
+.mcp-block__hint code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.mcp-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mcp-block__actions--end {
+  justify-content: flex-end;
+}
+.mcp-block__actions .btn {
+  white-space: nowrap;
+}
+
+/* disclosure "plano B" (colar do DevTools) */
+.mcp-fallback {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+}
+.mcp-fallback > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mcp-fallback > summary::-webkit-details-marker {
+  display: none;
+}
+.mcp-fallback > summary::before {
+  content: '▸';
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.mcp-fallback[open] > summary::before {
+  transform: rotate(90deg);
+}
+.mcp-fallback[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.mcp-fallback__body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mcp-fallback__body .field {
+  margin-bottom: 0;
+}
+.mcp-fallback__divider {
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 /* editor grande de instruções dentro do modal de expandir */

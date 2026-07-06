@@ -5,11 +5,18 @@ import {
   applyProxyToProcessEnv,
   applyProxyToRcFiles,
   applyProxyToVsCode,
+  detectNpmrcCafile,
 } from '../../tools/proxySetup';
 
 export function registerConfigRoutes(router: Router): void {
   router.get('/api/config', ({ res }) => {
     const { token: _token, ...safe } = getConfig();
+    // se há um cafile no ~/.npmrc mas o campo "CA interna" nunca foi preenchido
+    // aqui, exibe o do arquivo — assim o usuário vê o cert dele e não o perde
+    if (!safe.network?.extraCaCerts) {
+      const detected = detectNpmrcCafile();
+      if (detected) safe.network = { ...(safe.network ?? {}), extraCaCerts: detected };
+    }
     sendJson(res, 200, safe);
   });
 

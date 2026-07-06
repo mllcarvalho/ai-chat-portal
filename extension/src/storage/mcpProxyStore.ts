@@ -22,6 +22,11 @@ export function setSecretStore(store: SecretStore): void {
   secrets = store;
 }
 
+/** Acesso ao SecretStorage para outros stores (ex: credenciais do IUClick). */
+export function secretStore(): SecretStore | undefined {
+  return secrets;
+}
+
 function secretKey(name: string): string {
   return `mcp-proxy-secret:${name}`;
 }

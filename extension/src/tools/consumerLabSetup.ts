@@ -6,6 +6,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { ConsumerLabAccount, ConsumerLabStatus, McpServerEntry } from '@aiportal/shared';
 import { dataRoot, ensureDir } from '../storage/paths';
 import { setServerEnabled, upsertServer } from './mcpManager';
+import { resolveShellEnv } from './netEnv';
 
 /**
  * Setup guiado do MCP ConsumerLab (Itaú) — porta do setup.sh usado no fluxo
@@ -218,6 +219,209 @@ function removeConfigBlock(header: string): void {
 
 // --- Passos do setup ---------------------------------------------------------
 
+function uvBin(): string {
+  return process.platform === 'win32' ? 'uv.exe' : 'uv';
+}
+
+/** Diretório de scripts do Python — onde `pip install uv` põe o uv/uv.exe. */
+async function pythonScriptsDirs(): Promise<string[]> {
+  const code =
+    "import sysconfig,site,os;print(sysconfig.get_path('scripts'));" +
+    "print(os.path.join(site.getuserbase(),'Scripts' if os.name=='nt' else 'bin'))";
+  for (const py of ['python3', 'python', 'py']) {
+    const r = await run(py, ['-c', code], { quiet: true, timeoutMs: 15_000, logAs: `${py} -c (scripts dir)` });
+    if (r.code === 0) {
+      const dirs = r.output.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (dirs.length) return dirs;
+    }
+  }
+  return [];
+}
+
+/** Diretórios onde o uv costuma cair: instalador oficial, cargo, brew, pip. */
+async function uvCandidateDirs(): Promise<string[]> {
+  const home = os.homedir();
+  const dirs = [path.join(home, '.local', 'bin'), path.join(home, '.cargo', 'bin')];
+  if (process.platform === 'darwin') {
+    dirs.push('/opt/homebrew/bin', '/usr/local/bin');
+    try {
+      const base = path.join(home, 'Library', 'Python');
+      for (const v of fs.readdirSync(base)) dirs.push(path.join(base, v, 'bin'));
+    } catch {
+      // sem pip --user no Mac
+    }
+  }
+  for (const dir of await pythonScriptsDirs()) dirs.push(dir);
+  return dirs;
+}
+
+/** Diretório onde o uv está instalado (procura nos candidatos), ou undefined. */
+async function findUvDir(): Promise<string | undefined> {
+  for (const dir of await uvCandidateDirs()) {
+    try {
+      if (fs.existsSync(path.join(dir, uvBin()))) return dir;
+    } catch {
+      // dir inacessível — tenta o próximo
+    }
+  }
+  return undefined;
+}
+
+/** Prepõe um dir ao PATH DESTA sessão (sem duplicar). */
+function prependProcessPath(dir: string): void {
+  if (!(process.env.PATH ?? '').split(path.delimiter).includes(dir)) {
+    process.env.PATH = `${dir}${path.delimiter}${process.env.PATH ?? ''}`;
+  }
+}
+
+const UV_PATH_MARKER = '# uv (ConsumerLab) — PATH gerenciado pelo AI Product BMAD Chat';
+
+/**
+ * Persiste o dir do uv no PATH PERMANENTE do usuário — assim ele continua
+ * funcionando depois de fechar o VS Code, sem o usuário mexer em nada:
+ *  - mac/linux: `export PATH="<dir>:$PATH"` no ~/.bashrc (cria), ~/.zshrc e
+ *    ~/.profile (se existirem), idempotente (não duplica).
+ *  - Windows: prepende ao PATH do usuário no registro via PowerShell (lê e
+ *    reescreve inteiro — NÃO usa setx, que trunca em 1024). O portal lê esse
+ *    PATH do registro na inicialização (resolveWindowsEnv).
+ * Best-effort: se persistir falhar (ex.: EDR bloqueia o PowerShell), o uv ainda
+ * vale nesta sessão porque já foi prependado no process.env.
+ */
+async function persistUvDir(dir: string): Promise<void> {
+  try {
+    if (process.platform === 'win32') {
+      const d = dir.replace(/'/g, "''");
+      const script =
+        `$d='${d}';` +
+        "$p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not $p){$p=''};" +
+        "$parts=@($p -split ';' | Where-Object { $_ });" +
+        "if($parts -notcontains $d){ [Environment]::SetEnvironmentVariable('Path', ((@($d)+$parts) -join ';'),'User') }";
+      await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+        quiet: true,
+        timeoutMs: 20_000,
+        logAs: 'persistir uv no PATH do usuário (registro)',
+      });
+    } else {
+      const home = os.homedir();
+      const line = `export PATH="${dir}:$PATH"`;
+      for (const { file, create } of [
+        { file: path.join(home, '.bashrc'), create: true },
+        { file: path.join(home, '.zshrc'), create: false },
+        { file: path.join(home, '.profile'), create: false },
+      ]) {
+        let content: string | undefined;
+        try {
+          content = fs.readFileSync(file, 'utf8');
+        } catch {
+          if (!create) continue;
+          content = '';
+        }
+        if (content.includes(`"${dir}:$PATH"`)) continue; // já persistido
+        const next = `${content.replace(/\n*$/, '')}${content.trim() ? '\n\n' : ''}${UV_PATH_MARKER}\n${line}\n`;
+        fs.writeFileSync(file, next, 'utf8');
+      }
+    }
+    appendLog(`✓ uv adicionado ao PATH permanente (${dir})\n`);
+  } catch {
+    // best-effort — segue valendo nesta sessão via process.env
+  }
+}
+
+/** Achou o uv num dir? prepõe na sessão e persiste no PATH permanente. */
+async function adoptUvDir(): Promise<boolean> {
+  const dir = await findUvDir();
+  if (!dir) return false;
+  appendLog(`✓ uv encontrado em ${dir}\n`);
+  prependProcessPath(dir);
+  await persistUvDir(dir);
+  return true;
+}
+
+/** Instala o uv via pip --user (transparente, sem admin; usa o proxy do process.env). */
+async function pipInstallUv(): Promise<boolean> {
+  for (const py of ['python3', 'python', 'py']) {
+    const r = await run(py, ['-m', 'pip', 'install', '--user', '--upgrade', 'uv'], {
+      timeoutMs: 300_000,
+      logAs: `${py} -m pip install --user uv`,
+    });
+    if (r.code === 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Garante o uv disponível E no PATH (na sessão e permanente). Ordem, do mais
+ * transparente para o mais pesado:
+ *   1. já no PATH;
+ *   2. já instalado fora do PATH (pip/instalador) → adota e persiste;
+ *   3. instala com `pip install --user uv` → adota e persiste (resolve o antigo
+ *      "uv cai numa pasta fora do PATH": agora achamos a pasta e a persistimos);
+ *   4. fallback: instalador nativo do SO (mac brew, win astral.sh, linux curl).
+ * Exportado: o Diagnóstico usa como correção automática ("Instalar uv").
+ */
+export async function ensureUv(): Promise<string | undefined> {
+  let uv = await versionOf('uv');
+  if (uv) return uv;
+
+  if (await adoptUvDir()) {
+    uv = await versionOf('uv');
+    if (uv) return uv;
+  }
+
+  appendLog('uv não encontrado — instalando com pip…\n');
+  if (await pipInstallUv()) {
+    if (await adoptUvDir()) {
+      uv = await versionOf('uv');
+      if (uv) return uv;
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    appendLog('Tentando via brew…\n');
+    await run('brew', ['install', 'uv'], { timeoutMs: 300_000 });
+  } else if (process.platform === 'win32') {
+    appendLog('Tentando pelo instalador oficial (astral.sh)…\n');
+    await run(
+      'powershell',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://astral.sh/uv/install.ps1 | iex'],
+      { timeoutMs: 300_000 },
+    );
+  } else {
+    appendLog('Tentando pelo instalador oficial (astral.sh)…\n');
+    await run('sh', ['-c', 'curl -LsSf https://astral.sh/uv/install.sh | sh'], { timeoutMs: 300_000 });
+  }
+  await adoptUvDir();
+  return versionOf('uv');
+}
+
+/** Marcador para instalar o uv no máximo uma vez automaticamente na inicialização. */
+const UV_STARTUP_MARKER = '.uv-startup-attempted';
+
+/**
+ * Chamado na ativação da extensão: deixa o uv pronto de forma transparente.
+ * Se já existe (mesmo fora do PATH), só adota e persiste — barato, sem rede.
+ * Se falta, instala UMA vez (trava por marcador para não repetir a cada boot
+ * caso a rede/pip falhem); a instalação sob demanda continua no ConsumerLab e
+ * no botão "Instalar uv" do Diagnóstico. Totalmente best-effort e em background.
+ */
+export async function prepareUvOnStartup(): Promise<void> {
+  try {
+    if (await versionOf('uv')) return;
+    if (await adoptUvDir()) return;
+    const marker = path.join(dataRoot(), UV_STARTUP_MARKER);
+    if (fs.existsSync(marker)) return;
+    try {
+      ensureDir(dataRoot());
+      fs.writeFileSync(marker, new Date().toISOString(), 'utf8');
+    } catch {
+      // sem marcador ainda tentamos — só não fica gravado
+    }
+    await ensureUv();
+  } catch {
+    // inicialização nunca falha por causa disso
+  }
+}
+
 async function checkPrerequisites(): Promise<void> {
   setPhase('prereqs');
   const problems: string[] = [];
@@ -239,24 +443,13 @@ async function checkPrerequisites(): Promise<void> {
   if (python) appendLog(`✓ ${python}\n`);
   else problems.push('Python >= 3.11 não encontrado. Instale via Central de Software.');
 
-  let uv = await versionOf('uv');
-  if (!uv && process.platform === 'darwin') {
-    appendLog('uv não encontrado — tentando instalar via brew…\n');
-    await run('brew', ['install', 'uv', '--quiet'], { timeoutMs: 300_000 });
-    uv = await versionOf('uv');
-  }
-  if (!uv && process.platform !== 'win32') {
-    appendLog('uv não encontrado — tentando o instalador oficial…\n');
-    await run('sh', ['-c', 'curl -LsSf https://astral.sh/uv/install.sh | sh'], { timeoutMs: 300_000 });
-    process.env.PATH = `${path.join(os.homedir(), '.local', 'bin')}:${path.join(os.homedir(), '.cargo', 'bin')}:${process.env.PATH ?? ''}`;
-    uv = await versionOf('uv');
-  }
+  const uv = await ensureUv();
   if (uv) appendLog(`✓ ${uv}\n`);
   else
     problems.push(
       process.platform === 'win32'
-        ? 'uv não encontrado. Instale-o (ex: pip install uv) e tente de novo.'
-        : 'Falha ao instalar o uv automaticamente. Rode manualmente: brew install uv',
+        ? 'Não consegui instalar o uv automaticamente (pip e instalador oficial falharam). Rode no PowerShell: irm https://astral.sh/uv/install.ps1 | iex — depois FECHE e reabra o VS Code. Se estiver atrás do proxy corporativo, confira a rede/VPN.'
+        : 'Não consegui instalar o uv automaticamente (pip e instalador oficial falharam). Rode: brew install uv (ou curl -LsSf https://astral.sh/uv/install.sh | sh) e reabra o VS Code.',
     );
 
   const aws = await versionOf('aws');
@@ -484,6 +677,9 @@ export function startConsumerLabSetup(): ConsumerLabStatus {
   state = { status: { ...emptyStatus(), running: true }, portalIndex: 0 };
   void (async () => {
     try {
+      // GUI-launch deixa o PATH mínimo (sem nvm/homebrew no Mac, sem o PATH
+      // persistido do registro no Win) → git/uv/aws "não encontrados"
+      await resolveShellEnv();
       await checkPrerequisites();
       const repoPath = await setupRepository();
       await installDependencies(repoPath);

@@ -15,7 +15,13 @@ import {
   listProxies,
   saveProxy,
 } from '../storage/mcpProxyStore';
+import {
+  IUCLICK_SERVER_NAME,
+  clearIuclickCredentials,
+  getIuclickEnv,
+} from '../storage/iuclickStore';
 import { GLOBAL_ROOT, getPortalRoot, mcpStatePath } from '../storage/paths';
+import { GITHUB_MCP_SERVER_NAME, githubMcpHeaders } from './githubMcp';
 import { dispatcherFor, netProcessEnv, netStatus, requestInitFor, resolveShellEnv } from './netEnv';
 import { withTimeout } from '../util';
 
@@ -253,12 +259,36 @@ async function reconnectProxy(name: string, state: ServerState): Promise<void> {
 
 function isAuthError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return /401|unauthorized|forbidden|invalid[_ ]token|token.*expired|expired.*token/.test(msg);
+  return /401|403|unauthorized|forbidden|invalid[_ ]token|token.*(expired|invalid)|expired.*token/.test(msg);
+}
+
+/**
+ * Re-detecta as credenciais do IUClick do navegador, no máximo uma vez por vez
+ * (guarda de concorrência) e com timeout — para a auto-recuperação nunca travar
+ * nem repetir a leitura do navegador quando várias tools do iuclick falham
+ * juntas. Import tardio evita ciclo mcpManager ↔ iuclick.
+ */
+let iuclickRefreshInFlight: Promise<boolean> | undefined;
+function refreshIuclickOnce(): Promise<boolean> {
+  if (!iuclickRefreshInFlight) {
+    iuclickRefreshInFlight = withTimeout(
+      import('./iuclickAuth').then((m) => m.refreshIuclickCredentials()),
+      15_000,
+      false,
+    ).finally(() => {
+      iuclickRefreshInFlight = undefined;
+    });
+  }
+  return iuclickRefreshInFlight;
 }
 
 // ---------- conexão (stdio / http / proxy) ----------
 
-async function connect(entry: McpServerEntry): Promise<Client> {
+async function connect(
+  entry: McpServerEntry,
+  extraEnv?: Record<string, string>,
+  extraHeaders?: Record<string, string>,
+): Promise<Client> {
   const client = new Client({ name: 'ai-chat-portal', version: '1.0' });
   if (entryType(entry) === 'stdio') {
     if (!entry.command) throw new Error('Servidor stdio sem "command" no mcp.json');
@@ -267,7 +297,7 @@ async function connect(entry: McpServerEntry): Promise<Client> {
       args: entry.args ?? [],
       // getDefaultEnvironment é mínimo (HOME/PATH/etc): sem o netProcessEnv o
       // processo fica sem proxy/CA corporativos e trava em qualquer chamada externa
-      env: { ...getDefaultEnvironment(), ...netProcessEnv(), ...(entry.env ?? {}) },
+      env: { ...getDefaultEnvironment(), ...netProcessEnv(), ...(entry.env ?? {}), ...(extraEnv ?? {}) },
       cwd: entry.cwd ?? getPortalRoot() ?? GLOBAL_ROOT,
       stderr: 'ignore',
     });
@@ -276,17 +306,17 @@ async function connect(entry: McpServerEntry): Promise<Client> {
   }
   if (!entry.url) throw new Error('Servidor http sem "url" no mcp.json');
   const url = new URL(entry.url);
-  const headers = entry.headers ?? {};
+  const headers = { ...(entry.headers ?? {}), ...(extraHeaders ?? {}) };
+  // requestInitFor injeta proxy/CA corporativos — sem isso o fetch trava na rede Itaú
+  const requestInit = requestInitFor(entry.url, headers);
   try {
-    const transport = new StreamableHTTPClientTransport(url, {
-      requestInit: { headers },
-    });
+    const transport = new StreamableHTTPClientTransport(url, { requestInit });
     await client.connect(transport);
     return client;
   } catch {
     // servidores antigos só falam SSE
     const fallback = new Client({ name: 'ai-chat-portal', version: '1.0' });
-    const transport = new SSEClientTransport(url, { requestInit: { headers } });
+    const transport = new SSEClientTransport(url, { requestInit });
     await fallback.connect(transport);
     return fallback;
   }
@@ -307,7 +337,15 @@ export async function startServer(name: string): Promise<McpServerInfo> {
     if (state.source === 'proxy') {
       client = await connectProxy(name, state);
     } else {
-      client = await withTimeout(connect(state.entry), START_TIMEOUT, undefined);
+      // GUI-launch deixa o PATH mínimo (sem nvm/homebrew/registro) → npx/uv não
+      // são achados no spawn stdio; resolve uma vez e fica em process.env
+      if (entryType(state.entry) === 'stdio') await resolveShellEnv();
+      // IUClick: Cookie/X-UserToken ficam no SecretStorage (nunca no mcp.json)
+      // e entram como env só aqui, na hora do spawn
+      const extraEnv = name === IUCLICK_SERVER_NAME ? await getIuclickEnv() : undefined;
+      // GitHub: Bearer da sessão GitHub do VS Code, obtido a cada subida
+      const extraHeaders = name === GITHUB_MCP_SERVER_NAME ? await githubMcpHeaders() : undefined;
+      client = await withTimeout(connect(state.entry, extraEnv, extraHeaders), START_TIMEOUT, undefined);
       if (!client) throw new Error(`Timeout ao iniciar (${START_TIMEOUT / 1000}s)`);
     }
     const result = await client.listTools();
@@ -428,6 +466,7 @@ export async function removeServer(name: string): Promise<void> {
     if (!entries[name]) throw new Error(`Servidor MCP "${name}" não encontrado`);
     delete entries[name];
     writeMcpJson(entries);
+    if (name === IUCLICK_SERVER_NAME) await clearIuclickCredentials();
   }
   const state = readState();
   delete state.enabled[name];
@@ -572,6 +611,24 @@ export async function callMcpTool(qualifiedName: string, input: object): Promise
     if (state.source === 'proxy' && isAuthError(err)) {
       await reconnectProxy(ref.server, state);
       return doCall();
+    }
+    // IUClick: sessão do ServiceNow expirou (403). Escopo ESTRITO a este
+    // servidor — nada disso roda para outros MCPs nem para o chat normal.
+    // Re-detecta do navegador (uma vez, com timeout), religa só o iuclick e
+    // tenta de novo. Se não der, vira um erro claro DESTA tool (que o modelo
+    // trata) — nunca uma falha do chat inteiro.
+    if (ref.server === IUCLICK_SERVER_NAME && isAuthError(err)) {
+      const renewed = await refreshIuclickOnce();
+      if (renewed) {
+        await stopServer(ref.server);
+        await startServer(ref.server);
+        return doCall();
+      }
+      throw new Error(
+        'A sessão do ServiceNow (IUClick) expirou e não deu para renovar sozinho pelo navegador. ' +
+          'Abra o itau.service-now.com logado e clique em "Detectar" na tela de MCPs. ' +
+          `(detalhe: ${err instanceof Error ? err.message : String(err)})`,
+      );
     }
     throw err;
   }

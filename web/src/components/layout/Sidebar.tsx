@@ -195,6 +195,9 @@ export function Sidebar() {
         <button className="sidebar__footer-btn" onClick={() => setView('mcps')}>
           🔧 Servidores MCP
         </button>
+        <button className="sidebar__footer-btn" onClick={() => setView('diagnostics')}>
+          🩺 Diagnóstico
+        </button>
         <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
           ⚙️ Configurações
         </button>

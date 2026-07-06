@@ -19,6 +19,9 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { Toasts } from './components/common/Toasts';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { EnvBanner } from './components/layout/EnvBanner';
+import { DiagnosticsBanner } from './components/layout/DiagnosticsBanner';
+import { DiagnosticsPage } from './components/pages/DiagnosticsPage';
+import { useDiagnostics } from './stores/diagnosticsStore';
 
 export function App() {
   const health = useCatalog((s) => s.health);
@@ -28,6 +31,7 @@ export function App() {
   const loadSessions = useSessions((s) => s.loadSessions);
   const panel = useUi((s) => s.panel);
   const loggedIn = useUi((s) => s.loggedIn);
+  const startDiagnostics = useDiagnostics((s) => s.start);
   const [booted, setBooted] = useState(false);
 
   useEffect(() => {
@@ -35,10 +39,12 @@ export function App() {
       const h = await loadHealth();
       if (h?.ok) {
         await Promise.all([loadAll(), loadProjects(), loadSessions(null)]);
+        // diagnóstico do ambiente em background — só interrompe se algo falhar
+        void startDiagnostics();
       }
       setBooted(true);
     })();
-  }, [loadHealth, loadAll, loadProjects, loadSessions]);
+  }, [loadHealth, loadAll, loadProjects, loadSessions, startDiagnostics]);
 
   if (!booted) return null;
   if (!health?.ok) return <OnboardingScreen />;
@@ -47,6 +53,7 @@ export function App() {
   return (
     <div className="app-root">
       <EnvBanner />
+      <DiagnosticsBanner />
       <div className="app-shell">
         <Sidebar />
         <MainArea />
@@ -72,6 +79,7 @@ function MainArea() {
       {view === 'agents' && <AgentsPage />}
       {view === 'mcps' && <McpServersPage />}
       {view === 'knowledge' && <KnowledgePage />}
+      {view === 'diagnostics' && <DiagnosticsPage />}
       {view === 'chat' &&
         (current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />)}
     </main>

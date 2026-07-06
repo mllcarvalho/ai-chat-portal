@@ -90,9 +90,11 @@ const NPMRC_MARKER = '# npm — gerenciado pelo AI Product BMAD Chat';
 
 /**
  * Garante no ~/.npmrc (criado se não existir) as chaves que o npm precisa para
- * funcionar atrás do proxy corporativo: strict-ssl=false, always-auth=true e
- * cafile apontando para o PEM da CA interna (o mesmo campo "CA interna" das
- * Configurações). Linhas existentes são atualizadas no lugar.
+ * funcionar atrás do proxy corporativo: strict-ssl=false, always-auth=true e,
+ * quando o campo "CA interna" está preenchido, cafile apontando para o PEM.
+ * Linhas existentes são atualizadas no lugar. IMPORTANTE: sem um cafile
+ * informado, NÃO tocamos numa linha `cafile=` já existente — o usuário pode ter
+ * configurado o certificado dele à mão, e blanká-lo quebrava o npm dele.
  */
 export function applyNpmrcSettings(cafile: string | undefined): string {
   const file = path.join(os.homedir(), '.npmrc');
@@ -105,8 +107,9 @@ export function applyNpmrcSettings(cafile: string | undefined): string {
   const entries: Record<string, string> = {
     'strict-ssl': 'false',
     'always-auth': 'true',
-    cafile: cafile ?? '',
   };
+  // só gerencia o cafile quando há um caminho; senão preserva o do usuário
+  if (cafile?.trim()) entries.cafile = cafile.trim();
   let out = content;
   const missing: string[] = [];
   for (const [key, value] of Object.entries(entries)) {
@@ -125,6 +128,17 @@ export function applyNpmrcSettings(cafile: string | undefined): string {
     fs.writeFileSync(file, out, 'utf8');
   }
   return file;
+}
+
+/** Lê o cafile já configurado no ~/.npmrc (se houver), para exibir/reaproveitar. */
+export function detectNpmrcCafile(): string | undefined {
+  try {
+    const content = fs.readFileSync(path.join(os.homedir(), '.npmrc'), 'utf8');
+    const m = /^[ \t]*cafile[ \t]*=[ \t]*(.+?)[ \t]*$/m.exec(content);
+    return m?.[1]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Grava http.proxy no settings.json global do VS Code (cria ou atualiza). */

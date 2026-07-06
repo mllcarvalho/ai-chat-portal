@@ -4,8 +4,10 @@ import type {
   Config,
   ConsumerLabStatus,
   CopilotQuota,
+  DiagnosticsReport,
   FileEntry,
   HealthInfo,
+  IuclickStatus,
   KnowledgeBase,
   KnowledgeDoc,
   McpProxyConfig,
@@ -263,6 +265,15 @@ export const api = {
     request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/choose', choice),
   switchConsumerLabSso: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/switch-sso'),
   cancelConsumerLab: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/cancel'),
+  getIuclick: () => request<IuclickStatus>('GET', '/api/mcp/iuclick'),
+  startIuclick: (creds?: { cookies?: string; token?: string }) =>
+    request<IuclickStatus>('POST', '/api/mcp/iuclick/setup', creds ?? {}),
+  cancelIuclick: () => request<IuclickStatus>('POST', '/api/mcp/iuclick/cancel'),
+  reauthIuclick: (creds: { cookies: string; token: string }) =>
+    request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/credentials', creds),
+  autodetectIuclick: () =>
+    request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/autodetect'),
+  setupGitHubMcp: () => request<McpServerInfo>('POST', '/api/mcp/github/setup'),
 
   listVsCodeAgents: () => request<VsCodeAgent[]>('GET', '/api/vscode-agents'),
 
@@ -321,6 +332,15 @@ export const api = {
       'POST',
       '/api/share/email',
       { kind, id },
+    ),
+
+  getDiagnostics: () => request<DiagnosticsReport>('GET', '/api/diagnostics'),
+  runDiagnostics: () => request<DiagnosticsReport>('POST', '/api/diagnostics/run'),
+  fixDiagnostic: (id: string) =>
+    request<{ ok: boolean; message: string; report: DiagnosticsReport }>(
+      'POST',
+      '/api/diagnostics/fix',
+      { id },
     ),
 
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),

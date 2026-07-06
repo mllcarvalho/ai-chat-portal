@@ -346,6 +346,63 @@ export interface ConsumerLabStatus {
   repoPath?: string;
 }
 
+/**
+ * Setup guiado do MCP IUClick (ServiceNow Itaú): o portal verifica Node/npx,
+ * grava o registry privado do Itaú no ~/.npmrc, valida o pacote
+ * @ai-stack-fn7/mcp-servers no Artifactory e registra o servidor stdio
+ * (npx … service-now --stdio). Cookie e X-UserToken são opcionais: quando
+ * informados ficam no SecretStorage e entram como env na subida do servidor;
+ * sem eles a autenticação é feita pela tool `login` na própria sessão.
+ */
+export interface IuclickStatus {
+  running: boolean;
+  phase: 'idle' | 'prereqs' | 'registry' | 'package' | 'register' | 'done' | 'error';
+  /** Rótulo humano da fase atual, para a UI exibir sem switch próprio. */
+  phaseLabel: string;
+  /** Cauda do log acumulado dos comandos (estilo instalador do BMAD). */
+  log: string;
+  error?: string;
+  /** Há Cookie/X-UserToken guardados de um setup anterior. */
+  hasCredentials?: boolean;
+  /** O servidor já está registrado no mcp.json (setup concluído ao menos uma vez). */
+  installed?: boolean;
+}
+
+/** Estado de uma verificação do Diagnóstico do ambiente. */
+export type DiagnosticStatus = 'pending' | 'running' | 'ok' | 'warn' | 'fail';
+
+/**
+ * Uma verificação da tela de Diagnóstico: ferramenta instalada, configuração
+ * de rede aplicada ou teste de conectividade. `fail` interrompe (banner);
+ * `warn` só aparece na página (limita funcionalidades, não bloqueia o portal).
+ */
+export interface DiagnosticCheck {
+  id: string;
+  label: string;
+  status: DiagnosticStatus;
+  /** O que foi detectado (versão, valor configurado…). */
+  detail?: string;
+  /** O que fazer para regularizar, quando não está ok. */
+  hint?: string;
+  /** Correção automática disponível (POST /api/diagnostics/fix). */
+  fixId?: string;
+  fixLabel?: string;
+}
+
+/**
+ * Diagnóstico do ambiente da máquina: roda em background na abertura do
+ * portal e sob demanda na página. O front só interrompe o usuário quando
+ * problemCount > 0 (algum check em `fail`).
+ */
+export interface DiagnosticsReport {
+  running: boolean;
+  startedAt?: string;
+  finishedAt?: string;
+  checks: DiagnosticCheck[];
+  /** Nº de checks em `fail`. */
+  problemCount: number;
+}
+
 /** Agente (chat mode) encontrado no VS Code — importável como AgentPreset. */
 export interface VsCodeAgent {
   id: string;

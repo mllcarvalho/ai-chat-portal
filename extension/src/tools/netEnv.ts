@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as tls from 'node:tls';
 import { Agent, ProxyAgent, type Dispatcher } from 'undici';
@@ -30,34 +31,123 @@ const NET_VARS = [
 
 let resolved = false;
 
-/** Lê do shell de login as variáveis de rede ausentes (best-effort, macOS/Linux). */
+/** Une dois PATHs preservando ordem e sem duplicar (o `a` tem prioridade). */
+function mergePaths(a: string, b: string): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const p of [...a.split(path.delimiter), ...b.split(path.delimiter)]) {
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      parts.push(p);
+    }
+  }
+  return parts.join(path.delimiter);
+}
+
+/**
+ * Corrige o PATH (e importa proxy/CA ausentes) quando o VS Code é aberto pela
+ * GUI: o host da extensão herda um PATH mínimo (sem nvm/homebrew/volta no Mac,
+ * sem o PATH persistido do registro no Windows), então `npx`, `uv`, `git` etc.
+ * spawnados pelo setup e pelos servidores stdio dão "não encontrado". Aqui
+ * juntamos o PATH real ao atual. Best-effort — falha silenciosa mantém o PATH.
+ */
 export async function resolveShellEnv(): Promise<void> {
   if (resolved) return;
   resolved = true;
-  if (process.platform === 'win32') return;
-  // já temos algo de proxy/CA? então o ambiente provavelmente foi herdado
-  if (NET_VARS.some((v) => process.env[v] || process.env[v.toLowerCase()])) return;
+  try {
+    if (process.platform === 'win32') await resolveWindowsEnv();
+    else await resolvePosixEnv();
+  } catch {
+    // best-effort: sem o PATH resolvido seguimos com o atual
+  }
+}
+
+/** macOS/Linux: importa PATH e vars de rede do shell de login (nvm/homebrew). */
+async function resolvePosixEnv(): Promise<void> {
   const shell = process.env.SHELL || '/bin/zsh';
   const env = await new Promise<Record<string, string>>((resolve) => {
-    // -lic: login + interativo carrega .zprofile e .zshrc, onde costumam estar essas vars
-    execFile(
-      shell,
-      ['-lic', 'env'],
-      { timeout: 4000, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout) => {
-        if (err || !stdout) return resolve({});
-        const out: Record<string, string> = {};
-        for (const line of stdout.split('\n')) {
-          const i = line.indexOf('=');
-          if (i > 0) out[line.slice(0, i)] = line.slice(i + 1);
-        }
-        resolve(out);
-      },
-    );
+    // -lic: login + interativo carrega .zprofile e .zshrc, onde costumam estar
+    // o `nvm use`/exports de PATH e as vars de rede
+    execFile(shell, ['-lic', 'env'], { timeout: 4000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      if (err || !stdout) return resolve({});
+      const out: Record<string, string> = {};
+      for (const line of stdout.split('\n')) {
+        const i = line.indexOf('=');
+        if (i > 0) out[line.slice(0, i)] = line.slice(i + 1);
+      }
+      resolve(out);
+    });
   });
+  // PATH do shell na frente (é o que o terminal/mcp.json do VS Code usam)
+  if (env.PATH) process.env.PATH = mergePaths(env.PATH, process.env.PATH ?? '');
   for (const v of NET_VARS) {
     const val = env[v] ?? env[v.toLowerCase()];
     if (val && !process.env[v]) process.env[v] = val;
+  }
+}
+
+/**
+ * Windows: o PATH persistido (User + Machine no registro) é onde os
+ * instaladores do Node/Volta/nvm-windows gravam os diretórios — mas um VS Code
+ * aberto antes disso, ou por atalho, fica com um PATH desatualizado. Lemos o
+ * PATH persistido via PowerShell e juntamos ao atual; alguns diretórios comuns
+ * entram como fallback quando nem o registro os tem ainda.
+ */
+async function resolveWindowsEnv(): Promise<void> {
+  const names = ['PATH', ...NET_VARS];
+  const script = names
+    .map(
+      (n) =>
+        `Write-Output ('U:${n}=' + [Environment]::GetEnvironmentVariable('${n}','User'));` +
+        `Write-Output ('M:${n}=' + [Environment]::GetEnvironmentVariable('${n}','Machine'))`,
+    )
+    .join(';');
+  const out = await new Promise<Record<string, string>>((resolve) => {
+    execFile(
+      'powershell',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+      { timeout: 6000, maxBuffer: 1 << 20, windowsHide: true },
+      (err, stdout) => {
+        if (err || !stdout) return resolve({});
+        const user: Record<string, string> = {};
+        const machine: Record<string, string> = {};
+        for (const line of stdout.split(/\r?\n/)) {
+          const m = /^([UM]):([^=]+)=(.*)$/.exec(line);
+          if (!m) continue;
+          (m[1] === 'U' ? user : machine)[m[2]] = m[3];
+        }
+        // devolve já resolvido: PATH unido, net vars com User na frente
+        const merged: Record<string, string> = {};
+        const persistedPath = [machine.PATH, user.PATH].filter(Boolean).join(path.delimiter);
+        if (persistedPath) merged.PATH = persistedPath;
+        for (const v of NET_VARS) {
+          const val = user[v] || machine[v];
+          if (val) merged[v] = val;
+        }
+        resolve(merged);
+      },
+    );
+  });
+  if (out.PATH) process.env.PATH = mergePaths(process.env.PATH ?? '', out.PATH);
+  for (const v of NET_VARS) {
+    if (out[v] && !process.env[v]) process.env[v] = out[v];
+  }
+  // fallback: diretórios padrão do Node/npm/Volta que existam no disco
+  const candidates = [
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'nodejs'),
+    process.env.APPDATA && path.join(process.env.APPDATA, 'npm'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Volta', 'bin'),
+  ].filter((d): d is string => !!d && existsSafe(d));
+  if (candidates.length) {
+    process.env.PATH = mergePaths(process.env.PATH ?? '', candidates.join(path.delimiter));
+  }
+}
+
+function existsSafe(dir: string): boolean {
+  try {
+    return fs.existsSync(dir);
+  } catch {
+    return false;
   }
 }
 
@@ -70,9 +160,24 @@ function netConfig(): NetworkConfig {
   }
 }
 
-/** Caminho do PEM com a CA interna: config da UI vence; senão NODE_EXTRA_CA_CERTS. */
+/** cafile do ~/.npmrc, se o usuário tiver configurado a CA corporativa por lá. */
+function npmrcCafile(): string | undefined {
+  try {
+    const content = fs.readFileSync(path.join(os.homedir(), '.npmrc'), 'utf8');
+    const m = /^[ \t]*cafile[ \t]*=[ \t]*(.+?)[ \t]*$/m.exec(content);
+    return m?.[1]?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Caminho do PEM com a CA interna: config da UI vence; senão
+ * NODE_EXTRA_CA_CERTS; por fim o cafile do ~/.npmrc (muita gente configura a
+ * CA corporativa só ali) — assim os fetches do portal também a respeitam.
+ */
 function caPath(): string | undefined {
-  return netConfig().extraCaCerts || process.env.NODE_EXTRA_CA_CERTS || undefined;
+  return netConfig().extraCaCerts || process.env.NODE_EXTRA_CA_CERTS || npmrcCafile() || undefined;
 }
 
 function loadCa(): string[] | undefined {

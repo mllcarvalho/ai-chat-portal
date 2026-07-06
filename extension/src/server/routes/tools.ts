@@ -12,7 +12,9 @@ import {
   setServerEnabled,
   startServer,
   testProxyConnection,
+  upsertServer,
 } from '../../tools/mcpManager';
+import { GITHUB_MCP_SERVER_NAME, GITHUB_MCP_URL } from '../../tools/githubMcp';
 import type { McpProxyConfig } from '@aiportal/shared';
 import {
   cancelConsumerLabSetup,
@@ -22,6 +24,13 @@ import {
   startConsumerLabSetup,
   switchConsumerLabSso,
 } from '../../tools/consumerLabSetup';
+import {
+  autoDetectIuclick,
+  cancelIuclickSetup,
+  getIuclickStatus,
+  reauthIuclick,
+  startIuclickSetup,
+} from '../../tools/iuclickSetup';
 import { getSession } from '../../storage/sessionStore';
 import { getAgent } from '../../storage/agentStore';
 import { getPortalRoot } from '../../storage/paths';
@@ -154,6 +163,59 @@ export function registerToolRoutes(router: Router): void {
 
   router.post('/api/mcp/consumerlab/cancel', ({ res }) => {
     sendJson(res, 200, cancelConsumerLabSetup());
+  });
+
+  // setup guiado do IUClick (ServiceNow Itaú): registry + npx, sem escolhas no
+  // meio — a UI só faz polling; Cookie/X-UserToken opcionais vão pro SecretStorage
+  router.get('/api/mcp/iuclick', async ({ res }) => {
+    sendJson(res, 200, await getIuclickStatus());
+  });
+
+  router.post('/api/mcp/iuclick/setup', async ({ res, body }) => {
+    const input = (body ?? {}) as { cookies?: string; token?: string };
+    try {
+      sendJson(res, 200, await startIuclickSetup(input.cookies, input.token));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  router.post('/api/mcp/iuclick/cancel', async ({ res }) => {
+    sendJson(res, 200, await cancelIuclickSetup());
+  });
+
+  // detecção automática: lê os cookies do navegador e busca o X-UserToken,
+  // sem o usuário mexer no DevTools (macOS/Windows; cai no plano B se falhar)
+  router.post('/api/mcp/iuclick/autodetect', async ({ res }) => {
+    try {
+      sendJson(res, 200, { ok: true, ...(await autoDetectIuclick()) });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // reautenticação sem refazer o setup: salva Cookie/X-UserToken e religa o
+  // servidor (a sessão do ServiceNow expira; o resto do setup continua válido)
+  router.post('/api/mcp/iuclick/credentials', async ({ res, body }) => {
+    const input = (body ?? {}) as { cookies?: string; token?: string };
+    try {
+      sendJson(res, 200, { ok: true, ...(await reauthIuclick(input.cookies ?? '', input.token ?? '')) });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // MCP oficial do GitHub (o mesmo do Copilot no VS Code): registro em um
+  // clique — o Bearer da sessão GitHub entra na conexão, nunca no mcp.json.
+  // Se a conta ainda não autorizou, o info volta com status error e a
+  // instrução de autorizar pela notificação do VS Code.
+  router.post('/api/mcp/github/setup', async ({ res }) => {
+    try {
+      upsertServer(GITHUB_MCP_SERVER_NAME, { type: 'http', url: GITHUB_MCP_URL });
+      sendJson(res, 201, await setServerEnabled(GITHUB_MCP_SERVER_NAME, true));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   // proxy OAuth2: o secret chega aqui (127.0.0.1) e nunca volta ao front

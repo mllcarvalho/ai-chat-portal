@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** Conteúdo da área principal: home (MESA/PROJETO), chat ou as páginas de gestão. */
-export type MainView = 'home' | 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge';
+export type MainView = 'home' | 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge' | 'diagnostics';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
