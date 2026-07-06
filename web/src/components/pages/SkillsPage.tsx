@@ -90,33 +90,19 @@ export function SkillsPage() {
     }
   };
 
-  const removeAsset = async (path: string) => {
+  const openFolder = async () => {
     if (!draft?.id) return;
-    const ok = await confirm({
-      title: 'Remover anexo',
-      message: `Remover "${path}" da pasta desta skill? O arquivo é apagado do disco.`,
-      confirmLabel: 'Remover',
-      danger: true,
-    });
-    if (!ok) return;
     try {
-      const updated = await api.deleteSkillFile(draft.id, path);
-      setDraft((d) => (d && d.id === updated.id ? { ...d, files: updated.files } : d));
+      await api.revealSkillFolder(draft.id);
     } catch (err) {
       toast((err as Error).message, 'error');
     }
   };
 
-  const discardPending = async (path: string) => {
-    const ok = await confirm({
-      title: 'Descartar anexo do import',
-      message: `Não gravar "${path}" ao salvar esta skill?`,
-      confirmLabel: 'Descartar',
-    });
-    if (!ok) return;
-    setDraft((d) =>
-      d ? { ...d, pendingFiles: d.pendingFiles?.filter((f) => f.path !== path) } : d,
-    );
+  // resumo compacto dos anexos: "a.md, refs/b.md e mais 12"
+  const assetSummary = (paths: string[]) => {
+    const names = paths.slice(0, 3).join(', ');
+    return paths.length > 3 ? `${names} e mais ${paths.length - 3}` : names;
   };
 
   const contextProjectId = session?.projectId ?? viewProjectId ?? undefined;
@@ -524,13 +510,22 @@ export function SkillsPage() {
                   — referências e templates que o modelo lê sob demanda
                 </label>
                 {draft.id && (
-                  <button
-                    className="btn btn--sm btn--ghost"
-                    disabled={busy}
-                    onClick={() => assetInput.current?.click()}
-                  >
-                    ⬆ Anexar arquivo
-                  </button>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      title="Abrir a pasta da skill no gerenciador de arquivos — os anexos ficam lá"
+                      onClick={() => void openFolder()}
+                    >
+                      📂 Abrir pasta
+                    </button>
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      disabled={busy}
+                      onClick={() => assetInput.current?.click()}
+                    >
+                      ⬆ Anexar arquivo
+                    </button>
+                  </span>
                 )}
               </div>
               <input
@@ -543,51 +538,15 @@ export function SkillsPage() {
                   e.target.value = '';
                 }}
               />
-              {(draft.files ?? []).length === 0 && (draft.pendingFiles ?? []).length === 0 ? (
-                <p className="page-hint" style={{ margin: 0 }}>
-                  {draft.id
-                    ? 'Nenhum anexo — esta skill é só o markdown acima.'
+              <p className="page-hint" style={{ margin: 0 }} title={[...(draft.files ?? []), ...(draft.pendingFiles ?? []).map((f) => f.path)].join('\n') || undefined}>
+                {draft.id
+                  ? (draft.files?.length ?? 0) > 0
+                    ? `📎 Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
+                    : 'Nenhum anexo — esta skill é só o markdown acima.'
+                  : (draft.pendingFiles?.length ?? 0) > 0
+                    ? `📎 ${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
                     : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}
-                </p>
-              ) : (
-                <>
-                <div className="skill-assets">
-                  {(draft.files ?? []).map((file) => (
-                    <span className="skill-asset" key={file} title={file}>
-                      <code>{file}</code>
-                      <button
-                        className="skill-asset__remove"
-                        title="Remover anexo"
-                        onClick={() => void removeAsset(file)}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  ))}
-                  {(draft.pendingFiles ?? []).map((file) => (
-                    <span
-                      className="skill-asset skill-asset--pending"
-                      key={`pending:${file.path}`}
-                      title={`${file.path} — será gravado ao salvar a skill`}
-                    >
-                      <code>{file.path}</code>
-                      <button
-                        className="skill-asset__remove"
-                        title="Descartar (não grava ao salvar)"
-                        onClick={() => void discardPending(file.path)}
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                {(draft.pendingFiles?.length ?? 0) > 0 && (
-                  <p className="page-hint" style={{ margin: '6px 0 0' }}>
-                    Os anexos em laranja vieram do import e serão gravados quando você salvar.
-                  </p>
-                )}
-                </>
-              )}
+              </p>
             </div>
             <div className="form-actions">
               <button className="btn" onClick={() => setDraft(undefined)}>

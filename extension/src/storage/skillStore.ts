@@ -143,6 +143,11 @@ function findSkillFolder(id: string): string | undefined {
   return undefined;
 }
 
+/** Caminho absoluto da pasta da skill, para abrir no gerenciador de arquivos. */
+export function skillFolderPath(id: string): string | undefined {
+  return findSkillFolder(id);
+}
+
 /** Anexos da pasta (tudo além de skill.json/SKILL.md), como caminhos relativos com /. */
 function listAssetsIn(folder: string): string[] {
   const files: string[] = [];

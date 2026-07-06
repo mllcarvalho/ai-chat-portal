@@ -223,6 +223,7 @@ export const api = {
     downloadFromUrl(`/api/skills/${id}/export`, fileName),
   deleteSkillFile: (id: string, path: string) =>
     request<SkillWithContent>('POST', `/api/skills/${id}/files/delete`, { path }),
+  revealSkillFolder: (id: string) => request<{ ok: boolean }>('POST', `/api/skills/${id}/reveal`),
 
   listAgents: () => request<AgentPreset[]>('GET', '/api/agents'),
   createAgent: (input: Partial<AgentPreset>) => request<AgentPreset>('POST', '/api/agents', input),
