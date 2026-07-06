@@ -13,6 +13,7 @@ import { SkillsPage } from './components/pages/SkillsPage';
 import { AgentsPage } from './components/pages/AgentsPage';
 import { McpServersPage } from './components/pages/McpServersPage';
 import { KnowledgePage } from './components/pages/KnowledgePage';
+import { BmadDocPage } from './components/pages/BmadDocPage';
 import { ProjectFilesDrawer } from './components/panels/ProjectFilesDrawer';
 import { NewProjectModal } from './components/panels/NewProjectModal';
 import { SettingsModal } from './components/settings/SettingsModal';
@@ -79,6 +80,7 @@ function MainArea() {
       {view === 'agents' && <AgentsPage />}
       {view === 'mcps' && <McpServersPage />}
       {view === 'knowledge' && <KnowledgePage />}
+      {view === 'bmadDoc' && <BmadDocPage />}
       {view === 'diagnostics' && <DiagnosticsPage />}
       {view === 'chat' &&
         (current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />)}

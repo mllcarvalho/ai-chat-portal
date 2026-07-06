@@ -1,7 +1,15 @@
 import { create } from 'zustand';
 
 /** Conteúdo da área principal: home (MESA/PROJETO), chat ou as páginas de gestão. */
-export type MainView = 'home' | 'chat' | 'skills' | 'agents' | 'mcps' | 'knowledge' | 'diagnostics';
+export type MainView =
+  | 'home'
+  | 'chat'
+  | 'skills'
+  | 'agents'
+  | 'mcps'
+  | 'knowledge'
+  | 'bmadDoc'
+  | 'diagnostics';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
@@ -27,6 +35,7 @@ export interface ConfirmOptions {
 
 const HIDE_TOOL_CARDS_KEY = 'aiportal.hideToolCards';
 const LOGGED_IN_KEY = 'aiportal.loggedIn';
+const SIDEBAR_COLLAPSED_KEY = 'aiportal.sidebarCollapsed';
 
 interface UiState {
   view: MainView;
@@ -45,6 +54,9 @@ interface UiState {
    */
   hideToolCards: boolean;
   setHideToolCards: (hide: boolean) => void;
+  /** Sidebar recolhida num trilho de ícones — persiste entre refreshes. */
+  sidebarCollapsed: boolean;
+  toggleSidebar: () => void;
   /** Incrementa quando uma ferramenta mexe nos arquivos — o painel Arquivos recarrega sozinho. */
   filesVersion: number;
   bumpFilesVersion: () => void;
@@ -79,6 +91,12 @@ export const useUi = create<UiState>((set, get) => ({
   setHideToolCards: (hide) => {
     localStorage.setItem(HIDE_TOOL_CARDS_KEY, hide ? '1' : '0');
     set({ hideToolCards: hide });
+  },
+  sidebarCollapsed: localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1',
+  toggleSidebar: () => {
+    const collapsed = !get().sidebarCollapsed;
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+    set({ sidebarCollapsed: collapsed });
   },
   filesVersion: 0,
   bumpFilesVersion: () => set({ filesVersion: get().filesVersion + 1 }),

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
-import { useUi } from '../../stores/uiStore';
+import { useUi, type MainView } from '../../stores/uiStore';
 import { UserBadge } from './UserBadge';
 import itauLogo from '../../assets/itau-logo.png';
 
@@ -76,6 +76,16 @@ function SessionItem({ session }: { session: SessionSummary }) {
   );
 }
 
+/** Páginas do menu — mesma lista na sidebar expandida e no trilho recolhido. */
+const NAV_ITEMS: Array<{ icon: string; label: string; view: MainView }> = [
+  { icon: '🤖', label: 'Agentes', view: 'agents' },
+  { icon: '⚡', label: 'Skills', view: 'skills' },
+  { icon: '📚', label: 'Conhecimento', view: 'knowledge' },
+  { icon: '🔧', label: 'Servidores MCP', view: 'mcps' },
+  { icon: '📖', label: 'Doc BMAD', view: 'bmadDoc' },
+  { icon: '🩺', label: 'Diagnóstico', view: 'diagnostics' },
+];
+
 export function Sidebar() {
   const projects = useSessions((s) => s.projects);
   const standalone = useSessions((s) => s.standalone);
@@ -86,6 +96,47 @@ export function Sidebar() {
   const newSession = useSessions((s) => s.newSession);
   const openPanel = useUi((s) => s.openPanel);
   const setView = useUi((s) => s.setView);
+  const collapsed = useUi((s) => s.sidebarCollapsed);
+  const toggleSidebar = useUi((s) => s.toggleSidebar);
+
+  if (collapsed) {
+    return (
+      <aside className="sidebar sidebar--collapsed">
+        <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" title="AI Product BMAD Chat" />
+        <button className="sidebar__rail-btn" title="Expandir menu" onClick={toggleSidebar}>
+          »
+        </button>
+        <button
+          className="sidebar__rail-btn sidebar__rail-btn--accent"
+          title="Nova conversa"
+          onClick={() => {
+            setView('chat');
+            void newSession(null);
+          }}
+        >
+          ＋
+        </button>
+        <div className="sidebar__rail-spacer" />
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.view}
+            className="sidebar__rail-btn"
+            title={item.label}
+            onClick={() => setView(item.view)}
+          >
+            {item.icon}
+          </button>
+        ))}
+        <button
+          className="sidebar__rail-btn"
+          title="Configurações"
+          onClick={() => openPanel({ kind: 'settings' })}
+        >
+          ⚙️
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside className="sidebar">
@@ -97,6 +148,9 @@ export function Sidebar() {
           </span>
           <span className="sidebar__byline">by Matheus Llobregat</span>
         </div>
+        <button className="sidebar__collapse" title="Recolher menu" onClick={toggleSidebar}>
+          «
+        </button>
       </div>
 
       <button
@@ -187,21 +241,11 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar__footer">
-        <button className="sidebar__footer-btn" onClick={() => setView('agents')}>
-          🤖 Agentes
-        </button>
-        <button className="sidebar__footer-btn" onClick={() => setView('skills')}>
-          ⚡ Skills
-        </button>
-        <button className="sidebar__footer-btn" onClick={() => setView('knowledge')}>
-          📚 Conhecimento
-        </button>
-        <button className="sidebar__footer-btn" onClick={() => setView('mcps')}>
-          🔧 Servidores MCP
-        </button>
-        <button className="sidebar__footer-btn" onClick={() => setView('diagnostics')}>
-          🩺 Diagnóstico
-        </button>
+        {NAV_ITEMS.map((item) => (
+          <button key={item.view} className="sidebar__footer-btn" onClick={() => setView(item.view)}>
+            {item.icon} {item.label}
+          </button>
+        ))}
         <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
           ⚙️ Configurações
         </button>
