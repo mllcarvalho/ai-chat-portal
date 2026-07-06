@@ -380,7 +380,7 @@ export async function fixDiagnostic(fixId: string): Promise<string> {
       if (!version)
         throw new Error(
           process.platform === 'win32'
-            ? 'Falha ao instalar o uv. Rode no PowerShell: irm https://astral.sh/uv/install.ps1 | iex — e reabra o VS Code.'
+            ? 'Falha ao instalar o uv. Rode no Git Bash: curl -LsSf https://astral.sh/uv/install.sh | sh — e reabra o VS Code. (Evite o PowerShell: costuma ser bloqueado pelo antivírus corporativo.)'
             : 'Falha ao instalar o uv. Rode: brew install uv (ou curl -LsSf https://astral.sh/uv/install.sh | sh) e reabra o VS Code.',
         );
       return `uv instalado: ${version}`;

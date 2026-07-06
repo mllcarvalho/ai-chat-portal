@@ -112,6 +112,15 @@ export function getShell(): ShellInfo | null {
   return env.shell;
 }
 
+/**
+ * Bash para rodar instaladores (Git Bash no Windows; shell do usuário no
+ * mac/linux) — funciona mesmo antes de o checkEnvironment da ativação acabar.
+ */
+export function findBash(): ShellInfo | null {
+  if (env.checked && env.shell) return env.shell;
+  return process.platform === 'win32' ? findWindowsBash() : findPosixShell();
+}
+
 export function shellAvailable(): boolean {
   return !!env.shell;
 }

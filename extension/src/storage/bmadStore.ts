@@ -186,6 +186,13 @@ function bmadAgentRoster(): Array<{
     }
   }
   return [...merged.entries()]
+    .filter(([code]) => {
+      // respeita o toggle das Configurações do portal: persona registrada como
+      // agente e desabilitada fica fora do roster (codes sem preset — ex.
+      // agentes custom só do BMAD — continuam entrando)
+      const preset = getAgent(PRESET_PREFIX + code);
+      return !preset || preset.enabled !== false;
+    })
     .map(([code, v]) => ({
       code,
       name: v.name ?? code,
@@ -203,6 +210,14 @@ function bmadAgentRoster(): Array<{
  */
 function partyModeAdapter(): string {
   const roster = bmadAgentRoster();
+  if (!roster.length) {
+    return (
+      `> **Party mode no AI Product BMAD Chat** — NENHUMA persona BMAD está habilitada nas ` +
+      `Configurações do portal, então não há roster para a discussão. NÃO invente personas: avise o ` +
+      `usuário que o party mode precisa de agentes habilitados e peça para ele ativar as personas ` +
+      `desejadas em Configurações → Agentes BMAD antes de tentar de novo.\n\n`
+    );
+  }
   const rosterLines = roster
     .map((a) => `> - ${a.icon} **${a.name}** — ${a.title} (\`${a.code}\`): ${a.description}`)
     .join('\n');
@@ -216,8 +231,11 @@ function partyModeAdapter(): string {
     `Cada resposta de subagente já aparece como um balão próprio no chat, identificado pelo label: NÃO ` +
     `repita nem resuma as respostas no seu texto — no máximo a "Orchestrator Note" curta. Pule o passo do ` +
     `resolve_config.py: o roster já resolvido está abaixo. O flag --model vira o parâmetro modelId do ` +
-    `subagente; --solo funciona como descrito na skill.\n>\n` +
-    `> Roster resolvido (use name/title/icon/description no template de cada agente):\n` +
+    `subagente; --solo funciona como descrito na skill. Ao preencher os templates, identifique o ` +
+    `usuário pelo nome dado nas instruções da conversa (o RACF) — se as instruções não derem nome, ` +
+    `as personas cumprimentam SEM nome (nunca inventam um).\n>\n` +
+    `> Roster resolvido (SOMENTE estes agentes participam — a lista já reflete as personas habilitadas ` +
+    `nas Configurações do portal; use name/title/icon/description no template de cada agente):\n` +
     `${rosterLines}\n\n`
   );
 }

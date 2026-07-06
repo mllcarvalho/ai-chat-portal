@@ -3,10 +3,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import type { ConsumerLabAccount, ConsumerLabStatus, McpServerEntry } from '@aiportal/shared';
+import type {
+  ConsumerLabAccount,
+  ConsumerLabConnection,
+  ConsumerLabStatus,
+  McpServerEntry,
+} from '@aiportal/shared';
 import { dataRoot, ensureDir } from '../storage/paths';
+import { readJson, writeJsonAtomic } from '../storage/jsonStore';
 import { setServerEnabled, upsertServer } from './mcpManager';
-import { resolveShellEnv } from './netEnv';
+import { findBash } from './envCheck';
+import { maskProxyUrl, netProcessEnv, resolveShellEnv } from './netEnv';
 
 /**
  * Setup guiado do MCP ConsumerLab (Itaú) — porta do setup.sh usado no fluxo
@@ -90,6 +97,11 @@ function emptyStatus(): ConsumerLabStatus {
   return { running: false, phase: 'idle', phaseLabel: PHASE_LABELS.idle, log: '' };
 }
 
+/** Conta/role do último setup concluído — sobrevive ao restart da extensão. */
+function connectionPath(): string {
+  return path.join(dataRoot(), 'mcp', 'consumerlab-connection.json');
+}
+
 function currentPortal(): SsoPortal {
   return SSO_PORTALS[state.portalIndex];
 }
@@ -129,14 +141,21 @@ interface RunResult {
 function run(
   command: string,
   args: string[],
-  opts: { cwd?: string; timeoutMs?: number; quiet?: boolean; logAs?: string } = {},
+  opts: {
+    cwd?: string;
+    timeoutMs?: number;
+    quiet?: boolean;
+    logAs?: string;
+    /** Spawna direto (sem cmd.exe no Windows) — evita expansão de %VAR% nos args. */
+    direct?: boolean;
+  } = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     if (state.cancelled) {
       reject(new Error('Setup cancelado.'));
       return;
     }
-    const useShell = process.platform === 'win32';
+    const useShell = process.platform === 'win32' && !opts.direct;
     appendLog(`\n$ ${opts.logAs ?? [command, ...args].join(' ')}\n`);
     const child = spawn(command, useShell ? args.map(quoteArg) : args, {
       cwd: opts.cwd,
@@ -296,11 +315,16 @@ async function persistUvDir(dir: string): Promise<void> {
         "$p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not $p){$p=''};" +
         "$parts=@($p -split ';' | Where-Object { $_ });" +
         "if($parts -notcontains $d){ [Environment]::SetEnvironmentVariable('Path', ((@($d)+$parts) -join ';'),'User') }";
-      await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
+      const ps = await run('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], {
         quiet: true,
         timeoutMs: 20_000,
         logAs: 'persistir uv no PATH do usuário (registro)',
       });
+      if (ps.code !== 0) {
+        // PowerShell bloqueado (EDR corporativo) — reg.exe faz o mesmo
+        await persistUvDirViaReg(dir);
+        return;
+      }
     } else {
       const home = os.homedir();
       const line = `export PATH="${dir}:$PATH"`;
@@ -327,6 +351,36 @@ async function persistUvDir(dir: string): Promise<void> {
   }
 }
 
+/** Fallback do persist no Windows sem PowerShell: reg.exe (query + add). */
+async function persistUvDirViaReg(dir: string): Promise<void> {
+  const reg = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'reg.exe');
+  const query = await run(reg, ['query', 'HKCU\\Environment', '/v', 'Path'], {
+    quiet: true,
+    timeoutMs: 15_000,
+    direct: true,
+    logAs: 'reg query HKCU\\Environment /v Path',
+  });
+  let current = '';
+  if (query.code === 0) {
+    const m = /Path\s+REG(?:_EXPAND)?_SZ\s+(.*)/i.exec(query.output);
+    if (!m) return; // Path existe mas não deu para ler — não sobrescreve às cegas
+    current = m[1].trim();
+  }
+  const parts = current.split(';').filter(Boolean);
+  if (parts.some((p) => p.trim().toLowerCase() === dir.toLowerCase())) return;
+  const add = await run(
+    reg,
+    ['add', 'HKCU\\Environment', '/v', 'Path', '/t', 'REG_EXPAND_SZ', '/d', [dir, ...parts].join(';'), '/f'],
+    {
+      quiet: true,
+      timeoutMs: 15_000,
+      direct: true,
+      logAs: 'reg add HKCU\\Environment /v Path (prepend uv)',
+    },
+  );
+  if (add.code === 0) appendLog(`✓ uv adicionado ao PATH permanente via reg.exe (${dir})\n`);
+}
+
 /** Achou o uv num dir? prepõe na sessão e persiste no PATH permanente. */
 async function adoptUvDir(): Promise<boolean> {
   const dir = await findUvDir();
@@ -337,14 +391,38 @@ async function adoptUvDir(): Promise<boolean> {
   return true;
 }
 
-/** Instala o uv via pip --user (transparente, sem admin; usa o proxy do process.env). */
+/** Instala o uv via pip --user (transparente, sem admin; proxy/CA explícitos). */
 async function pipInstallUv(): Promise<boolean> {
+  // proxy e CA corporativos como ARGS (o pip ignora REQUESTS_CA_BUNDLE do env
+  // em algumas versões e usa o certifi embutido) — nunca vão para o log
+  // (logAs omite os args, e o proxy carrega a senha do RACF)
+  const net = netProcessEnv();
+  const proxy = net.HTTPS_PROXY ?? net.HTTP_PROXY;
+  const cert = net.REQUESTS_CA_BUNDLE;
+  const netArgs = [...(proxy ? ['--proxy', proxy] : []), ...(cert ? ['--cert', cert] : [])];
   for (const py of ['python3', 'python', 'py']) {
-    const r = await run(py, ['-m', 'pip', 'install', '--user', '--upgrade', 'uv'], {
+    const r = await run(py, ['-m', 'pip', 'install', '--user', '--upgrade', ...netArgs, 'uv'], {
       timeoutMs: 300_000,
+      quiet: true,
       logAs: `${py} -m pip install --user uv`,
     });
     if (r.code === 0) return true;
+    if (r.code === null) continue; // este python não existe — tenta o próximo
+    // proxy que reassina o TLS derruba o pip mesmo com --cert quando a cadeia
+    // está incompleta — repete confiando nos hosts oficiais do PyPI
+    appendLog('pip falhou — tentando de novo com --trusted-host (TLS do proxy)…\n');
+    const retry = await run(
+      py,
+      [
+        '-m', 'pip', 'install', '--user', '--upgrade', ...netArgs,
+        '--trusted-host', 'pypi.org', '--trusted-host', 'files.pythonhosted.org',
+        'uv',
+      ],
+      { timeoutMs: 300_000, quiet: true, logAs: `${py} -m pip install --user uv (--trusted-host)` },
+    );
+    if (retry.code === 0) return true;
+    // cauda do erro para diagnóstico — com a senha do proxy mascarada
+    appendLog(`${maskProxyUrl(retry.output.trim().split('\n').slice(-3).join('\n'))}\n`);
   }
   return false;
 }
@@ -380,7 +458,24 @@ export async function ensureUv(): Promise<string | undefined> {
     appendLog('Tentando via brew…\n');
     await run('brew', ['install', 'uv'], { timeoutMs: 300_000 });
   } else if (process.platform === 'win32') {
-    appendLog('Tentando pelo instalador oficial (astral.sh)…\n');
+    // o install.sh do astral roda no Git Bash (detecta MINGW/MSYS e baixa o
+    // binário windows) — preferir SEMPRE o bash: o PowerShell costuma ser
+    // bloqueado pelo antivírus corporativo (spawn UNKNOWN)
+    const bash = findBash();
+    if (bash) {
+      appendLog(`Tentando pelo instalador oficial (astral.sh) via ${bash.label}…\n`);
+      // direct: sem cmd.exe no meio (que expandiria %XX% da senha do proxy)
+      await run(bash.path, ['-lc', uvInstallShCommand()], {
+        timeoutMs: 300_000,
+        direct: true,
+        logAs: 'curl -LsSf https://astral.sh/uv/install.sh | sh (Git Bash)',
+      });
+      if (await adoptUvDir()) {
+        const v = await versionOf('uv');
+        if (v) return v;
+      }
+    }
+    appendLog('Tentando pelo instalador oficial (astral.sh) via PowerShell…\n');
     await run(
       'powershell',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'irm https://astral.sh/uv/install.ps1 | iex'],
@@ -388,10 +483,28 @@ export async function ensureUv(): Promise<string | undefined> {
     );
   } else {
     appendLog('Tentando pelo instalador oficial (astral.sh)…\n');
-    await run('sh', ['-c', 'curl -LsSf https://astral.sh/uv/install.sh | sh'], { timeoutMs: 300_000 });
+    await run('sh', ['-c', uvInstallShCommand()], { timeoutMs: 300_000, logAs: 'curl -LsSf https://astral.sh/uv/install.sh | sh' });
   }
   await adoptUvDir();
   return versionOf('uv');
+}
+
+/**
+ * Comando `curl | sh` do instalador oficial, com proxy/CA corporativos
+ * exportados na própria linha (o curl do Git Bash não herda a config do
+ * portal) e sem mexer nos rc (o PATH é persistido por persistUvDir).
+ */
+function uvInstallShCommand(): string {
+  const net = netProcessEnv();
+  const sq = (v: string) => `'${v.replace(/'/g, "'\\''")}'`;
+  const exports = [
+    net.HTTPS_PROXY ? `export HTTPS_PROXY=${sq(net.HTTPS_PROXY)} HTTP_PROXY=${sq(net.HTTPS_PROXY)};` : '',
+    net.REQUESTS_CA_BUNDLE ? `export CURL_CA_BUNDLE=${sq(net.REQUESTS_CA_BUNDLE)};` : '',
+    'export UV_NO_MODIFY_PATH=1;',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `${exports} curl -LsSf https://astral.sh/uv/install.sh | sh`;
 }
 
 /** Marcador para instalar o uv no máximo uma vez automaticamente na inicialização. */
@@ -448,7 +561,7 @@ async function checkPrerequisites(): Promise<void> {
   else
     problems.push(
       process.platform === 'win32'
-        ? 'Não consegui instalar o uv automaticamente (pip e instalador oficial falharam). Rode no PowerShell: irm https://astral.sh/uv/install.ps1 | iex — depois FECHE e reabra o VS Code. Se estiver atrás do proxy corporativo, confira a rede/VPN.'
+        ? 'Não consegui instalar o uv automaticamente (pip e instalador oficial falharam). Rode no Git Bash: curl -LsSf https://astral.sh/uv/install.sh | sh — depois FECHE e reabra o VS Code. (Evite o PowerShell: costuma ser bloqueado pelo antivírus corporativo.) Se estiver atrás do proxy corporativo, confira a rede/VPN.'
         : 'Não consegui instalar o uv automaticamente (pip e instalador oficial falharam). Rode: brew install uv (ou curl -LsSf https://astral.sh/uv/install.sh | sh) e reabra o VS Code.',
     );
 
@@ -653,6 +766,23 @@ async function finishSetup(accountId: string, roleName: string): Promise<void> {
   if (info.status === 'error')
     fail(`Servidor registrado, mas falhou ao iniciar: ${info.error ?? 'erro desconhecido'}`);
   appendLog(`✓ Servidor "${CONSUMERLAB_SERVER_NAME}" ligado · ${info.toolCount} ferramenta(s).\n`);
+  const account = (state.allAccounts ?? []).find((a) => a.id === accountId);
+  const connection: ConsumerLabConnection = {
+    accountId,
+    accountName: account?.name ?? accountId,
+    role: roleName,
+    ssoPortal: portal.label,
+    profile,
+    connectedAt: new Date().toISOString(),
+  };
+  try {
+    ensureDir(path.join(dataRoot(), 'mcp'));
+    writeJsonAtomic(connectionPath(), connection);
+  } catch {
+    // melhor-esforço: sem o arquivo a conta só some da UI após reiniciar
+  }
+  state.status.connection = connection;
+  appendLog(`✓ Conta conectada: ${connection.accountName} (${accountId}) · ${roleName}\n`);
   state.accessToken = undefined;
   state.status.running = false;
   setPhase('done');
@@ -668,7 +798,13 @@ function toError(err: unknown): void {
 // --- API usada pelas rotas ----------------------------------------------------
 
 export function getConsumerLabStatus(): ConsumerLabStatus {
-  return { ...state.status, accounts: state.status.accounts, roles: state.status.roles };
+  const status = { ...state.status, accounts: state.status.accounts, roles: state.status.roles };
+  // fora de um setup em andamento, resgata do disco a conta do último setup
+  // concluído (o estado em memória zera a cada restart da extensão)
+  if (!status.connection && !status.running) {
+    status.connection = readJson<ConsumerLabConnection>(connectionPath());
+  }
+  return status;
 }
 
 /** Dispara o setup do zero (idempotente enquanto estiver rodando). */

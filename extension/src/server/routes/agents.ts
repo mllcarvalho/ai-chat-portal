@@ -1,7 +1,8 @@
-import { slugifyCommand, type AgentPreset } from '@aiportal/shared';
+import { isBmadAsset, slugifyCommand, type AgentPreset } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from '../../storage/agentStore';
 import { exportAgentZip, importAgentZip } from '../../storage/agentZip';
+import { registerBmadAssets } from '../../storage/bmadStore';
 import { listVsCodeAgents } from '../../storage/vscodeAgents';
 
 export function registerAgentRoutes(router: Router): void {
@@ -64,10 +65,20 @@ export function registerAgentRoutes(router: Router): void {
   });
 
   router.patch('/api/agents/:id', ({ res, params, body }) => {
-    const updated = updateAgent(params.id, (body ?? {}) as Partial<AgentPreset>);
+    const patch = (body ?? {}) as Partial<AgentPreset>;
+    const updated = updateAgent(params.id, patch);
     if (!updated) {
       sendError(res, 404, 'Agente não encontrado');
       return;
+    }
+    // habilitar/desabilitar persona BMAD muda o roster embutido no conteúdo da
+    // skill bmad-party-mode — re-registra para a próxima ativação já refletir
+    if (isBmadAsset(params.id) && patch.enabled !== undefined) {
+      try {
+        registerBmadAssets();
+      } catch {
+        // melhor-esforço; o registro da inicialização corrige depois
+      }
     }
     sendJson(res, 200, updated);
   });

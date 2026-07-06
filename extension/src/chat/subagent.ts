@@ -133,6 +133,8 @@ export async function runSubagent(opts: {
         'resultado de ferramenta. Não faça perguntas; se faltar informação, diga o que assumiu.',
       'Responda em português brasileiro, a menos que a persona determine outra coisa. Seja direto: ' +
         'entregue o resultado pedido, sem preâmbulos.',
+      'Se precisar se dirigir ao usuário final, use SOMENTE o nome que a tarefa informar; se a ' +
+        'tarefa não der nome, não use nome nenhum — nunca invente nome, apelido ou cargo.',
       ...(persona
         ? [
             'Assuma integralmente a persona a seguir — voz, papel e regras — enquanto cumpre a tarefa:\n\n' +

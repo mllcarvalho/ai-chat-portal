@@ -331,9 +331,9 @@ function vsCodeProxySetting(): string | undefined {
   }
 }
 
-/** Esconde a senha de uma URL de proxy (http://user:senha@host) para exibição. */
+/** Esconde a senha de URLs de proxy (http://user:senha@host) para exibição. */
 export function maskProxyUrl(url: string): string {
-  return url.replace(/(\/\/[^:/@]+:)[^@]*@/, '$1****@');
+  return url.replace(/(\/\/[^:/@]+:)[^@]*@/g, '$1****@');
 }
 
 /** Resumo do que está configurado, para anexar a erros de timeout. */

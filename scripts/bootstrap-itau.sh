@@ -4,9 +4,10 @@
 # -----------------------------------------------------------------------------
 #  Prepara SOMENTE o que precisa existir ANTES de instalar o portal via npm:
 #    1. Instala a CA corporativa em ~/certs (se ainda não estiver lá)
-#    2. Configura registry + cafile no npm (~/.npmrc)
-#    3. Instala o uv (gerenciador Python do MCP ConsumerLab) com pip e o deixa
-#       no PATH — mac/linux persiste no rc; Windows deixa o portal finalizar
+#    2. Configura registry + cafile + strict-ssl/always-auth no npm (~/.npmrc)
+#    3. Instala o uv (gerenciador Python do MCP ConsumerLab) com pip — com
+#       fallback no instalador oficial via curl, que roda até no Git Bash —
+#       e o deixa no PATH (mac/linux no rc; Windows no registro do usuário)
 #    4. Grava as variáveis de ambiente (NODE_EXTRA_CA_CERTS,
 #       NODE_TLS_REJECT_UNAUTHORIZED=0 e proxy com usuário RACF):
 #         - mac/linux: no rc do shell (~/.zshrc, ~/.bashrc, ~/.profile)
@@ -111,6 +112,28 @@ urlencode() {
 }
 # Esconde a senha do proxy ao exibir no terminal/log.
 mask_proxy() { printf '%s' "$1" | sed -E 's#(//[^:/@]+:)[^@]*@#\1****@#'; }
+
+# --- ~/.npmrc direto (chave=valor) ------------------------------------------
+# npm >= 9 rejeita chaves como always-auth no `npm config set` ("not a valid
+# npm option"), mas o Artifactory ainda precisa dela no arquivo — então essas
+# chaves são gravadas/removidas editando o ~/.npmrc na mão (idempotente).
+NPMRC="$HOME/.npmrc"
+npmrc_set() {
+  _k="$1"; _v="$2"
+  touch "$NPMRC"
+  _tmp=$(mktemp)
+  grep -v "^$_k=" "$NPMRC" > "$_tmp" 2>/dev/null || true
+  printf '%s=%s\n' "$_k" "$_v" >> "$_tmp"
+  cat "$_tmp" > "$NPMRC"; rm -f "$_tmp"
+}
+npmrc_unset() {
+  _k="$1"
+  [ -f "$NPMRC" ] || return 1
+  grep -q "^$_k=" "$NPMRC" 2>/dev/null || return 1
+  _tmp=$(mktemp)
+  grep -v "^$_k=" "$NPMRC" > "$_tmp" 2>/dev/null || true
+  cat "$_tmp" > "$NPMRC"; rm -f "$_tmp"
+}
 
 # --- uv (gerenciador Python do ConsumerLab) ---------------------------------
 uv_bin() { if [ "$IS_WINDOWS" -eq 1 ]; then printf 'uv.exe'; else printf 'uv'; fi; }
@@ -220,6 +243,10 @@ if [ "$MODE" = "undo" ]; then
       fi
     done
   fi
+  # chaves gravadas direto no ~/.npmrc (npm >= 9 não aceita no config delete)
+  for key in strict-ssl always-auth; do
+    npmrc_unset "$key" && ok "npmrc $key removido"
+  done
 
   # 3. certificado (só o arquivo que geramos; remove a pasta se ficar vazia)
   if [ -f "$CERT_PATH" ]; then
@@ -290,6 +317,10 @@ if command -v npm >/dev/null 2>&1; then
     warn "REGISTRY_URL vazio — registry npm não alterado."
   fi
   [ -f "$CERT_PATH" ] && npm config set cafile "$CERT_PATH_NATIVE" && ok "cafile: $CERT_PATH_NATIVE"
+  # proxy corporativo reassina o TLS e o Artifactory exige auth em toda rota —
+  # sem estas duas linhas o npm install falha (SELF_SIGNED_CERT / 401)
+  npmrc_set strict-ssl false && ok "strict-ssl=false"
+  npmrc_set always-auth true && ok "always-auth=true"
   echo "  (as linhas extras de auth do registry você cola no ~/.npmrc à mão)"
 else
   warn "npm não encontrado — pulei a configuração de registry."
@@ -305,6 +336,7 @@ else
   if [ -f "$CERT_PATH" ]; then
     export NODE_EXTRA_CA_CERTS="$CERT_PATH_NATIVE" SSL_CERT_FILE="$CERT_PATH_NATIVE"
     export REQUESTS_CA_BUNDLE="$CERT_PATH_NATIVE" PIP_CERT="$CERT_PATH_NATIVE"
+    export CURL_CA_BUNDLE="$CERT_PATH"
   fi
   [ -n "$PROXY_URL" ] && export HTTPS_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL"
 
@@ -319,7 +351,20 @@ else
       for _py in python3 python py; do
         command -v "$_py" >/dev/null 2>&1 || continue
         "$_py" -m pip install --user --upgrade uv && break
+        # proxy corporativo que reassina o TLS derruba o pip mesmo com PIP_CERT
+        # (cadeia incompleta é comum) — repete confiando nos hosts do PyPI
+        echo "  pip falhou — tentando de novo com --trusted-host (TLS do proxy)…"
+        "$_py" -m pip install --user --upgrade \
+          --trusted-host pypi.org --trusted-host files.pythonhosted.org uv && break
       done
+      UV_DIR=$(find_uv_dir)
+    fi
+    # instalador oficial via curl: funciona TAMBÉM no Git Bash (o install.sh
+    # detecta MINGW/MSYS e baixa o binário windows) — nunca usa PowerShell,
+    # que costuma ser bloqueado pelo antivírus corporativo
+    if [ -z "$UV_DIR" ] && command -v curl >/dev/null 2>&1; then
+      echo "  pip não resolveu — tentando o instalador oficial (astral.sh)…"
+      curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh || true
       UV_DIR=$(find_uv_dir)
     fi
     if [ -n "$UV_DIR" ]; then
@@ -351,8 +396,28 @@ if [ "$IS_WINDOWS" -eq 1 ]; then
   if [ -n "$UV_DIR" ]; then
     UV_DIR_WIN=$(cygpath -w "$UV_DIR" 2>/dev/null || printf '%s' "$UV_DIR")
     _dq=$(printf '%s' "$UV_DIR_WIN" | sed "s/'/''/g")
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "\$d='$_dq'; \$p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not \$p){\$p=''}; \$parts=@(\$p -split ';' | Where-Object { \$_ }); if(\$parts -notcontains \$d){ [Environment]::SetEnvironmentVariable('Path', ((@(\$d)+\$parts) -join ';'),'User') }" >/dev/null 2>&1 \
-      && ok "uv no PATH do usuário: $UV_DIR_WIN"
+    if powershell -NoProfile -ExecutionPolicy Bypass -Command "\$d='$_dq'; \$p=[Environment]::GetEnvironmentVariable('Path','User'); if(-not \$p){\$p=''}; \$parts=@(\$p -split ';' | Where-Object { \$_ }); if(\$parts -notcontains \$d){ [Environment]::SetEnvironmentVariable('Path', ((@(\$d)+\$parts) -join ';'),'User') }" >/dev/null 2>&1; then
+      ok "uv no PATH do usuário: $UV_DIR_WIN"
+    else
+      # PowerShell bloqueado (antivírus corporativo)? reg.exe faz o mesmo
+      _cur=""
+      if reg query "HKCU\\Environment" /v Path >/dev/null 2>&1; then
+        _cur=$(reg query "HKCU\\Environment" /v Path 2>/dev/null | sed -n 's/.*REG_\(EXPAND_\)\{0,1\}SZ[[:space:]]*//p' | tr -d '\r' | head -1)
+        # Path existe mas não deu para ler o valor → NÃO sobrescreve às cegas
+        [ -z "$_cur" ] && { warn "Não consegui ler o Path do registro — uv fica só nesta sessão (o portal persiste na abertura)."; UV_DIR_WIN=""; }
+      fi
+      if [ -n "$UV_DIR_WIN" ]; then
+        case ";$_cur;" in
+          *";$UV_DIR_WIN;"*) ok "uv já estava no PATH do usuário: $UV_DIR_WIN" ;;
+          *)
+            if reg add "HKCU\\Environment" /v Path /t REG_EXPAND_SZ /d "$UV_DIR_WIN${_cur:+;$_cur}" /f >/dev/null 2>&1; then
+              ok "uv no PATH do usuário (via reg.exe): $UV_DIR_WIN"
+            else
+              warn "Não consegui persistir o uv no PATH — o portal tenta de novo na abertura."
+            fi ;;
+        esac
+      fi
+    fi
   fi
 else
   # POSIX (mac/linux): bloco gerenciado no rc do shell

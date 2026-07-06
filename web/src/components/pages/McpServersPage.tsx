@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ConsumerLabStatus, IuclickStatus, McpServerInfo } from '@aiportal/shared';
+import type {
+  ConsumerLabConnection,
+  ConsumerLabStatus,
+  IuclickStatus,
+  McpServerInfo,
+} from '@aiportal/shared';
 import { api, type McpProxyInput } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
@@ -221,6 +226,13 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
               {status?.error}
             </div>
           )}
+          {status?.connection && (
+            <div className="mcp-test mcp-test--ok">
+              <div className="mcp-test__title">☁️ Conta conectada</div>
+              {status.connection.accountName} ({status.connection.accountId}) ·{' '}
+              {status.connection.role} · {status.connection.ssoPortal}
+            </div>
+          )}
           <section className="mcp-block">
             <div className="mcp-block__head">
               <span className="mcp-block__title">☁️ Setup do Consumer Lab</span>
@@ -245,7 +257,15 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
             <div className="mcp-test__title">
               {status.phase === 'done' ? '✓' : '⏳'} {status.phaseLabel}
             </div>
-            {status.profile && status.phase === 'done' && <>Profile AWS: {status.profile}</>}
+            {status.phase === 'done' &&
+              (status.connection ? (
+                <>
+                  Conta: {status.connection.accountName} ({status.connection.accountId}) ·{' '}
+                  {status.connection.role} · Profile AWS: {status.connection.profile}
+                </>
+              ) : (
+                status.profile && <>Profile AWS: {status.profile}</>
+              ))}
           </div>
 
           {status.phase === 'awaiting-account' && (
@@ -864,6 +884,8 @@ export function McpServersPage() {
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
   const [servers, setServers] = useState<McpServerInfo[]>([]);
+  /** Conta AWS do último setup do ConsumerLab — exibida no card do servidor. */
+  const [clConnection, setClConnection] = useState<ConsumerLabConnection | undefined>();
   const [pending, setPending] = useState<string | undefined>();
   const [draft, setDraft] = useState<McpDraft | undefined>();
   /** Servidor com o modal de ferramentas aberto + cache por servidor. */
@@ -882,7 +904,13 @@ export function McpServersPage() {
     }
   };
 
-  const reload = () => api.listMcpServers().then(setServers).catch(() => setServers([]));
+  const reload = () => {
+    void api
+      .getConsumerLab()
+      .then((s) => setClConnection(s.connection))
+      .catch(() => undefined);
+    return api.listMcpServers().then(setServers).catch(() => setServers([]));
+  };
 
   useEffect(() => {
     void reload();
@@ -1013,6 +1041,12 @@ export function McpServersPage() {
                       ? `$ ${server.command ?? ''} ${(server.args ?? []).join(' ')}`
                       : server.url}
                   </div>
+                  {isConsumerLab && clConnection && (
+                    <div className="mcp-row__tools">
+                      ☁️ Conta: {clConnection.accountName} ({clConnection.accountId}) ·{' '}
+                      {clConnection.role}
+                    </div>
+                  )}
                   {server.status === 'error' && server.error && (
                     <div className="mcp-row__error">{server.error}</div>
                   )}

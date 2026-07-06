@@ -66,11 +66,20 @@ export function buildPreamble(opts: {
   contextFiles?: ContextFile[];
   /** Nota sobre shell/python da máquina (só entra no modo agent). */
   envNote?: string;
+  /** Usuário RACF do login corporativo — identifica o usuário nas saudações. */
+  racfUser?: string;
 }): string {
   const { session, project, agent, instructionSkills, knowledge, contextFiles, envNote } = opts;
   const blocks: string[] = [
     'Você é um assistente de IA do AI Product BMAD Chat, conversando em português brasileiro com analistas de produto.',
     `Data atual: ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}.`,
+    opts.racfUser
+      ? `O usuário desta conversa é "${opts.racfUser}" (usuário RACF do Itaú). Ao cumprimentá-lo, ` +
+        `use "Olá, ${opts.racfUser}". Fora do RACF você não sabe quem ele é: NUNCA invente nome, ` +
+        `apelido ou cargo para o usuário — isso vale também para personas e subagentes (inclua o ` +
+        `RACF nas tasks quando a persona precisar se dirigir ao usuário).`
+      : 'Você NÃO sabe o nome do usuário desta conversa: cumprimente sem nome (ex.: "Olá!") e ' +
+        'NUNCA invente nome, apelido ou cargo para ele — isso vale também para personas e subagentes.',
     MODE_INSTRUCTIONS[session.mode],
   ];
   if (agent?.instructions) {
@@ -226,6 +235,7 @@ export function buildMessages(opts: {
   knowledgeIndex?: KnowledgeIndexEntry[];
   contextFiles?: ContextFile[];
   envNote?: string;
+  racfUser?: string;
   maxInputTokens: number;
 }): vscode.LanguageModelChatMessage[] {
   const { session, commandSkills } = opts;

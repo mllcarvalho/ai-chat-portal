@@ -15,6 +15,7 @@ import type {
 } from '@aiportal/shared';
 import type { SseStream } from '../server/sse';
 import { getAgent } from '../storage/agentStore';
+import { getConfig } from '../storage/configStore';
 import { ensureDir, sessionWorkspaceDir } from '../storage/paths';
 import { getProject, projectDir } from '../storage/projectStore';
 import { saveSession, toSummary } from '../storage/sessionStore';
@@ -240,6 +241,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       knowledgeIndex: knowledgeCtx.index,
       contextFiles: readContextFiles(session, workRoot),
       envNote: describeEnvForPrompt(),
+      racfUser: getConfig().racfUser,
       maxInputTokens: model.maxInputTokens,
     });
 

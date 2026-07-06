@@ -183,10 +183,24 @@ select:focus {
 
 .sidebar__brand {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 18px 12px;
+}
+
+.sidebar__brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.sidebar__brand-text {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 18px 18px 12px;
+  min-width: 0;
 }
 
 .sidebar__byline {

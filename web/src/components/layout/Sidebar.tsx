@@ -3,6 +3,7 @@ import type { SessionSummary } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { UserBadge } from './UserBadge';
+import itauLogo from '../../assets/itau-logo.png';
 
 function SessionItem({ session }: { session: SessionSummary }) {
   const current = useSessions((s) => s.current);
@@ -89,10 +90,13 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar__brand">
-        <span className="sidebar__logo">
-          ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
-        </span>
-        <span className="sidebar__byline">by Matheus Llobregat</span>
+        <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" />
+        <div className="sidebar__brand-text">
+          <span className="sidebar__logo">
+            ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
+          </span>
+          <span className="sidebar__byline">by Matheus Llobregat</span>
+        </div>
       </div>
 
       <button

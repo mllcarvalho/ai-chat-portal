@@ -306,6 +306,22 @@ export interface ConsumerLabAccount {
 }
 
 /**
+ * Conta/role do último setup concluído do ConsumerLab — persistida em disco
+ * para a UI mostrar "qual conta está conectada" mesmo depois de reiniciar o
+ * VS Code (o estado do setup em si é só em memória).
+ */
+export interface ConsumerLabConnection {
+  accountId: string;
+  accountName: string;
+  role: string;
+  /** Portal SSO onde a conta mora (ex: "Landing Zone (itaulzprod)"). */
+  ssoPortal: string;
+  /** Profile AWS gravado no ~/.aws/config (ex: 872813764471_CONSUMER). */
+  profile: string;
+  connectedAt: string;
+}
+
+/**
  * Setup guiado do MCP ConsumerLab (Itaú): o portal verifica pré-requisitos,
  * clona o repositório do servidor, instala dependências (uv sync), faz o
  * login SSO na AWS e registra o servidor stdio — replicando o setup.sh usado
@@ -344,6 +360,8 @@ export interface ConsumerLabStatus {
   /** Profile AWS resultante (ex: 872813764471_CONSUMER). */
   profile?: string;
   repoPath?: string;
+  /** Conta/role do último setup concluído (sobrevive ao restart da extensão). */
+  connection?: ConsumerLabConnection;
 }
 
 /**
