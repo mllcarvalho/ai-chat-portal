@@ -2,7 +2,7 @@
   "name": "ai-chat-portal-extension",
   "displayName": "BMAD Product Studio",
   "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o BMAD Product Studio",
-  "version": "0.3.34",
+  "version": "0.3.35",
   "publisher": "aichatportal",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "private": true,

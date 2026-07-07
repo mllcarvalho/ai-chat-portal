@@ -611,7 +611,9 @@ select:focus {
   flex: 1;
   overflow-y: auto;
   padding: 28px 0 12px;
-  scroll-behavior: smooth;
+  /* NUNCA usar scroll-behavior: smooth aqui: o auto-scroll do streaming vira
+     animação, os eventos de scroll do meio da animação parecem "usuário rolou
+     para cima" e o pin do fim se desliga sozinho */
 }
 
 .message-list__inner {

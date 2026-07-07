@@ -1,6 +1,6 @@
 {
   "name": "bmad-product-studio-beta",
-  "version": "0.3.33",
+  "version": "0.3.34",
   "description": "[BETA] Chat com os modelos do GitHub Copilot no navegador — instala a extensão do portal no VS Code e abre tudo pronto",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "license": "MIT",

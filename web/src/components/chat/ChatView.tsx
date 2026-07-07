@@ -15,11 +15,18 @@ export function ChatView() {
   const listRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
 
-  // auto-scroll só quando o usuário já estava no fim
+  // auto-scroll só quando o usuário já estava no fim (sempre instantâneo:
+  // rolagem animada dispara onScroll no meio do caminho e desliga o pin)
   useEffect(() => {
     const el = listRef.current;
-    if (el && pinnedToBottom) el.scrollTop = el.scrollHeight;
+    if (el && pinnedToBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
   }, [session?.messages.length, stream?.parts, pinnedToBottom]);
+
+  // enviar uma mensagem sempre re-ancora no fim, mesmo se estava rolado para cima
+  const lastMessage = session?.messages[session.messages.length - 1];
+  useEffect(() => {
+    if (lastMessage?.role === 'user') setPinnedToBottom(true);
+  }, [lastMessage?.id, lastMessage?.role]);
 
   // resposta seguiu rodando no servidor (reload/reconexão)? reanexa o stream
   useEffect(() => {
