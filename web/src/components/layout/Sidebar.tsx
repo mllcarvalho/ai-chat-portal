@@ -150,7 +150,7 @@ export function Sidebar() {
         <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" />
         <div className="sidebar__brand-text">
           <span className="sidebar__logo">
-            ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
+            bmad<em>·</em>product<em>·</em>studio
           </span>
           <span className="sidebar__byline">by Matheus Llobregat</span>
         </div>

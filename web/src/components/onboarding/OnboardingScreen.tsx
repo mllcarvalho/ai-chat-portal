@@ -52,7 +52,7 @@ export function OnboardingScreen() {
     <div className="onboarding">
       <div className="onboarding__card">
         <h1>
-          ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
+          bmad<em>·</em>product<em>·</em>studio
         </h1>
         <p>Quase lá — verificando o ambiente. Esta tela atualiza sozinha a cada 3 segundos.</p>
 

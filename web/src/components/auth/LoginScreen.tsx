@@ -56,7 +56,7 @@ export function LoginScreen() {
     <div className="onboarding">
       <div className="onboarding__card login-card">
         <h1>
-          ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
+          bmad<em>·</em>product<em>·</em>studio
         </h1>
         <p>
           Entre com seu usuário de rede para configurar o proxy corporativo
