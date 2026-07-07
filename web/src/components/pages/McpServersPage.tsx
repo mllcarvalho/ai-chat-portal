@@ -8,7 +8,6 @@ import type {
 import { api, type McpProxyInput } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
-import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 type McpTool = { name: string; description: string };
@@ -80,6 +79,16 @@ function McpToolsModal({
 }
 
 type DraftKind = 'gateway' | 'consumerlab' | 'iuclick' | 'github';
+
+/** Tipos disponíveis — mostrados no modal de escolha ao criar um servidor. */
+const KIND_OPTIONS: { value: DraftKind; icon: string; label: string; hint: string }[] = [
+  { value: 'gateway', icon: '🔐', label: 'Gateway OAuth2', hint: 'Proxy pronto: token + gateway remoto' },
+  { value: 'consumerlab', icon: '☁️', label: 'ConsumerLab (Itaú)', hint: 'Setup automático: repo + AWS SSO' },
+  { value: 'iuclick', icon: '🧾', label: 'IUClick (Itaú)', hint: 'Setup automático: ServiceNow via npx' },
+  { value: 'github', icon: '🐙', label: 'GitHub', hint: 'MCP oficial, com a conta GitHub do VS Code' },
+];
+
+const kindLabel = (kind: DraftKind) => KIND_OPTIONS.find((o) => o.value === kind)?.label ?? kind;
 
 /** Tipos de setup guiado — o nome do servidor é fixo e não há campos livres. */
 const FIXED_NAMES: Partial<Record<DraftKind, string>> = {
@@ -720,37 +729,22 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
             : draft.kind === 'iuclick'
               ? 'IUClick — reconfigurar'
               : `Editar proxy "${draft.editing}"`
-          : 'Novo servidor'
+          : `Novo servidor · ${kindLabel(draft.kind)}`
       }
       className="panel--form"
     >
-      <div className="row">
+      {draft.kind === 'gateway' && (
         <div className="field">
           <label>Nome</label>
           <input
-            value={FIXED_NAMES[draft.kind] ?? draft.name}
-            disabled={!!draft.editing || !!FIXED_NAMES[draft.kind]}
+            value={draft.name}
+            disabled={!!draft.editing}
             onChange={(e) => onChange({ ...draft, name: e.target.value })}
             placeholder="ex: jira"
+            autoFocus={!draft.editing}
           />
         </div>
-        <div className="field">
-          <label>Tipo</label>
-          <Select
-            value={draft.kind}
-            onChange={(value) => {
-              setTest(undefined);
-              onChange({ ...draft, kind: value as DraftKind });
-            }}
-            options={[
-              { value: 'gateway', label: 'Gateway OAuth2', hint: 'Proxy pronto: token + gateway remoto' },
-              { value: 'consumerlab', label: 'ConsumerLab (Itaú)', hint: 'Setup automático: repo + AWS SSO' },
-              { value: 'iuclick', label: 'IUClick (Itaú)', hint: 'Setup automático: ServiceNow via npx' },
-              { value: 'github', label: 'GitHub', hint: 'MCP oficial, com a conta GitHub do VS Code' },
-            ]}
-          />
-        </div>
-      </div>
+      )}
 
       {draft.kind === 'github' && (
         <p className="page-hint">
@@ -888,6 +882,8 @@ export function McpServersPage() {
   const [clConnection, setClConnection] = useState<ConsumerLabConnection | undefined>();
   const [pending, setPending] = useState<string | undefined>();
   const [draft, setDraft] = useState<McpDraft | undefined>();
+  /** Modal de escolha do tipo — passo 1 do "Novo servidor". */
+  const [pickingKind, setPickingKind] = useState(false);
   /** Servidor com o modal de ferramentas aberto + cache por servidor. */
   const [toolsModal, setToolsModal] = useState<McpServerInfo | undefined>();
   const [toolsCache, setToolsCache] = useState<Record<string, McpTool[]>>({});
@@ -917,6 +913,12 @@ export function McpServersPage() {
     const timer = setInterval(() => void reload(), 5000);
     return () => clearInterval(timer);
   }, []);
+
+  /** Passo 2: tipo escolhido no modal → abre o formulário daquele tipo à direita. */
+  const startDraft = (kind: DraftKind) => {
+    setPickingKind(false);
+    setDraft({ ...EMPTY_DRAFT, kind, name: FIXED_NAMES[kind] ?? '' });
+  };
 
   const editProxy = (server: McpServerInfo) => {
     if (server.kind !== 'proxy' || !server.proxy) return;
@@ -972,20 +974,20 @@ export function McpServersPage() {
       title="Servidores MCP"
       subtitle="Ligue e desligue por aqui — as ferramentas dos servidores ligados ficam disponíveis no modo Agent."
       actions={
-        <button className="btn btn--primary" onClick={() => setDraft({ ...EMPTY_DRAFT })}>
+        <button className="btn btn--primary" onClick={() => setPickingKind(true)}>
           ＋ Novo servidor
         </button>
       }
     >
       <div className="page-cols">
         <Panel title="Servidores" count={servers.length}>
-          {servers.length === 0 && (
+          {servers.length === 0 && !draft && (
             <EmptyState
               icon="🔧"
               title="Nenhum servidor MCP ainda"
               hint="Crie um servidor pelo botão “Novo servidor” no topo."
               action={
-                <button className="btn btn--primary" onClick={() => setDraft({ ...EMPTY_DRAFT })}>
+                <button className="btn btn--primary" onClick={() => setPickingKind(true)}>
                   ＋ Novo servidor
                 </button>
               }
@@ -1086,6 +1088,22 @@ export function McpServersPage() {
               </div>
             );
           })}
+          {draft && !draft.editing && (
+            <div className="mcp-row mcp-row--active mcp-row--draft">
+              <div className="mcp-row__info">
+                <div className="mcp-row__name">
+                  {(FIXED_NAMES[draft.kind] ?? draft.name.trim()) || 'novo servidor'}
+                  <span className="mcp-status">rascunho</span>
+                </div>
+                <div className="mcp-row__desc">{kindLabel(draft.kind)} — preencha ao lado</div>
+              </div>
+              <div className="mcp-row__actions">
+                <button className="icon-btn" title="Descartar rascunho" onClick={() => setDraft(undefined)}>
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
         </Panel>
         {draft ? (
           <ServerForm
@@ -1107,6 +1125,21 @@ export function McpServersPage() {
           </Panel>
         )}
       </div>
+      {pickingKind && (
+        <Modal title="Novo servidor — escolha o tipo" onClose={() => setPickingKind(false)}>
+          <div className="kind-picker">
+            {KIND_OPTIONS.map((opt) => (
+              <button key={opt.value} className="kind-option" onClick={() => startDraft(opt.value)}>
+                <span className="kind-option__icon">{opt.icon}</span>
+                <span className="kind-option__text">
+                  <span className="kind-option__label">{opt.label}</span>
+                  <span className="kind-option__hint">{opt.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
       {toolsModal && (
         <McpToolsModal
           server={toolsModal}

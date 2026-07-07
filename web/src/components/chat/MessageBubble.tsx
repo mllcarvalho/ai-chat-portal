@@ -1,5 +1,9 @@
+import { memo } from 'react';
 import type { ChatMessage, MessagePart } from '@aiportal/shared';
 import { useCatalog } from '../../stores/catalogStore';
+import { useChat } from '../../stores/chatStore';
+import { useSessions } from '../../stores/sessionsStore';
+import { useUi } from '../../stores/uiStore';
 import { Markdown } from '../common/Markdown';
 import { ToolCallCard } from './ToolCallCard';
 
@@ -27,15 +31,38 @@ export function formatPriceCategory(category: string): string {
     .join(' ');
 }
 
-export function MessageBubble(props: { message: ChatMessage; streaming?: boolean }) {
-  const { message, streaming } = props;
+function messageText(message: ChatMessage): string {
+  return message.parts
+    .map((p) => (p.type === 'text' ? p.text : ''))
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * memo: durante o streaming a lista inteira re-renderiza a cada token; as
+ * mensagens já persistidas têm props estáveis e são puladas na reconciliação.
+ */
+export const MessageBubble = memo(function MessageBubble(props: {
+  message: ChatMessage;
+  streaming?: boolean;
+  /** Última resposta da conversa (sem stream ativo): habilita o regenerar. */
+  isLastAssistant?: boolean;
+  /** Ações de editar/copiar/regenerar ficam ocultas enquanto a conversa gera. */
+  actionsDisabled?: boolean;
+}) {
+  const { message, streaming, isLastAssistant, actionsDisabled } = props;
   const models = useCatalog((s) => s.models);
   const isUser = message.role === 'user';
 
+  const copyMessage = () => {
+    void navigator.clipboard.writeText(messageText(message)).then(
+      () => useUi.getState().toast('Resposta copiada.', 'ok'),
+      () => useUi.getState().toast('Não foi possível copiar.', 'error'),
+    );
+  };
+
   if (isUser) {
-    const text = message.parts
-      .map((p) => (p.type === 'text' ? p.text : ''))
-      .join('');
+    const text = messageText(message);
     const attachments = message.parts.filter(
       (p): p is Extract<MessagePart, { type: 'attachment' }> => p.type === 'attachment',
     );
@@ -58,6 +85,17 @@ export function MessageBubble(props: { message: ChatMessage; streaming?: boolean
             </div>
           )}
         </div>
+        {!actionsDisabled && (
+          <div className="msg__actions">
+            <button
+              className="msg__action"
+              title="Editar e reenviar — a conversa é reescrita a partir daqui"
+              onClick={() => useUi.getState().seedComposer(text, message.id)}
+            >
+              ✏️ editar
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -115,6 +153,27 @@ export function MessageBubble(props: { message: ChatMessage; streaming?: boolean
         {message.error && (
           <div className="msg__error">⚠ {message.error.message}</div>
         )}
+        {!streaming && !actionsDisabled && (
+          <div className="msg__actions">
+            {messageText(message) && (
+              <button className="msg__action" title="Copiar a resposta inteira" onClick={copyMessage}>
+                ⧉ copiar
+              </button>
+            )}
+            {isLastAssistant && (
+              <button
+                className="msg__action"
+                title="Gerar esta resposta de novo"
+                onClick={() => {
+                  const sessionId = useSessions.getState().current?.id;
+                  if (sessionId) useChat.getState().regenerate(sessionId);
+                }}
+              >
+                ↻ regenerar
+              </button>
+            )}
+          </div>
+        )}
         {message.usage && (
           <div
             className="msg__usage"
@@ -147,4 +206,4 @@ export function MessageBubble(props: { message: ChatMessage; streaming?: boolean
       </div>
     </div>
   );
-}
+});

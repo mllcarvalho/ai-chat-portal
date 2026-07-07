@@ -17,20 +17,29 @@ export class SseStream {
     });
     res.flushHeaders?.();
     res.socket?.setNoDelay(true);
-    this.heartbeat = setInterval(() => {
-      if (!this.closed) this.res.write(': ping\n\n');
-    }, HEARTBEAT_MS);
-    res.on('close', () => {
-      if (this.closed) return;
-      this.closed = true;
-      clearInterval(this.heartbeat);
-      for (const cb of this.closeCallbacks) cb();
-    });
+    this.heartbeat = setInterval(() => this.write(': ping\n\n'), HEARTBEAT_MS);
+    res.on('close', () => this.markClosed());
+  }
+
+  /** Há uma janela entre o socket morrer e o 'close' chegar: EPIPE aqui é fim de conexão. */
+  private write(chunk: string): void {
+    if (this.closed) return;
+    try {
+      this.res.write(chunk);
+    } catch {
+      this.markClosed();
+    }
+  }
+
+  private markClosed(): void {
+    if (this.closed) return;
+    this.closed = true;
+    clearInterval(this.heartbeat);
+    for (const cb of this.closeCallbacks) cb();
   }
 
   send<E extends ChatSseEventName>(event: E, data: ChatSseEvents[E]): void {
-    if (this.closed) return;
-    this.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    this.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
   /** Chamado quando o cliente desconecta antes do fim (para cancelar a geração). */
@@ -42,6 +51,10 @@ export class SseStream {
     if (this.closed) return;
     this.closed = true;
     clearInterval(this.heartbeat);
-    this.res.end();
+    try {
+      this.res.end();
+    } catch {
+      // socket já morto
+    }
   }
 }

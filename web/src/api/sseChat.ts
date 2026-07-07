@@ -17,34 +17,8 @@ export interface ChatStreamHandlers {
   onError: (data: ChatSseEvents['error']) => void;
 }
 
-/**
- * EventSource não suporta POST, então o stream SSE é lido manualmente
- * via fetch + ReadableStream.
- */
-export async function streamChat(
-  body: ChatRequestBody,
-  handlers: ChatStreamHandlers,
-  signal: AbortSignal,
-): Promise<void> {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', [TOKEN_HEADER]: getToken() },
-    body: JSON.stringify(body),
-    signal,
-  });
-  if (!res.ok || !res.body) {
-    let message = `Erro ${res.status}`;
-    try {
-      const data = (await res.json()) as { error?: string };
-      if (data.error) message = data.error;
-    } catch {
-      // sem corpo
-    }
-    handlers.onError({ code: 'internal', message });
-    return;
-  }
-
-  const reader = res.body.getReader();
+async function readSseStream(body: ReadableStream<Uint8Array>, handlers: ChatStreamHandlers) {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
@@ -94,6 +68,9 @@ export async function streamChat(
       case 'error':
         handlers.onError(data as ChatSseEvents['error']);
         break;
+      default:
+        // build antigo falando com servidor novo: ignora com rastro no console
+        console.warn('[chat] evento SSE desconhecido ignorado:', event);
     }
   };
 
@@ -108,4 +85,59 @@ export async function streamChat(
       if (block.trim() && !block.startsWith(':')) dispatch(block);
     }
   }
+}
+
+/**
+ * EventSource não suporta POST, então o stream SSE é lido manualmente
+ * via fetch + ReadableStream.
+ */
+export async function streamChat(
+  body: ChatRequestBody,
+  handlers: ChatStreamHandlers,
+  signal: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [TOKEN_HEADER]: getToken() },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok || !res.body) {
+    let message = `Erro ${res.status}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // sem corpo
+    }
+    handlers.onError({ code: 'internal', message });
+    return;
+  }
+  await readSseStream(res.body, handlers);
+}
+
+/**
+ * Reconecta a uma resposta em andamento (reload da página, queda de rede):
+ * o servidor faz replay de tudo que já emitiu e segue ao vivo.
+ * Retorna false quando não há mais geração ativa (o resultado já foi
+ * persistido — recarregue a sessão).
+ */
+export async function attachChat(
+  sessionId: string,
+  handlers: ChatStreamHandlers,
+  signal: AbortSignal,
+  /** Chamado quando o replay vai começar — zere o parcial local aqui. */
+  onReplayStart?: () => void,
+): Promise<boolean> {
+  const res = await fetch('/api/chat/attach', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [TOKEN_HEADER]: getToken() },
+    body: JSON.stringify({ sessionId }),
+    signal,
+  });
+  if (res.status === 404 || res.status === 410) return false;
+  if (!res.ok || !res.body) throw new Error(`Erro ${res.status} ao reconectar`);
+  onReplayStart?.();
+  await readSseStream(res.body, handlers);
+  return true;
 }

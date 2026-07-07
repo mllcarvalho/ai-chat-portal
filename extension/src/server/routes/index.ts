@@ -15,6 +15,7 @@ import { registerLoginRoutes } from './login';
 import { registerBmadRoutes } from './bmad';
 import { registerCaptureRoutes } from './capture';
 import { registerCopilotRoutes } from './copilot';
+import { registerEditorRoutes } from './editor';
 import { registerShareRoutes } from './share';
 import { registerDiagnosticsRoutes } from './diagnostics';
 
@@ -44,6 +45,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerBmadRoutes(router);
   registerCaptureRoutes(router);
   registerCopilotRoutes(router);
+  registerEditorRoutes(router);
   registerShareRoutes(router);
   registerDiagnosticsRoutes(router);
   return router;

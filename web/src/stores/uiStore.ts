@@ -68,10 +68,12 @@ interface UiState {
   confirmState?: ConfirmOptions & { resolve: (ok: boolean) => void };
   /** Texto a inserir no composer (ex: comando slash escolhido num menu). */
   composerSeed?: string;
+  /** Editar mensagem: id da mensagem do usuário a substituir no reenvio. */
+  composerRetryFrom?: string;
   setView: (view: MainView) => void;
   openPanel: (panel: PanelKind) => void;
   closePanel: () => void;
-  seedComposer: (text: string) => void;
+  seedComposer: (text: string, retryFromMessageId?: string) => void;
   clearComposerSeed: () => void;
   toast: (text: string, tone?: Toast['tone']) => void;
   dismissToast: (id: number) => void;
@@ -111,8 +113,9 @@ export const useUi = create<UiState>((set, get) => ({
   filesVersion: 0,
   bumpFilesVersion: () => set({ filesVersion: get().filesVersion + 1 }),
   setView: (view) => set({ view }),
-  seedComposer: (text) => set({ composerSeed: text, view: 'chat' }),
-  clearComposerSeed: () => set({ composerSeed: undefined }),
+  seedComposer: (text, retryFromMessageId) =>
+    set({ composerSeed: text, composerRetryFrom: retryFromMessageId, view: 'chat' }),
+  clearComposerSeed: () => set({ composerSeed: undefined, composerRetryFrom: undefined }),
   openPanel: (panel) => set({ panel }),
   closePanel: () => set({ panel: { kind: 'none' } }),
   toast: (text, tone = 'info') => {

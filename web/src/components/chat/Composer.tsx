@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChatAttachment } from '@aiportal/shared';
+import type { ChatAttachment, FileEntry } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
 import { useChat } from '../../stores/chatStore';
 import { useCatalog } from '../../stores/catalogStore';
@@ -20,6 +21,16 @@ function looksBinary(content: string): boolean {
   return content.slice(0, 4096).includes('\0');
 }
 
+/** Achata a árvore de arquivos da pasta de trabalho em caminhos de arquivo. */
+function flattenFiles(entries: FileEntry[]): string[] {
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (entry.type === 'file') paths.push(entry.path);
+    if (entry.children) paths.push(...flattenFiles(entry.children));
+  }
+  return paths;
+}
+
 export function Composer() {
   const session = useSessions((s) => s.current);
   const patchCurrent = useSessions((s) => s.patchCurrent);
@@ -30,12 +41,20 @@ export function Composer() {
   const skills = useCatalog((s) => s.skills);
   const loadSkills = useCatalog((s) => s.loadSkills);
   const composerSeed = useUi((s) => s.composerSeed);
+  const composerRetryFrom = useUi((s) => s.composerRetryFrom);
   const clearComposerSeed = useUi((s) => s.clearComposerSeed);
   const openPanel = useUi((s) => s.openPanel);
   const toast = useUi((s) => s.toast);
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  /** Modo edição: reenvio substitui a conversa a partir desta mensagem. */
+  const [editingId, setEditingId] = useState<string | undefined>();
   const [slashIndex, setSlashIndex] = useState(0);
+  /** Posição do cursor no textarea — âncora do menu de #arquivo. */
+  const [caret, setCaret] = useState(0);
+  const [hashIndex, setHashIndex] = useState(0);
+  /** Arquivos da pasta de trabalho, carregados quando o menu # abre. */
+  const [workFiles, setWorkFiles] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -45,13 +64,17 @@ export function Composer() {
     void loadSkills();
   }, [loadSkills]);
 
-  // texto vindo de fora (ex: comando escolhido no menu de skills do header)
+  // texto vindo de fora (comando do menu de skills, ou editar mensagem)
   useEffect(() => {
     if (composerSeed === undefined) return;
     setText(composerSeed);
+    setEditingId(composerRetryFrom);
     clearComposerSeed();
     textareaRef.current?.focus();
-  }, [composerSeed, clearComposerSeed]);
+  }, [composerSeed, composerRetryFrom, clearComposerSeed]);
+
+  // trocar de conversa cancela uma edição pendente
+  useEffect(() => setEditingId(undefined), [session?.id]);
 
   // toda skill é invocável por /comando; valem as globais + as do projeto da sessão
   const commandSkills = useMemo(
@@ -77,12 +100,51 @@ export function Composer() {
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
 
+  // "#nome" na posição do cursor abre o menu de arquivos da pasta de trabalho
+  // (referência de contexto no estilo #file do Copilot)
+  const hashQuery = useMemo(() => {
+    const before = text.slice(0, caret);
+    const match = /(?:^|\s)#([\w./-]*)$/.exec(before);
+    return match ? match[1] : undefined;
+  }, [text, caret]);
+
+  const hashOpen = hashQuery !== undefined;
+  useEffect(() => {
+    if (!hashOpen || !session) return;
+    let alive = true;
+    api
+      .sessionFiles(session.id)
+      .then((entries) => {
+        if (alive) setWorkFiles(flattenFiles(entries));
+      })
+      .catch(() => setWorkFiles([]));
+    return () => {
+      alive = false;
+    };
+  }, [hashOpen, session?.id]);
+
+  /** Esc fecha o menu # sem apagar o texto; digitar de novo reabre. */
+  const [hashDismissed, setHashDismissed] = useState(false);
+  useEffect(() => {
+    setHashIndex(0);
+    setHashDismissed(false);
+  }, [hashQuery]);
+
+  const hashMatches = useMemo(() => {
+    if (hashQuery === undefined || hashDismissed) return [];
+    const q = hashQuery.toLowerCase();
+    const pinned = new Set(session?.contextFiles ?? []);
+    return workFiles
+      .filter((p) => !pinned.has(p) && p.toLowerCase().includes(q))
+      .slice(0, 12);
+  }, [hashQuery, hashDismissed, workFiles, session?.contextFiles]);
+
   // mantém o item selecionado visível quando o menu tem scroll
   useEffect(() => {
     slashMenuRef.current
       ?.querySelector('.slash-menu__item--sel')
       ?.scrollIntoView({ block: 'nearest' });
-  }, [slashIndex, slashMatches.length]);
+  }, [slashIndex, slashMatches.length, hashIndex, hashMatches.length]);
 
   // auto-grow do textarea
   useEffect(() => {
@@ -142,7 +204,30 @@ export function Composer() {
     if ((!trimmed && !attachments.length) || isStreaming) return;
     setText('');
     setAttachments([]);
-    void send(trimmed, attachments);
+    setEditingId(undefined);
+    void send(trimmed, attachments, editingId ? { retryFromMessageId: editingId } : undefined);
+  };
+
+  /** Anexa a seleção (ou arquivo) ativa do editor do VS Code, como o # do Copilot. */
+  const addEditorContext = async () => {
+    try {
+      const ctx = await api.editorContext();
+      if (!ctx.file) {
+        toast('Nenhum editor de texto ativo na janela do VS Code.', 'info');
+        return;
+      }
+      const name = ctx.file.startLine
+        ? `${ctx.file.name}#L${ctx.file.startLine}-${ctx.file.endLine}`
+        : ctx.file.name;
+      if (attachments.some((a) => a.name === name)) {
+        toast(`"${name}" já está anexado.`, 'info');
+        return;
+      }
+      if (ctx.file.truncated) toast(`"${name}" passou de 512 KB e foi truncado.`, 'info');
+      setAttachments((curr) => [...curr, { name, content: ctx.file!.content }]);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
   };
 
   const pickSlash = (command: string) => {
@@ -150,7 +235,41 @@ export function Composer() {
     textareaRef.current?.focus();
   };
 
+  /** Fixa o arquivo no contexto da conversa e remove o "#nome" do texto. */
+  const pickHash = (path: string) => {
+    const before = text.slice(0, caret).replace(/#[\w./-]*$/, '');
+    const after = text.slice(caret);
+    setText(before + after);
+    setCaret(before.length);
+    void patchCurrent({ contextFiles: [...(session.contextFiles ?? []), path] }).catch((err) => {
+      toast((err as Error).message, 'error');
+    });
+    textareaRef.current?.focus();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (hashMatches.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHashIndex((i) => (i + 1) % hashMatches.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHashIndex((i) => (i - 1 + hashMatches.length) % hashMatches.length);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        pickHash(hashMatches[hashIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setHashDismissed(true);
+        return;
+      }
+    }
     if (slashMatches.length) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -167,6 +286,11 @@ export function Composer() {
         pickSlash(slashMatches[slashIndex].command!);
         return;
       }
+    }
+    if (e.key === 'Escape' && editingId) {
+      e.preventDefault();
+      setEditingId(undefined);
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -205,6 +329,38 @@ export function Composer() {
               <span className="slash-menu__desc">{skill.description || skill.name}</span>
             </button>
           ))}
+        </div>
+      )}
+      {hashMatches.length > 0 && (
+        <div className="slash-menu" ref={slashMenuRef}>
+          {hashMatches.map((path, i) => (
+            <button
+              key={path}
+              className={`slash-menu__item${i === hashIndex ? ' slash-menu__item--sel' : ''}`}
+              onClick={() => pickHash(path)}
+              title={`Fixar ${path} no contexto da conversa`}
+            >
+              <span className="slash-menu__cmd">📄 {path.split('/').pop()}</span>
+              <span className="slash-menu__desc">{path}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {editingId && (
+        <div className="composer__attachments">
+          <span
+            className="attachment-chip attachment-chip--editing"
+            title="Ao enviar, a conversa é reescrita a partir da mensagem editada — as respostas seguintes são descartadas"
+          >
+            ✏️ editando mensagem — Esc cancela
+            <button
+              className="attachment-chip__remove"
+              title="Cancelar edição"
+              onClick={() => setEditingId(undefined)}
+            >
+              ✕
+            </button>
+          </span>
         </div>
       )}
       {(session.contextFiles?.length ?? 0) > 0 && (
@@ -271,9 +427,15 @@ export function Composer() {
           className="composer__attach"
           title="Anexar arquivos ao contexto: texto, Excel, Word ou PDF (ou arraste para cá)"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isStreaming}
         >
           📎
+        </button>
+        <button
+          className="composer__attach"
+          title="Anexar a seleção (ou o arquivo) ativa no editor do VS Code"
+          onClick={() => void addEditorContext()}
+        >
+          {'</>'}
         </button>
         <textarea
           ref={textareaRef}
@@ -286,7 +448,11 @@ export function Composer() {
                 : 'Faça uma pergunta…'
           }
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
           onKeyDown={onKeyDown}
         />
         {isStreaming ? (
@@ -309,7 +475,7 @@ export function Composer() {
         )}
       </div>
       <div className="composer__hint">
-        Enter envia · Shift+Enter quebra linha · "/" para comandos · 📎 anexa arquivos
+        Enter envia · Shift+Enter quebra linha · "/" comandos · "#" referencia arquivo · 📎 anexa
       </div>
     </div>
   );

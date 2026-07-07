@@ -5,6 +5,7 @@ import type {
   ConsumerLabStatus,
   CopilotQuota,
   DiagnosticsReport,
+  EditorContext,
   FileEntry,
   HealthInfo,
   IuclickStatus,
@@ -149,6 +150,14 @@ export const api = {
   deleteSession: (id: string) => request<{ ok: boolean }>('DELETE', `/api/sessions/${id}`),
   cancelChat: (requestId: string) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/cancel`),
+  cancelChatBySession: (sessionId: string) =>
+    request<{ ok: boolean }>('POST', '/api/chat/cancel-by-session', { sessionId }),
+  chatActive: (sessionId: string) =>
+    request<{ requestId: string | null }>(
+      'GET',
+      `/api/chat/active?sessionId=${encodeURIComponent(sessionId)}`,
+    ),
+  editorContext: () => request<EditorContext>('GET', '/api/editor/context'),
   respondApproval: (requestId: string, callId: string, approved: boolean) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/approval`, { callId, approved }),
   respondQuestion: (requestId: string, callId: string, answer: string) =>

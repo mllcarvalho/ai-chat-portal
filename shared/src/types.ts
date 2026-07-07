@@ -100,6 +100,19 @@ export interface HealthInfo {
   env?: EnvStatus;
 }
 
+/** Arquivo/seleção ativos no editor do VS Code — vira anexo no chat (como o # do Copilot). */
+export interface EditorContext {
+  file?: {
+    name: string;
+    languageId: string;
+    /** Presentes quando há seleção; ausentes = arquivo inteiro. */
+    startLine?: number;
+    endLine?: number;
+    content: string;
+    truncated: boolean;
+  };
+}
+
 export type MessagePart =
   | { type: 'text'; text: string }
   | { type: 'attachment'; name: string; content: string }

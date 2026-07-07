@@ -237,50 +237,6 @@ export async function creditsRemaining(): Promise<number | undefined> {
 }
 
 export function registerCopilotRoutes(router: Router): void {
-  /**
-   * Diagnóstico da cadeia de billing (sessão → token → /models → match com os
-   * modelos do vscode.lm). Cada etapa reporta 'ok' ou a mensagem de erro; o
-   * corpo cru entra quando nenhum modelo traz `billing`, para ver o formato.
-   */
-  router.get('/api/copilot/billing-debug', async ({ res }) => {
-    const report: Record<string, unknown> = {};
-    try {
-      await githubSessionToken();
-      report.session = 'ok';
-      await fetchCopilotToken();
-      report.tokenExchange = 'ok';
-      const raw = await fetchModelsRaw();
-      report.modelsFetch = `HTTP ${raw.status}`;
-      const internal = raw.status === 200 ? parseInternalModels(raw.body) : [];
-      report.internal = internal.map((m) => ({
-        id: m.id,
-        name: m.name,
-        billing: m.billing,
-        priceCategory: m.model_picker_price_category,
-      }));
-      if (!internal.some((m) => m.billing)) report.rawBodyHead = raw.body.slice(0, 800);
-      billingCache = undefined; // garante match com dados recém-buscados
-      const map = await getModelBilling().catch((err) => {
-        report.billingError = err instanceof Error ? err.message : String(err);
-        return undefined;
-      });
-      const lmModels = await withTimeout(
-        vscode.lm.selectChatModels({ vendor: 'copilot' }),
-        10000,
-        [] as readonly vscode.LanguageModelChat[],
-      );
-      report.match = lmModels.map((m) => ({
-        id: m.id,
-        name: m.name,
-        family: m.family,
-        billing: map?.get(m.id.toLowerCase()) ?? map?.get(m.name.toLowerCase()) ?? null,
-      }));
-    } catch (err) {
-      report.failedWith = err instanceof Error ? err.message : String(err);
-    }
-    sendJson(res, 200, report);
-  });
-
   router.get('/api/copilot/quota', async ({ res, query }) => {
     const fresh = query.get('fresh') === '1';
     if (!fresh && cache && Date.now() - cache.at < CACHE_TTL) {

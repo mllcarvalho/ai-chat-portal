@@ -63,10 +63,14 @@ export function BmadDocPage() {
       {BMAD_CATEGORIES.map((category) => (
         <section className="bmaddoc__category" key={category.id}>
           <div className="bmaddoc__category-head">
-            <span className="bmaddoc__category-title">
-              {category.icon} {category.title}
+            <span className="bmaddoc__category-icon">{category.icon}</span>
+            <div className="bmaddoc__category-text">
+              <span className="bmaddoc__category-title">{category.title}</span>
+              <span className="bmaddoc__category-blurb">{category.blurb}</span>
+            </div>
+            <span className="bmaddoc__category-count">
+              {category.skills.length} skill{category.skills.length === 1 ? '' : 's'}
             </span>
-            <span className="bmaddoc__category-blurb">{category.blurb}</span>
           </div>
           <div className="bmaddoc__skills">
             {category.skills.map((skill) => (
@@ -76,8 +80,8 @@ export function BmadDocPage() {
                 onClick={() => setSelected({ skill, category })}
                 title="Ver detalhes"
               >
-                <code>{skill.command}</code>
-                <span className="bmaddoc__skill-label">({skill.label})</span>
+                <code>/{skill.command}</code>
+                <span className="bmaddoc__skill-label">{skill.label}</span>
               </button>
             ))}
           </div>
@@ -87,6 +91,7 @@ export function BmadDocPage() {
       {selected && (
         <Modal
           title={`${selected.skill.name}`}
+          wide
           onClose={() => setSelected(undefined)}
           footer={
             <>
@@ -107,20 +112,20 @@ export function BmadDocPage() {
         >
           <div className="bmaddoc__detail">
             <div className="bmaddoc__detail-tags">
+              <code className="bmaddoc__detail-command">/{selected.skill.command}</code>
               <span className="chip">
                 {selected.category.icon} {selected.category.title}
               </span>
-              <code className="bmaddoc__detail-command">/{selected.skill.command}</code>
             </div>
             <p className="bmaddoc__detail-desc">{selected.skill.description}</p>
             <dl className="bmaddoc__detail-fields">
-              <dt>Quem executa</dt>
+              <dt>👤 Quem executa</dt>
               <dd>{selected.skill.agent}</dd>
-              <dt>O que faz</dt>
+              <dt>⚙️ O que faz</dt>
               <dd>{selected.skill.does}</dd>
-              <dt>Quando usar</dt>
+              <dt>🕐 Quando usar</dt>
               <dd>{selected.skill.whenToUse}</dd>
-              <dt>O que produz</dt>
+              <dt>📦 O que produz</dt>
               <dd>{selected.skill.produces}</dd>
             </dl>
           </div>

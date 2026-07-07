@@ -369,7 +369,7 @@ export function KnowledgePage() {
     <PageShell
       icon="📚"
       title="Bases de conhecimento"
-      subtitle="Documentos usados como contexto das conversas — enviados do computador ou sincronizados de uma URL (GitHub Pages, SharePoint, markdown publicado…; Word/Excel/PowerPoint/PDF são convertidos para texto). Bases pequenas entram inteiras no contexto; quando crescem, a IA passa a buscar nelas sob demanda. Bases globais valem para tudo; bases de projeto, só nas conversas do projeto."
+      subtitle="Documentos usados como contexto das conversas — enviados do computador ou sincronizados de uma URL."
       actions={
         <>
           <input

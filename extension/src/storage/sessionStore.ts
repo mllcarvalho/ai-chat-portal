@@ -92,6 +92,23 @@ export function saveSession(session: Session): void {
   writeJsonAtomic(path.join(dir, `${session.id}.json`), session);
 }
 
+/**
+ * Releitura + mutação + gravação no mesmo tick (tudo síncrono): requests
+ * concorrentes na MESMA sessão (streaming longo × rename, usage_update tardio
+ * × edição) não se sobrescrevem, ao contrário de segurar um objeto em memória
+ * através de awaits e regravar o arquivo inteiro depois.
+ */
+export function updateSession(id: string, mutate: (session: Session) => void): Session | undefined {
+  const file = findSessionFile(id);
+  if (!file) return undefined;
+  const session = readJson<Session>(file);
+  if (!session) return undefined;
+  mutate(session);
+  session.updatedAt = new Date().toISOString();
+  writeJsonAtomic(file, session);
+  return session;
+}
+
 export function deleteSession(id: string): boolean {
   const file = findSessionFile(id);
   if (!file) return false;

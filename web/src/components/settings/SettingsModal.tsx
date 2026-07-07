@@ -20,9 +20,6 @@ export function SettingsModal() {
   const [noProxy, setNoProxy] = useState('');
   const [extraCaCerts, setExtraCaCerts] = useState('');
   const [savingNet, setSavingNet] = useState(false);
-  const [msClientId, setMsClientId] = useState('');
-  const [msTenant, setMsTenant] = useState('');
-  const [savingMs, setSavingMs] = useState(false);
 
   useEffect(() => {
     void api.getConfig().then((c) => {
@@ -32,8 +29,6 @@ export function SettingsModal() {
       setHttpProxy(c.network?.httpProxy ?? '');
       setNoProxy(c.network?.noProxy ?? '');
       setExtraCaCerts(c.network?.extraCaCerts ?? '');
-      setMsClientId(c.microsoft?.clientId ?? '');
-      setMsTenant(c.microsoft?.tenant ?? '');
     });
   }, []);
 
@@ -56,24 +51,6 @@ export function SettingsModal() {
       await loadAgents();
     } catch (err) {
       toast((err as Error).message, 'error');
-    }
-  };
-
-  const saveMicrosoft = async () => {
-    setSavingMs(true);
-    try {
-      const updated = await api.patchConfig({
-        microsoft: {
-          clientId: msClientId.trim() || undefined,
-          tenant: msTenant.trim() || undefined,
-        },
-      });
-      setConfig(updated);
-      toast('Login Microsoft salvo. Adicione a URL do SharePoint de novo para entrar.', 'ok');
-    } catch (err) {
-      toast((err as Error).message, 'error');
-    } finally {
-      setSavingMs(false);
     }
   };
 
@@ -197,36 +174,6 @@ export function SettingsModal() {
           onClick={() => void saveNetwork()}
         >
           {savingNet ? 'Salvando…' : 'Salvar rede'}
-        </button>
-      </div>
-
-      <div className="field">
-        <label>SharePoint (Microsoft Graph)</label>
-        <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
-          Para sincronizar páginas e arquivos do SharePoint nas bases de conhecimento é preciso um
-          app registrado no Entra ID da empresa (a Microsoft não autoriza o app do VS Code a pedir
-          esses acessos). Peça ao time de identidade um app com: plataforma "Mobile and desktop
-          applications" com redirect http://localhost, cliente público habilitado e permissões
-          delegadas Sites.Read.All e Files.Read.All do Microsoft Graph.
-        </span>
-        <input
-          value={msClientId}
-          onChange={(e) => setMsClientId(e.target.value)}
-          placeholder="Client ID do app — ex: 1a2b3c4d-…"
-        />
-        <input
-          style={{ marginTop: 6 }}
-          value={msTenant}
-          onChange={(e) => setMsTenant(e.target.value)}
-          placeholder="Tenant (opcional) — ID/domínio do tenant; vazio = organizations"
-        />
-        <button
-          className="btn"
-          style={{ alignSelf: 'flex-start', marginTop: 8 }}
-          disabled={savingMs}
-          onClick={() => void saveMicrosoft()}
-        >
-          {savingMs ? 'Salvando…' : 'Salvar login Microsoft'}
         </button>
       </div>
 

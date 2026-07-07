@@ -15,9 +15,12 @@ export interface ChatAttachment {
 export interface ChatRequestBody {
   sessionId: string;
   text: string;
-  /** Sobrescreve o modelo da sessão só para esta mensagem. */
-  modelId?: string;
   attachments?: ChatAttachment[];
+  /**
+   * Editar/regenerar: o servidor descarta o histórico a partir desta mensagem
+   * do usuário (inclusive) antes de gravar a nova.
+   */
+  retryFromMessageId?: string;
 }
 
 export type ChatErrorCode =

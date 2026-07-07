@@ -250,13 +250,20 @@ export function buildMessages(opts: {
   maxInputTokens: number;
 }): vscode.LanguageModelChatMessage[] {
   const { session, commandSkills } = opts;
-  const preamble = buildPreamble(opts);
+  const rawPreamble = buildPreamble(opts);
+  const windowChars = opts.maxInputTokens * BUDGET_RATIO * CHARS_PER_TOKEN;
+
+  // o preâmbulo (skills + knowledge + arquivos fixados) nunca pode sozinho
+  // estourar a janela: trunca preservando uma reserva mínima para o histórico
+  const preambleLimit = Math.max(16_000, Math.floor(windowChars * 0.75));
+  const preamble =
+    rawPreamble.length <= preambleLimit
+      ? rawPreamble
+      : `${rawPreamble.slice(0, preambleLimit)}\n\n… (instruções e contexto fixado truncados: ` +
+        'excedem a janela do modelo — remova arquivos fixados ou desabilite bases de conhecimento)';
 
   // poda: mantém as mensagens mais recentes que cabem no orçamento
-  const budget = Math.max(
-    8_000,
-    opts.maxInputTokens * BUDGET_RATIO * CHARS_PER_TOKEN - preamble.length,
-  );
+  const budget = Math.max(8_000, windowChars - preamble.length);
   let used = 0;
   let startIdx = 0;
   for (let i = session.messages.length - 1; i >= 0; i--) {
@@ -265,6 +272,12 @@ export function buildMessages(opts: {
       startIdx = i + 1;
       break;
     }
+  }
+  // nunca começa numa mensagem assistant órfã (tool calls sem o turno do
+  // usuário que as originou) — o backend rejeita essa sequência
+  while (startIdx > 0 && startIdx < session.messages.length) {
+    if (session.messages[startIdx].role === 'user') break;
+    startIdx++;
   }
 
   const result: vscode.LanguageModelChatMessage[] = [

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { api } from './api/client';
 import { useCatalog } from './stores/catalogStore';
 import { useSessions } from './stores/sessionsStore';
 import { useUi } from './stores/uiStore';
@@ -46,6 +47,27 @@ export function App() {
       setBooted(true);
     })();
   }, [loadHealth, loadAll, loadProjects, loadSessions, startDiagnostics]);
+
+  // aba antiga com JS cacheado falando com extensão atualizada: ao voltar o
+  // foco, compara versão/build com o health do boot e recarrega se mudou
+  useEffect(() => {
+    let lastCheck = 0;
+    const onFocus = () => {
+      const baseline = useCatalog.getState().health;
+      if (!baseline?.ok || Date.now() - lastCheck < 60_000) return;
+      lastCheck = Date.now();
+      void api
+        .health()
+        .then((h) => {
+          if (h.version !== baseline.version || (h.buildId ?? 0) !== (baseline.buildId ?? 0)) {
+            location.reload();
+          }
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   if (!booted) return null;
   if (!health?.ok) return <OnboardingScreen />;
