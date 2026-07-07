@@ -2,6 +2,13 @@ import * as vscode from 'vscode';
 import { listAgents } from '../storage/agentStore';
 import { isBmadInstalled } from '../storage/paths';
 import {
+  MODEL_RETRIES,
+  MODEL_RETRY_DELAY_MS,
+  isTransientModelError,
+  raceCancellation,
+  sleep,
+} from './retry';
+import {
   BMAD_TOOL_NAMES,
   BUILTIN_TOOLS,
   SUBAGENT_TOOL_NAMES,
@@ -22,6 +29,8 @@ import {
 
 const SUBAGENT_MAX_ROUNDS = 8;
 const SUBAGENT_TOOL_RESULT_CLAMP = 32 * 1024;
+/** Teto de parede por tool: um builtin travado não pode congelar a rodada do agente principal. */
+const SUBAGENT_TOOL_TIMEOUT_MS = 120_000;
 
 export interface SubagentUsage {
   inputTokens: number;
@@ -165,24 +174,39 @@ export async function runSubagent(opts: {
             .join(''),
         );
       }
-      usage.requests++;
-      const response = await model.sendRequest(
-        messages,
-        {
-          justification: 'AI Product BMAD Chat — subagente',
-          ...(toolDefs.length
-            ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
-            : {}),
-        },
-        opts.token,
-      );
-
       let roundText = '';
-      const roundCalls: vscode.LanguageModelToolCallPart[] = [];
-      for await (const part of response.stream) {
-        if (opts.token.isCancellationRequested) break;
-        if (part instanceof vscode.LanguageModelTextPart) roundText += part.value;
-        else if (part instanceof vscode.LanguageModelToolCallPart) roundCalls.push(part);
+      let roundCalls: vscode.LanguageModelToolCallPart[] = [];
+      // erros transitórios do gateway valem retry aqui também — e como nada
+      // deste stream vai à UI, é seguro descartar o parcial e recomeçar
+      for (let attempt = 0; ; attempt++) {
+        usage.requests++;
+        try {
+          const response = await model.sendRequest(
+            messages,
+            {
+              justification: 'AI Product BMAD Chat — subagente',
+              ...(toolDefs.length
+                ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
+                : {}),
+            },
+            opts.token,
+          );
+          for await (const part of response.stream) {
+            if (opts.token.isCancellationRequested) break;
+            if (part instanceof vscode.LanguageModelTextPart) roundText += part.value;
+            else if (part instanceof vscode.LanguageModelToolCallPart) roundCalls.push(part);
+          }
+          break;
+        } catch (err) {
+          const canRetry =
+            attempt < MODEL_RETRIES &&
+            !opts.token.isCancellationRequested &&
+            isTransientModelError(err);
+          if (!canRetry) throw err;
+          roundText = '';
+          roundCalls = [];
+          await sleep(MODEL_RETRY_DELAY_MS * (attempt + 1));
+        }
       }
       if (roundText) {
         fullText += (fullText ? '\n\n' : '') + roundText;
@@ -193,16 +217,27 @@ export async function runSubagent(opts: {
       const resultParts: vscode.LanguageModelToolResultPart[] = [];
       for (const call of roundCalls) {
         usage.outputTokens += estimateTokens(JSON.stringify(call.input ?? {}));
-        const outcome = await dispatchBuiltinTool(
-          call.name,
-          call.input,
-          opts.workRoot,
-          opts.projectId,
-          opts.agentBaseIds,
-        );
+        let content: string;
+        try {
+          // cancelamento do usuário e timeout valem também dentro do subagente
+          const outcome = await raceCancellation(
+            dispatchBuiltinTool(
+              call.name,
+              call.input,
+              opts.workRoot,
+              opts.projectId,
+              opts.agentBaseIds,
+            ),
+            opts.token,
+            SUBAGENT_TOOL_TIMEOUT_MS,
+          );
+          content = outcome.content;
+        } catch (err) {
+          content = `Erro na ferramenta: ${err instanceof Error ? err.message : String(err)}`;
+        }
         resultParts.push(
           new vscode.LanguageModelToolResultPart(call.callId, [
-            new vscode.LanguageModelTextPart(clamp(outcome.content || '(sem saída)', SUBAGENT_TOOL_RESULT_CLAMP)),
+            new vscode.LanguageModelTextPart(clamp(content || '(sem saída)', SUBAGENT_TOOL_RESULT_CLAMP)),
           ]),
         );
       }

@@ -35,6 +35,14 @@ import { buildMessages, type ContextFile } from './messageBuilder';
 import { registerRequest, releaseRequest } from './activeRequests';
 import { waitForApproval } from './approvals';
 import { waitForAnswer } from './questions';
+import {
+  MODEL_RETRIES,
+  MODEL_RETRY_DELAY_MS,
+  isRateLimitError,
+  isTransientModelError,
+  raceCancellation,
+  sleep,
+} from './retry';
 import { runSubagent, type SubagentOutcome } from './subagent';
 import { creditsRemaining } from '../server/routes/copilot';
 import { withTimeout } from '../util';
@@ -127,11 +135,6 @@ async function resolveModel(preferredId?: string): Promise<vscode.LanguageModelC
   return models.find((m) => m.id === preferredId) ?? models[0];
 }
 
-function isRateLimitError(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return /\b429\b/.test(msg) || msg.includes('rate limit') || msg.includes('too many requests');
-}
-
 function mapError(err: unknown): { code: ChatErrorCode; message: string } {
   if (err instanceof vscode.LanguageModelError) {
     switch (err.code) {
@@ -147,7 +150,8 @@ function mapError(err: unknown): { code: ChatErrorCode; message: string } {
           message: 'Requisição bloqueada pelo Copilot (cota excedida ou conteúdo filtrado).',
         };
       case 'NotFound':
-        return { code: 'model_not_found', message: 'Modelo não encontrado no Copilot.' };
+        // preserva a mensagem original quando ela é acionável (ex.: "instale o Copilot Chat")
+        return { code: 'model_not_found', message: err.message || 'Modelo não encontrado no Copilot.' };
     }
   }
   if (isRateLimitError(err)) {
@@ -165,73 +169,8 @@ function clamp(text: string, limit: number): string {
   return `${text.slice(0, limit)}\n… (resultado truncado)`;
 }
 
-/** Retentativas por rodada quando o gateway do Copilot falha de forma transitória. */
-const MODEL_RETRIES = 2;
-const MODEL_RETRY_DELAY_MS = 1500;
-
-/**
- * Erros transitórios do gateway do Copilot (api.githubcopilot.com) que valem
- * retry: 5xx, 429, timeout e queda de conexão — típicos quando o backend do
- * modelo demora demais com um prompt grande. Erros de permissão/conteúdo não
- * entram: retry não muda o resultado.
- */
-function isTransientModelError(err: unknown): boolean {
-  if (err instanceof vscode.LanguageModelError && err.code !== 'Unknown') return false;
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return (
-    isRateLimitError(err) ||
-    /\b(502|503|504)\b/.test(msg) ||
-    msg.includes('bad gateway') ||
-    msg.includes('gateway timeout') ||
-    msg.includes('service unavailable') ||
-    msg.includes('socket hang up') ||
-    msg.includes('econnreset') ||
-    msg.includes('etimedout') ||
-    msg.includes('fetch failed') ||
-    msg.includes('network error')
-  );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** Teto de parede para builtins (leituras de FS/knowledge não têm timeout próprio). */
 const BUILTIN_TOOL_TIMEOUT_MS = 120_000;
-
-/**
- * Deixa o stop do usuário valer na hora: rejeita no cancelamento (ou no
- * timeout) sem esperar a tool — o resultado tardio é descartado. A promise
- * original segue rodando em background, mas o loop não fica refém dela.
- */
-function raceCancellation<T>(
-  promise: Promise<T>,
-  token: vscode.CancellationToken,
-  timeoutMs?: number,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const timer = timeoutMs
-      ? setTimeout(() => {
-          settle(() => reject(new Error(`A ferramenta excedeu ${timeoutMs / 1000}s e foi abandonada`)));
-        }, timeoutMs)
-      : undefined;
-    const sub = token.onCancellationRequested(() => {
-      settle(() => reject(new Error('Cancelado pelo usuário')));
-    });
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      sub.dispose();
-      fn();
-    };
-    promise.then(
-      (value) => settle(() => resolve(value)),
-      (err) => settle(() => reject(err)),
-    );
-  });
-}
 
 export async function runChat(args: ChatRunArgs): Promise<void> {
   const { session, sse, requestId } = args;
@@ -299,16 +238,25 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   const usage: TokenUsage = { inputTokens: 0, outputTokens: 0, requests: 0 };
   let finishReason: ChatFinishReason = 'stop';
   let chatError: { code: ChatErrorCode; message: string } | undefined;
+  /** Modelo que de fato respondeu — persistido na mensagem (fallback muda o pedido). */
+  let respondedModelId: string | undefined;
 
   // registrado colado no try/finally: qualquer saída passa pelo releaseRequest
   const cts = registerRequest(requestId);
   sse.onClose(() => cts.cancel());
   try {
-    const model = await resolveModel(session.modelId ?? agent?.defaultModelId);
+    const preferredModelId = session.modelId ?? agent?.defaultModelId;
+    const model = await resolveModel(preferredModelId);
     if (!model) {
       throw vscode.LanguageModelError.NotFound(
         'Nenhum modelo do Copilot disponível. Verifique se o GitHub Copilot Chat está instalado e logado.',
       );
+    }
+    respondedModelId = model.id;
+    if (preferredModelId && model.id !== preferredModelId) {
+      sse.send('notice', {
+        message: `O modelo "${preferredModelId}" não está disponível — respondendo com ${model.name}.`,
+      });
     }
 
     const { defs: toolDefs, droppedServers } = getEnabledToolDefs(session, agent);
@@ -329,7 +277,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       toolDefs.some((t) => t.name === 'portal_search_knowledge'),
     );
 
-    const messages = buildMessages({
+    const { messages, prunedCount } = buildMessages({
       session,
       project,
       agent,
@@ -343,6 +291,13 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       racfUser: getConfig().racfUser,
       maxInputTokens: model.maxInputTokens,
     });
+    if (prunedCount > 0) {
+      sse.send('notice', {
+        message:
+          `A conversa ficou longa: as ${prunedCount} mensagens mais antigas saíram do contexto ` +
+          `do modelo nesta resposta. Se algo importante ficou para trás, repita a informação.`,
+      });
+    }
 
     // tokens por mensagem já contada (o array messages só recebe appends)
     const messageTokens: number[] = [];
@@ -358,8 +313,10 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     };
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
-      // cada rodada reenvia o histórico inteiro — soma o custo real de entrada
-      usage.inputTokens += await countNewMessages();
+      // cada rodada reenvia o histórico inteiro — soma o custo real de entrada.
+      // A contagem corre em paralelo com a request (só alimenta o usage): em
+      // conversa longa, countTokens serial atrasava o primeiro token.
+      const inputTokensCount = countNewMessages();
 
       let roundText = '';
       const roundCalls: vscode.LanguageModelToolCallPart[] = [];
@@ -396,13 +353,28 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
             attempt < MODEL_RETRIES &&
             !cts.token.isCancellationRequested &&
             isTransientModelError(err);
-          if (!canRetry) throw err;
+          if (!canRetry) {
+            // o erro veio depois de já ter transmitido texto/calls à UI:
+            // preserva o parcial no histórico antes de propagar — sem isso
+            // o trecho aparecia ao vivo mas sumia no reload da conversa
+            if (roundText) assistantParts.push({ type: 'text', text: roundText });
+            for (const call of roundCalls) {
+              assistantParts.push({
+                type: 'tool_call',
+                callId: call.callId,
+                toolName: call.name,
+                input: call.input,
+              });
+            }
+            throw err;
+          }
           sse.send('notice', {
             message: `O Copilot respondeu um erro transitório — tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`,
           });
           await sleep(MODEL_RETRY_DELAY_MS * (attempt + 1));
         }
       }
+      usage.inputTokens += await inputTokensCount;
 
       if (roundText) assistantParts.push({ type: 'text', text: roundText });
       for (const call of roundCalls) {
@@ -605,6 +577,36 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     releaseRequest(requestId);
   }
 
+  // tool call sem resultado (stop no meio das ferramentas, max_rounds, erro
+  // mid-stream) não pode ir para o histórico: na próxima mensagem o
+  // buildMessages reenviaria um ToolCallPart órfão e o backend do Copilot
+  // rejeita a conversa inteira. Sintetiza o desfecho antes de persistir.
+  const resolvedCallIds = new Set(
+    assistantParts.flatMap((p) => (p.type === 'tool_result' ? [p.callId] : [])),
+  );
+  for (const part of [...assistantParts]) {
+    if (part.type !== 'tool_call' || resolvedCallIds.has(part.callId)) continue;
+    const synthetic: MessagePart = {
+      type: 'tool_result',
+      callId: part.callId,
+      toolName: part.toolName,
+      ok: false,
+      content:
+        finishReason === 'max_rounds'
+          ? 'Ferramenta não executada: a resposta atingiu o limite de rodadas.'
+          : 'Ferramenta não executada: a resposta foi interrompida antes da execução.',
+      durationMs: 0,
+    };
+    assistantParts.push(synthetic);
+    sse.send('tool_result', {
+      callId: synthetic.callId,
+      toolName: synthetic.toolName,
+      ok: false,
+      content: synthetic.content,
+      durationMs: 0,
+    });
+  }
+
   // 2. persiste a resposta (mesmo parcial/com erro) sobre o estado mais novo
   // do disco — um rename/edição concorrente da mesma sessão não é sobrescrito
   let savedAssistant: ChatMessage | undefined;
@@ -613,7 +615,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       id: assistantMessageId,
       role: 'assistant',
       parts: assistantParts,
-      modelId: session.modelId,
+      modelId: respondedModelId ?? session.modelId,
       ...(usage.requests ? { usage } : {}),
       createdAt: new Date().toISOString(),
       ...(chatError ? { error: chatError } : {}),
@@ -627,6 +629,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     finishReason,
     updatedSession: toSummary(updated ?? session),
     ...(usage.requests ? { usage } : {}),
+    ...(respondedModelId ? { modelId: respondedModelId } : {}),
   });
 
   // custo real da resposta: delta dos credits da licença entre início e fim.

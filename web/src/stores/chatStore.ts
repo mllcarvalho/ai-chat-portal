@@ -200,7 +200,8 @@ export const useChat = create<ChatState>((set, get) => {
             id: ctx.serverAssistantId ?? `local-${Date.now()}-a`,
             role: 'assistant',
             parts: finished,
-            ...(ctx.modelId ? { modelId: ctx.modelId } : {}),
+            // o servidor informa o modelo que de fato respondeu (fallback muda o pedido)
+            ...(done.modelId || ctx.modelId ? { modelId: done.modelId ?? ctx.modelId } : {}),
             ...(done.usage ? { usage: done.usage } : {}),
             createdAt: new Date().toISOString(),
             ...(ctx.errorInfo ? { error: ctx.errorInfo } : {}),
@@ -429,9 +430,11 @@ export const useChat = create<ChatState>((set, get) => {
       set((state) => ({ streams: { ...state.streams, [sessionId]: { parts: [] } } }));
       const myController = new AbortController();
       abortControllers.set(sessionId, myController);
+      const current = useSessions.getState().current;
       const ctx: StreamCtx = {
         done: false,
-        modelId: useSessions.getState().current?.modelId,
+        // só herda o modelo quando a sessão retomada é a que está na tela
+        ...(current?.id === sessionId && current.modelId ? { modelId: current.modelId } : {}),
       };
       try {
         await reattachLoop(sessionId, ctx, myController, true);

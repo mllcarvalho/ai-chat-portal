@@ -15,6 +15,9 @@ import {
   writeSkillAsset,
 } from '../../storage/skillStore';
 
+/** Teto por anexo de skill (o body inteiro já é limitado a 10 MB pelo router). */
+const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+
 export function registerSkillRoutes(router: Router): void {
   // Sem projectId devolve o catálogo completo (globais + todos os projetos);
   // com projectId, apenas globais + as daquele projeto.
@@ -126,7 +129,12 @@ export function registerSkillRoutes(router: Router): void {
       sendError(res, 400, 'path e contentBase64 são obrigatórios');
       return;
     }
-    const ok = writeSkillAsset(params.id, input.path.trim(), Buffer.from(input.contentBase64, 'base64'));
+    const data = Buffer.from(input.contentBase64, 'base64');
+    if (data.length > MAX_ASSET_BYTES) {
+      sendError(res, 400, `Anexo excede o limite de ${MAX_ASSET_BYTES / (1024 * 1024)} MB`);
+      return;
+    }
+    const ok = writeSkillAsset(params.id, input.path.trim(), data);
     if (!ok) {
       sendError(res, 400, 'Skill não encontrada ou caminho inválido');
       return;

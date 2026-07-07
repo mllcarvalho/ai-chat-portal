@@ -9,6 +9,13 @@ import type {
   ToolInfo,
 } from '@aiportal/shared';
 import { api } from '../api/client';
+import { useUi } from './uiStore';
+
+/** Falha de rede num refresh: mantém o catálogo anterior e avisa via toast. */
+function reportError(prefix: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  useUi.getState().toast(`${prefix}: ${message}`, 'error');
+}
 
 interface CatalogState {
   health?: HealthInfo;
@@ -63,15 +70,27 @@ export const useCatalog = create<CatalogState>((set) => ({
   },
 
   loadSkills: async () => {
-    set({ skills: await api.listSkills() });
+    try {
+      set({ skills: await api.listSkills() });
+    } catch (err) {
+      reportError('Falha ao carregar skills', err);
+    }
   },
 
   loadAgents: async () => {
-    set({ agents: await api.listAgents() });
+    try {
+      set({ agents: await api.listAgents() });
+    } catch (err) {
+      reportError('Falha ao carregar agentes', err);
+    }
   },
 
   loadTools: async (sessionId) => {
-    set({ tools: await api.listTools(sessionId) });
+    try {
+      set({ tools: await api.listTools(sessionId) });
+    } catch (err) {
+      reportError('Falha ao carregar ferramentas', err);
+    }
   },
 
   loadQuota: async (fresh = false) => {

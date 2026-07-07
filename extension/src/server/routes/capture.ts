@@ -1,4 +1,5 @@
 import { Router, sendError, sendJson } from '../router';
+import { tokenMatches } from '../tokenCheck';
 import { getConfig } from '../../storage/configStore';
 import { saveCapturedDoc } from '../../storage/knowledgeStore';
 
@@ -64,7 +65,7 @@ export function registerCaptureRoutes(router: Router): void {
       html?: string;
       text?: string;
     };
-    if (!input.token || input.token !== getConfig().token) {
+    if (!tokenMatches(input.token, getConfig().token)) {
       sendError(res, 401, 'Token inválido — gere o bookmarklet de novo na página Conhecimento');
       return;
     }

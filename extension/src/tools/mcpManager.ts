@@ -50,6 +50,8 @@ interface ServerState {
   tools: McpToolDef[];
   /** Estado do token OAuth (proxies). */
   tokenExpiresAt?: number;
+  /** Start em andamento: chamadas concorrentes pegam carona em vez de duplicar o processo. */
+  startInFlight?: Promise<McpServerInfo>;
 }
 
 interface McpState {
@@ -343,7 +345,19 @@ export async function startServer(name: string): Promise<McpServerInfo> {
   const state = servers.get(name);
   if (!state) throw new Error(`Servidor MCP "${name}" não está configurado`);
   if (state.status === 'running') return toInfo(name, state);
+  // dois starts simultâneos (autostart + toggle/restart) criariam dois
+  // processos e o segundo sobrescreveria o client — o primeiro viraria órfão
+  if (state.startInFlight) return state.startInFlight;
+  const run = doStartServer(name, state);
+  state.startInFlight = run;
+  try {
+    return await run;
+  } finally {
+    state.startInFlight = undefined;
+  }
+}
 
+async function doStartServer(name: string, state: ServerState): Promise<McpServerInfo> {
   state.status = 'starting';
   state.error = undefined;
   try {
@@ -361,8 +375,17 @@ export async function startServer(name: string): Promise<McpServerInfo> {
       const extraEnv = name === IUCLICK_SERVER_NAME ? await getIuclickEnv() : undefined;
       // GitHub: Bearer da sessão GitHub do VS Code, obtido a cada subida
       const extraHeaders = name === GITHUB_MCP_SERVER_NAME ? await githubMcpHeaders() : undefined;
-      client = await withTimeout(connect(state.entry, extraEnv, extraHeaders), START_TIMEOUT, undefined);
-      if (!client) throw new Error(`Timeout ao iniciar (${START_TIMEOUT / 1000}s)`);
+      const pending = connect(state.entry, extraEnv, extraHeaders);
+      client = await withTimeout(pending, START_TIMEOUT, undefined);
+      if (!client) {
+        // o connect pode concluir DEPOIS do timeout: sem isto o processo
+        // recém-spawnado ficaria vivo para sempre, sem dono
+        pending.then(
+          (late) => void late.close().catch(() => undefined),
+          () => undefined,
+        );
+        throw new Error(`Timeout ao iniciar (${START_TIMEOUT / 1000}s)`);
+      }
     }
     const result = await client.listTools();
     state.client = client;
@@ -384,6 +407,9 @@ export async function startServer(name: string): Promise<McpServerInfo> {
 export async function stopServer(name: string): Promise<McpServerInfo | undefined> {
   const state = servers.get(name);
   if (!state) return undefined;
+  // um start em voo termina primeiro: parar no meio deixaria o client que
+  // ele ainda vai criar sem ninguém para fechar
+  if (state.startInFlight) await state.startInFlight.catch(() => undefined);
   const client = state.client;
   state.client = undefined;
   state.tools = [];
@@ -392,7 +418,9 @@ export async function stopServer(name: string): Promise<McpServerInfo | undefine
   state.tokenExpiresAt = undefined;
   if (client) {
     try {
-      await client.close();
+      // close sem teto travaria o stop (e a desativação da extensão) num
+      // servidor que não responde — 5s e segue
+      await withTimeout(client.close(), 5000, undefined);
     } catch {
       // processo pode já ter morrido
     }

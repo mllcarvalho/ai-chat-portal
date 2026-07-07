@@ -148,7 +148,13 @@ export function ChatHeader() {
           models.map((m) => (
             <button
               key={m.id}
-              className={`dropdown__item${m.id === (session.modelId ?? model?.id) ? ' dropdown__item--sel' : ''}`}
+              className={`dropdown__item${m.id === (session.modelId ?? model?.id) ? ' dropdown__item--sel' : ''}${m.canSend === false ? ' dropdown__item--disabled' : ''}`}
+              disabled={m.canSend === false}
+              title={
+                m.canSend === false
+                  ? 'Sem acesso a este modelo — habilite-o nas configurações do Copilot no VS Code'
+                  : undefined
+              }
               onClick={() => {
                 void patchCurrent({ modelId: m.id });
                 close();

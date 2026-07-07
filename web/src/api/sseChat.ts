@@ -17,10 +17,34 @@ export interface ChatStreamHandlers {
   onError: (data: ChatSseEvents['error']) => void;
 }
 
+/**
+ * O servidor manda um heartbeat (`: ping`) a cada 15s. Se nada chega em 45s,
+ * o socket morreu em silêncio (proxy/VPN corporativa derruba sem RST) — sem
+ * este watchdog o read() penduraria para sempre e a reconexão nunca dispararia.
+ */
+const IDLE_TIMEOUT_MS = 45_000;
+
 async function readSseStream(body: ReadableStream<Uint8Array>, handlers: ChatStreamHandlers) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+
+  const readWithIdleTimeout = async () => {
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => {
+          idleTimer = setTimeout(() => {
+            void reader.cancel().catch(() => undefined);
+            reject(new Error('Conexão com o portal parou de responder'));
+          }, IDLE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(idleTimer);
+    }
+  };
 
   const dispatch = (block: string) => {
     let event = '';
@@ -75,7 +99,7 @@ async function readSseStream(body: ReadableStream<Uint8Array>, handlers: ChatStr
   };
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithIdleTimeout();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let idx: number;

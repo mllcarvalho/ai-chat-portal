@@ -26,9 +26,14 @@ export function readJson<T>(file: string): T | undefined {
 
 /** Escrita atômica (tmp + rename) para nunca corromper dados durante streaming. */
 export function writeJsonAtomic(file: string, data: unknown): void {
+  writeFileAtomic(file, JSON.stringify(data, null, 2));
+}
+
+/** Mesma garantia para conteúdo texto/binário (docs de knowledge, SKILL.md…). */
+export function writeFileAtomic(file: string, data: string | Buffer): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+  fs.writeFileSync(tmp, data);
   fs.renameSync(tmp, file);
 }
 

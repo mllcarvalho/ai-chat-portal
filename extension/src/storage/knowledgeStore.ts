@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { KnowledgeBase, KnowledgeDoc } from '@aiportal/shared';
 import { slugifyCommand } from '@aiportal/shared';
-import { readJson, writeJsonAtomic } from './jsonStore';
+import { readJson, writeFileAtomic, writeJsonAtomic } from './jsonStore';
 import { PROJECT_META_DIR, ensureDir, knowledgeDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 import {
@@ -191,7 +191,7 @@ export function writeDoc(baseId: string, name: string, content: string): Knowled
     throw new Error(`Documento excede o limite de ${DOC_LIMIT / 1024} KB`);
   }
   const file = path.join(dir, safeDocName(name));
-  fs.writeFileSync(file, content, 'utf8');
+  writeFileAtomic(file, content);
   const stat = fs.statSync(file);
   patchBase(baseId, {});
   return { name: safeDocName(name), size: stat.size, mtime: stat.mtime.toISOString() };

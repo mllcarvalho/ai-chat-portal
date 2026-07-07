@@ -222,7 +222,11 @@ function userText(message: ChatMessage): string {
 function attachmentBlocks(message: ChatMessage): string {
   return message.parts
     .filter((p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment')
-    .map((p) => `<anexo nome="${p.name}">\n${p.content}\n</anexo>`)
+    .map((p) => {
+      // um anexo contendo a tag literal quebraria a delimitação do bloco
+      const safe = p.content.replaceAll('</anexo>', '<\\/anexo>');
+      return `<anexo nome="${p.name.replaceAll('"', "'")}">\n${safe}\n</anexo>`;
+    })
     .join('\n\n');
 }
 
@@ -248,7 +252,7 @@ export function buildMessages(opts: {
   envNote?: string;
   racfUser?: string;
   maxInputTokens: number;
-}): vscode.LanguageModelChatMessage[] {
+}): { messages: vscode.LanguageModelChatMessage[]; prunedCount: number } {
   const { session, commandSkills } = opts;
   const rawPreamble = buildPreamble(opts);
   const windowChars = opts.maxInputTokens * BUDGET_RATIO * CHARS_PER_TOKEN;
@@ -283,6 +287,15 @@ export function buildMessages(opts: {
   const result: vscode.LanguageModelChatMessage[] = [
     vscode.LanguageModelChatMessage.User(`<instruções>\n${preamble}\n</instruções>`),
   ];
+  if (startIdx > 0) {
+    result.push(
+      vscode.LanguageModelChatMessage.User(
+        `(As ${startIdx} mensagens mais antigas desta conversa foram omitidas por limite de ` +
+          'contexto. Se o usuário se referir a algo que você não vê aqui, diga que aquele trecho ' +
+          'saiu do contexto e peça para ele repetir a informação.)',
+      ),
+    );
+  }
 
   for (const message of session.messages.slice(startIdx)) {
     if (message.role === 'user') {
@@ -315,6 +328,18 @@ export function buildMessages(opts: {
         );
       }
     }
+    // sessões antigas podem ter tool calls sem resultado (stop no meio das
+    // ferramentas antes deste reparo existir): o backend rejeita ToolCallPart
+    // órfão, então o desfecho é sintetizado aqui na reconstrução
+    const answered = new Set(message.parts.flatMap((p) => (p.type === 'tool_result' ? [p.callId] : [])));
+    for (const part of message.parts) {
+      if (part.type !== 'tool_call' || answered.has(part.callId)) continue;
+      resultParts.push(
+        new vscode.LanguageModelToolResultPart(part.callId, [
+          new vscode.LanguageModelTextPart('Ferramenta não executada: a resposta foi interrompida.'),
+        ]),
+      );
+    }
     if (assistantParts.length) {
       result.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
     }
@@ -322,5 +347,5 @@ export function buildMessages(opts: {
       result.push(vscode.LanguageModelChatMessage.User(resultParts));
     }
   }
-  return result;
+  return { messages: result, prunedCount: startIdx };
 }

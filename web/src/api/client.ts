@@ -60,20 +60,28 @@ async function maybeFailover(): Promise<void> {
   const now = Date.now();
   if (now - lastFailoverProbe < 15000) return;
   lastFailoverProbe = now;
+  const ports: number[] = [];
   for (let port = DEFAULT_PORT; port <= DEFAULT_PORT + PORT_RANGE; port++) {
-    if (String(port) === location.port) continue;
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
-        signal: AbortSignal.timeout(1000),
-      });
-      if (!res.ok) continue;
-      const health = (await res.json()) as { version?: unknown };
-      if (typeof health.version !== 'string') continue;
-      location.replace(`http://127.0.0.1:${port}/?token=${encodeURIComponent(getToken())}`);
-      return;
-    } catch {
-      // porta sem portal
-    }
+    if (String(port) !== location.port) ports.push(port);
+  }
+  // sondagem em paralelo: em série eram até ~11s até achar o portal vivo
+  const results = await Promise.all(
+    ports.map(async (port) => {
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+          signal: AbortSignal.timeout(1500),
+        });
+        if (!res.ok) return undefined;
+        const health = (await res.json()) as { version?: unknown };
+        return typeof health.version === 'string' ? port : undefined;
+      } catch {
+        return undefined; // porta sem portal
+      }
+    }),
+  );
+  const port = results.find((p) => p !== undefined);
+  if (port !== undefined) {
+    location.replace(`http://127.0.0.1:${port}/?token=${encodeURIComponent(getToken())}`);
   }
 }
 
@@ -99,9 +107,8 @@ async function downloadFromUrl(url: string, fallbackName: string): Promise<void>
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(path, {
+  const doFetch = () =>
+    fetch(path, {
       method,
       headers: {
         [TOKEN_HEADER]: getToken(),
@@ -109,9 +116,24 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
+  let res: Response;
+  try {
+    res = await doFetch();
   } catch {
-    void maybeFailover();
-    throw new ApiError(0, 'Servidor do portal indisponível — procurando em outra porta…');
+    // GET é idempotente: uma queda transitória de rede ganha 1 retentativa
+    // antes de declarar o servidor fora do ar (mutações não, para não duplicar)
+    if (method === 'GET') {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      try {
+        res = await doFetch();
+      } catch {
+        void maybeFailover();
+        throw new ApiError(0, 'Servidor do portal indisponível — procurando em outra porta…');
+      }
+    } else {
+      void maybeFailover();
+      throw new ApiError(0, 'Servidor do portal indisponível — procurando em outra porta…');
+    }
   }
   if (!res.ok) {
     let message = `Erro ${res.status}`;
@@ -221,8 +243,10 @@ export const api = {
       projectId ? `/api/skills?projectId=${encodeURIComponent(projectId)}` : '/api/skills',
     ),
   getSkill: (id: string) => request<SkillWithContent>('GET', `/api/skills/${id}`),
-  createSkill: (input: Partial<SkillWithContent>) =>
-    request<SkillWithContent>('POST', '/api/skills', input),
+  // name e scope são obrigatórios na rota (400 sem eles) — o tipo reflete o contrato
+  createSkill: (
+    input: { name: string; scope: 'global' | 'project' } & Partial<SkillWithContent>,
+  ) => request<SkillWithContent>('POST', '/api/skills', input),
   patchSkill: (id: string, patch: Partial<SkillWithContent>) =>
     request<SkillWithContent>('PATCH', `/api/skills/${id}`, patch),
   deleteSkill: (id: string) => request<{ ok: boolean }>('DELETE', `/api/skills/${id}`),

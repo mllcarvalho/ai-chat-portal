@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pipeline } from 'node:stream';
 import * as vscode from 'vscode';
 import type { FileEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
@@ -186,7 +187,12 @@ export function registerFileRoutes(
         'Content-Length': stat.size,
         'Content-Disposition': `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
       });
-      fs.createReadStream(file).pipe(res);
+      // pipeline (e não .pipe): erro de leitura no meio não vira exceção sem
+      // handler, e um download abortado pelo cliente destrói o ReadStream
+      // em vez de vazar o descritor de arquivo
+      pipeline(fs.createReadStream(file), res, (err) => {
+        if (err) res.destroy();
+      });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao ler arquivo');
     }

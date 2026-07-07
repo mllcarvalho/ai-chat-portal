@@ -58,7 +58,13 @@ export interface ChatSseEvents {
     content: string;
     durationMs: number;
   };
-  done: { finishReason: ChatFinishReason; updatedSession?: SessionSummary; usage?: TokenUsage };
+  done: {
+    finishReason: ChatFinishReason;
+    updatedSession?: SessionSummary;
+    usage?: TokenUsage;
+    /** Modelo que de fato respondeu (pode diferir do pedido quando houve fallback). */
+    modelId?: string;
+  };
   /**
    * Chega DEPOIS de `done`: AI credits reais da resposta, medidos pelo delta da
    * cota da licença (a contabilização do GitHub leva alguns segundos). O stream

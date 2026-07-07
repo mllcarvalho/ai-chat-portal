@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { Config, HealthInfo } from '@aiportal/shared';
 import { PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { Router, sendError } from './router';
+import { tokenMatches } from './tokenCheck';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -43,7 +44,11 @@ function isAllowedOrigin(origin: string, config: Config): boolean {
   return (config.devOrigins ?? []).includes(origin);
 }
 
-function serveStatic(res: http.ServerResponse, mediaDir: string, pathname: string): void {
+async function serveStatic(
+  res: http.ServerResponse,
+  mediaDir: string,
+  pathname: string,
+): Promise<void> {
   let rel = decodeURIComponent(pathname).replace(/^\/+/, '');
   if (!rel) rel = 'index.html';
   let file = path.resolve(mediaDir, rel);
@@ -51,11 +56,14 @@ function serveStatic(res: http.ServerResponse, mediaDir: string, pathname: strin
   if (path.relative(mediaDir, file).startsWith('..') || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     file = path.join(mediaDir, 'index.html');
   }
-  if (!fs.existsSync(file)) {
+  let data: Buffer;
+  try {
+    // leitura assíncrona: não bloqueia o event loop (que também serve os SSE do chat)
+    data = await fs.promises.readFile(file);
+  } catch {
     sendError(res, 404, 'Interface web não encontrada — rode o build do projeto (npm start)');
     return;
   }
-  const data = fs.readFileSync(file);
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',
     'Content-Length': data.length,
@@ -108,7 +116,7 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       if (url.pathname !== '/api/health' && !isCapture) {
         const token =
           req.headers[TOKEN_HEADER.toLowerCase()] ?? url.searchParams.get('token') ?? '';
-        if (token !== opts.config.token) {
+        if (!tokenMatches(token, opts.config.token)) {
           sendError(res, 401, 'Token inválido ou ausente');
           return;
         }
@@ -118,7 +126,7 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       return;
     }
 
-    serveStatic(res, opts.mediaDir, url.pathname);
+    await serveStatic(res, opts.mediaDir, url.pathname);
   };
 }
 

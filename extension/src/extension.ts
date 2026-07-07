@@ -155,12 +155,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // SecretStorage do VS Code guarda os client_secret dos proxies MCP (cifrado em repouso)
   setSecretStore(context.secrets);
-  // importa proxy/CA do shell de login (o host da extensão via GUI não herda) antes de religar MCPs
-  void resolveShellEnv().finally(() => {
-    void autoStartEnabled();
-    // deixa o uv pronto e no PATH permanente (transparente; ConsumerLab precisa dele)
-    void prepareUvOnStartup();
-  });
   context.subscriptions.push({ dispose: () => void stopAll() });
 
   const buildId = computeBuildId(context);
@@ -191,6 +185,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     portalUrl = buildPortalUrl(result.port, config.token);
     writeRuntime(result.port, config.token, version);
+    // MCPs sobem SÓ na janela que serve o portal: cada janela subindo os
+    // próprios stdio duplicava todos os processos. Antes de religar, importa
+    // proxy/CA do shell de login (o host da extensão via GUI não herda).
+    void resolveShellEnv().finally(() => {
+      void autoStartEnabled();
+      // deixa o uv pronto e no PATH permanente (transparente; ConsumerLab precisa dele)
+      void prepareUvOnStartup();
+    });
     shutdownRef.close = () => {
       shutdownRef.close = () => {};
       result.server.closeAllConnections();
@@ -198,6 +200,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       clearRuntime();
       portalUrl = undefined;
       serving = false;
+      // esta janela cedeu o portal: os MCPs dela não servem mais ninguém
+      void stopAll();
     };
   };
 
@@ -248,6 +252,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   maybeOfferWarmup(context);
 }
 
-export function deactivate(): void {
+export function deactivate(): Promise<void> {
   clearRuntime();
+  // aguardado pelo VS Code: dá tempo de matar os processos MCP filhos
+  // (o dispose síncrono das subscriptions não espera o close de cada um)
+  return stopAll();
 }

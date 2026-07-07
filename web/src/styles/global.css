@@ -894,6 +894,51 @@ select:focus {
   font-size: 12px;
 }
 
+.tool-card__path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+/* diff removido→adicionado do portal_edit_file */
+.tool-diff {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--tool-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tool-diff__line {
+  display: flex;
+  gap: 6px;
+  padding: 1px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-diff__sign {
+  user-select: none;
+  flex: 0 0 auto;
+}
+.tool-diff__line--del {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.tool-diff__line--add {
+  background: rgba(23, 130, 70, 0.09);
+  color: var(--ok);
+}
+
+.dropdown__item--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ---------- balão de persona (portal_spawn_subagent) ---------- */
 
 .subagent-bubble {

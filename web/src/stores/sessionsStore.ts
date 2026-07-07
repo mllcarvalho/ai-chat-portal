@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import type { Project, Session, SessionMode, SessionSummary } from '@aiportal/shared';
 import { api } from '../api/client';
+import { useUi } from './uiStore';
+
+/** Erro de rede/servidor vira toast — sem isso a falha era silenciosa na UI. */
+function reportError(prefix: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  useUi.getState().toast(`${prefix}: ${message}`, 'error');
+}
 
 interface SessionsState {
   projects: Project[];
@@ -46,11 +53,21 @@ export const useSessions = create<SessionsState>((set, get) => ({
   expandedProjects: {},
 
   loadProjects: async () => {
-    set({ projects: await api.listProjects() });
+    try {
+      set({ projects: await api.listProjects() });
+    } catch (err) {
+      reportError('Falha ao carregar projetos', err);
+    }
   },
 
   loadSessions: async (projectId) => {
-    const list = await api.listSessions(projectId);
+    let list: SessionSummary[];
+    try {
+      list = await api.listSessions(projectId);
+    } catch (err) {
+      reportError('Falha ao carregar conversas', err);
+      return;
+    }
     if (projectId) {
       set({ byProject: { ...get().byProject, [projectId]: list } });
     } else {
@@ -59,12 +76,23 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
 
   selectSession: async (id) => {
-    const session = await api.getSession(id);
-    set({ current: session, viewProjectId: undefined });
+    try {
+      const session = await api.getSession(id);
+      set({ current: session, viewProjectId: undefined });
+    } catch (err) {
+      reportError('Falha ao abrir a conversa', err);
+    }
   },
 
   newSession: async (projectId, init) => {
-    const session = await api.createSession({ projectId: projectId ?? null, ...init });
+    // quem chama depende do retorno: o toast avisa e o erro segue propagando
+    let session: Session;
+    try {
+      session = await api.createSession({ projectId: projectId ?? null, ...init });
+    } catch (err) {
+      reportError('Falha ao criar a conversa', err);
+      throw err;
+    }
     await get().loadSessions(projectId ?? null);
     set({ current: session, viewProjectId: undefined });
     if (projectId) set({ expandedProjects: { ...get().expandedProjects, [projectId]: true } });
@@ -72,10 +100,14 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
 
   renameSession: async (id, title) => {
-    const updated = await api.patchSession(id, { title });
-    const { current } = get();
-    if (current?.id === id) set({ current: { ...current, title: updated.title } });
-    await get().loadSessions(updated.projectId);
+    try {
+      const updated = await api.patchSession(id, { title });
+      const { current } = get();
+      if (current?.id === id) set({ current: { ...current, title: updated.title } });
+      await get().loadSessions(updated.projectId);
+    } catch (err) {
+      reportError('Falha ao renomear a conversa', err);
+    }
   },
 
   removeSession: async (id) => {
@@ -85,7 +117,12 @@ export const useSessions = create<SessionsState>((set, get) => ({
       Object.values(byProject)
         .flat()
         .find((s) => s.id === id);
-    await api.deleteSession(id);
+    try {
+      await api.deleteSession(id);
+    } catch (err) {
+      reportError('Falha ao excluir a conversa', err);
+      return;
+    }
     if (current?.id === id) set({ current: undefined });
     await get().loadSessions(summary?.projectId ?? null);
   },
@@ -93,7 +130,13 @@ export const useSessions = create<SessionsState>((set, get) => ({
   patchCurrent: async (patch) => {
     const { current } = get();
     if (!current) return;
-    const updated = await api.patchSession(current.id, patch);
+    let updated: Session;
+    try {
+      updated = await api.patchSession(current.id, patch);
+    } catch (err) {
+      reportError('Falha ao salvar a conversa', err);
+      return;
+    }
     // sincroniza as listas da sidebar na hora (sem refetch): título, modo etc.
     const { standalone, byProject } = get();
     const fields: Partial<Session> = { ...updated };
@@ -126,7 +169,13 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
 
   createProject: async (name) => {
-    const project = await api.createProject(name);
+    let project: Project;
+    try {
+      project = await api.createProject(name);
+    } catch (err) {
+      reportError('Falha ao criar o projeto', err);
+      throw err;
+    }
     await get().loadProjects();
     set({ expandedProjects: { ...get().expandedProjects, [project.id]: true } });
     return project;

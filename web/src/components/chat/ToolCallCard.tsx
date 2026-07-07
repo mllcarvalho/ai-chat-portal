@@ -8,6 +8,38 @@ import { Markdown } from '../common/Markdown';
 type ToolCallPart = Extract<MessagePart, { type: 'tool_call' }>;
 type ToolResultPart = Extract<MessagePart, { type: 'tool_result' }>;
 
+/** Caminho do arquivo alvo, quando a tool opera em um arquivo. */
+function inputPath(call: ToolCallPart): string | undefined {
+  const input = (call.input ?? {}) as Record<string, unknown>;
+  return typeof input.path === 'string' && input.path.trim() ? input.path.trim() : undefined;
+}
+
+/**
+ * Edição de arquivo como diff removido→adicionado (como o Copilot mostra
+ * edições no VS Code), em vez do JSON cru com \n escapado.
+ */
+function EditDiff(props: { input: Record<string, unknown> }) {
+  const find = typeof props.input.find === 'string' ? props.input.find : '';
+  const replace = typeof props.input.replace === 'string' ? props.input.replace : '';
+  if (!find && !replace) return null;
+  return (
+    <div className="tool-diff">
+      {find.split('\n').map((line, i) => (
+        <div key={`d${i}`} className="tool-diff__line tool-diff__line--del">
+          <span className="tool-diff__sign">-</span>
+          {line}
+        </div>
+      ))}
+      {replace.split('\n').map((line, i) => (
+        <div key={`a${i}`} className="tool-diff__line tool-diff__line--add">
+          <span className="tool-diff__sign">+</span>
+          {line}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Nome de exibição da persona de um subagente. */
 function subagentLabel(input: Record<string, unknown>): string {
   if (typeof input.label === 'string' && input.label.trim()) return input.label.trim();
@@ -133,12 +165,19 @@ export function ToolCallCard(props: {
   const icon =
     call.toolName === 'portal_run_command' ? '＞_' : call.toolName === 'portal_ask_user' ? '💬' : '⚙';
 
+  const path = inputPath(call);
+
   return (
     <div className="tool-card">
       <button className="tool-card__head" onClick={() => setOpen((v) => !v)}>
         <span className="tool-card__icon">{open ? '▾' : '▸'}</span>
         <span className="tool-card__icon">{icon}</span>
         <span className="tool-card__name">{call.toolName}</span>
+        {path && (
+          <span className="tool-card__path" title={path}>
+            {path}
+          </span>
+        )}
         {status}
       </button>
       {awaitingApproval && (
@@ -192,8 +231,23 @@ export function ToolCallCard(props: {
       )}
       {open && (
         <div className="tool-card__detail">
-          <h5>Entrada</h5>
-          <pre>{JSON.stringify(call.input, null, 2)}</pre>
+          {call.toolName === 'portal_edit_file' ? (
+            <>
+              <h5>Edição</h5>
+              <EditDiff input={(call.input ?? {}) as Record<string, unknown>} />
+            </>
+          ) : call.toolName === 'portal_write_file' &&
+            typeof (call.input as Record<string, unknown> | undefined)?.content === 'string' ? (
+            <>
+              <h5>Conteúdo</h5>
+              <pre>{(call.input as Record<string, string>).content}</pre>
+            </>
+          ) : (
+            <>
+              <h5>Entrada</h5>
+              <pre>{JSON.stringify(call.input, null, 2)}</pre>
+            </>
+          )}
           {result && (
             <>
               <h5>{result.ok ? 'Resultado' : 'Erro'}</h5>

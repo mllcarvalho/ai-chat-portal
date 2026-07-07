@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Skill, SkillWithContent } from '@aiportal/shared';
 import { slugifyCommand } from '@aiportal/shared';
-import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
+import { readJson, writeFileAtomic, writeJsonAtomic, deleteFile } from './jsonStore';
 import { PROJECT_META_DIR, skillsDir, ensureDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 
@@ -192,7 +192,7 @@ function writeSkillTo(base: string, skill: Skill, content: string): void {
   const folder = uniqueFolderFor(base, skill);
   ensureDir(folder);
   writeJsonAtomic(path.join(folder, META_FILE), skill);
-  fs.writeFileSync(path.join(folder, CONTENT_FILE), content, 'utf8');
+  writeFileAtomic(path.join(folder, CONTENT_FILE), content);
 }
 
 export function createSkill(input: {
@@ -238,7 +238,7 @@ export function updateSkill(
   // quebraria referências externas e o nome da pasta é só cosmético
   writeJsonAtomic(path.join(folder, META_FILE), updated);
   if (content !== undefined) {
-    fs.writeFileSync(path.join(folder, CONTENT_FILE), content, 'utf8');
+    writeFileAtomic(path.join(folder, CONTENT_FILE), content);
   }
   return getSkill(id);
 }
@@ -283,7 +283,7 @@ export function upsertSkillWithId(
   };
   if (existingFolder) {
     writeJsonAtomic(path.join(existingFolder, META_FILE), skill);
-    fs.writeFileSync(path.join(existingFolder, CONTENT_FILE), input.content, 'utf8');
+    writeFileAtomic(path.join(existingFolder, CONTENT_FILE), input.content);
   } else {
     writeSkillTo(base, skill, input.content);
   }
@@ -340,7 +340,7 @@ export function writeSkillAsset(id: string, rel: string, data: Buffer): boolean 
   const target = resolveAsset(folder, rel);
   if (!target) return false;
   ensureDir(path.dirname(target));
-  fs.writeFileSync(target, data);
+  writeFileAtomic(target, data);
   return true;
 }
 

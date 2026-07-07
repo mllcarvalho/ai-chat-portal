@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Skill, SkillWithContent } from '@aiportal/shared';
+import type { Skill } from '@aiportal/shared';
 import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
@@ -260,7 +260,7 @@ export function SkillsPage() {
     if (!draft) return;
     setBusy(true);
     try {
-      const payload: Partial<SkillWithContent> = {
+      const payload = {
         scope: draft.scope,
         projectId: draft.scope === 'project' ? draft.projectId : undefined,
         name: draft.name.trim(),
