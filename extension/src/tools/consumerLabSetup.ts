@@ -303,7 +303,7 @@ function prependProcessPath(dir: string): void {
   }
 }
 
-const UV_PATH_MARKER = '# uv (ConsumerLab) — PATH gerenciado pelo AI Product BMAD Chat';
+const UV_PATH_MARKER = '# uv (ConsumerLab) — PATH gerenciado pelo BMAD Product Studio';
 
 /**
  * Persiste o dir do uv no PATH PERMANENTE do usuário — assim ele continua

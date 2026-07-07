@@ -114,7 +114,7 @@ function adapterFor(skillFolder: string): string {
         `Python NÃO está instalado: pule comandos \`python3 …\` e vá direto ao fallback manual descrito ` +
         `na skill (ex: ler e mesclar os .toml com bmad_read_file).`;
   return (
-    `> **Adaptação ao AI Product BMAD Chat** — esta skill BMAD usa a instalação global compartilhada. ` +
+    `> **Adaptação ao BMAD Product Studio** — esta skill BMAD usa a instalação global compartilhada. ` +
     `Materiais do BMAD (workflows, templates, configs): leia com bmad_read_file / bmad_list_files, ` +
     `com caminhos relativos à raiz do BMAD. Mapeie os placeholders: {skill-root} → ${SKILLS_SUBDIR}/${skillFolder}; ` +
     `caminhos "bare" (ex: references/x.md) → ${SKILLS_SUBDIR}/${skillFolder}/<caminho>; ` +
@@ -212,7 +212,7 @@ function partyModeAdapter(): string {
   const roster = bmadAgentRoster();
   if (!roster.length) {
     return (
-      `> **Party mode no AI Product BMAD Chat** — NENHUMA persona BMAD está habilitada nas ` +
+      `> **Party mode no BMAD Product Studio** — NENHUMA persona BMAD está habilitada nas ` +
       `Configurações do portal, então não há roster para a discussão. NÃO invente personas: avise o ` +
       `usuário que o party mode precisa de agentes habilitados e peça para ele ativar as personas ` +
       `desejadas em Configurações → Agentes BMAD antes de tentar de novo.\n\n`
@@ -222,7 +222,7 @@ function partyModeAdapter(): string {
     .map((a) => `> - ${a.icon} **${a.name}** — ${a.title} (\`${a.code}\`): ${a.description}`)
     .join('\n');
   return (
-    `> **Party mode no AI Product BMAD Chat** — mapeie a orquestração desta skill assim: o "Agent tool" ` +
+    `> **Party mode no BMAD Product Studio** — mapeie a orquestração desta skill assim: o "Agent tool" ` +
     `é a ferramenta portal_spawn_subagent. UMA chamada por persona escolhida na rodada, todas na MESMA ` +
     `resposta (rodam em paralelo). Em cada chamada: label = "{icon} {name}" e task = o prompt do template ` +
     `da skill JÁ PREENCHIDO (persona, contexto da discussão, o que os outros agentes disseram quando for ` +

@@ -48,7 +48,7 @@ export function registerAuthRoutes(router: Router, deps: RouteDeps): void {
     // o diálogo de consentimento precisa partir de uma ação do usuário no VS Code
     void vscode.window
       .showInformationMessage(
-        'O AI Product BMAD Chat precisa da sua autorização para usar o Copilot.',
+        'O BMAD Product Studio precisa da sua autorização para usar o Copilot.',
         'Autorizar',
       )
       .then((choice) => {

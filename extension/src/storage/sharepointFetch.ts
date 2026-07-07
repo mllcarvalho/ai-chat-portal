@@ -80,7 +80,7 @@ function requestMicrosoftConsent(): void {
   consentPending = true;
   void vscode.window
     .showInformationMessage(
-      'O AI Product BMAD Chat precisa de acesso à sua conta Microsoft para ler páginas e arquivos do SharePoint.',
+      'O BMAD Product Studio precisa de acesso à sua conta Microsoft para ler páginas e arquivos do SharePoint.',
       'Entrar com a conta Microsoft',
     )
     .then(async (choice) => {

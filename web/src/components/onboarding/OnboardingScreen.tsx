@@ -61,7 +61,7 @@ export function OnboardingScreen() {
           label="Servidor do portal ativo"
           hint={
             serverUp === false
-              ? 'Abra o VS Code (a extensão AI Product BMAD Chat sobe o servidor automaticamente) ou rode npm start na pasta do projeto.'
+              ? 'Abra o VS Code (a extensão BMAD Product Studio sobe o servidor automaticamente) ou rode npm start na pasta do projeto.'
               : undefined
           }
         />
@@ -97,7 +97,7 @@ export function OnboardingScreen() {
         {!hasToken && serverUp && (
           <p style={{ marginTop: 16 }}>
             ⚠️ Sem token de acesso: abra o portal pelo comando{' '}
-            <strong>"AI Product BMAD Chat: Abrir no Navegador"</strong> no VS Code (Cmd/Ctrl+Shift+P) para
+            <strong>"BMAD Product Studio: Abrir no Navegador"</strong> no VS Code (Cmd/Ctrl+Shift+P) para
             entrar autenticado.
           </p>
         )}

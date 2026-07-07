@@ -38,7 +38,7 @@ import { getPortalRoot } from '../../storage/paths';
 
 function proxyTemplate(name: string): string {
   return `/**
- * Servidor MCP "${name}" — proxy local do AI Product BMAD Chat.
+ * Servidor MCP "${name}" — proxy local do BMAD Product Studio.
  * Executado via: npx -y tsx mcps/${name}.ts (stdio)
  * Adicione suas ferramentas com server.registerTool(...).
  */

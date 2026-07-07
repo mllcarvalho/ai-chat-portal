@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Instalador de um comando do AI Product BMAD Chat:
- *   npx ai-product-bmad-chat
+ * Instalador de um comando do BMAD Product Studio:
+ *   npx bmad-product-studio
  * Instala a extensão no VS Code (o .vsix vem embutido neste pacote),
  * garante que o servidor está de pé e abre o portal no navegador.
  *
@@ -97,7 +97,7 @@ ok(`VS Code encontrado (${codeBin})`);
 
 // ---------- 2. instalar a extensão (vsix embutido no pacote) ----------
 
-const vsix = join(pkgDir, 'ai-product-bmad-chat.vsix');
+const vsix = join(pkgDir, 'bmad-product-studio.vsix');
 if (!existsSync(vsix)) {
   fail(
     'O .vsix não está no pacote.\n' +
@@ -204,8 +204,8 @@ async function main() {
       'O servidor do portal não respondeu.\n' +
         '  - Causa mais comum: o VS Code já estava aberto e não carregou a extensão recém-instalada.\n' +
         `    Feche TODAS as janelas do VS Code e rode npx ${pkgName} de novo.\n` +
-        '  - Se persistir, abra o VS Code e confira se "AI Product BMAD Chat" aparece na aba\n' +
-        '    Extensions; depois rode o comando "AI Product BMAD Chat: Abrir no Navegador"',
+        '  - Se persistir, abra o VS Code e confira se "BMAD Product Studio" aparece na aba\n' +
+        '    Extensions; depois rode o comando "BMAD Product Studio: Abrir no Navegador"',
     );
   }
   ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);
@@ -251,7 +251,7 @@ async function main() {
   console.log('\n\x1b[32m✦ Tudo pronto!\x1b[0m');
   console.log(`  URL do portal: ${url}`);
   console.log(`  Para reabrir depois: npx ${pkgName} (instantâneo) ou, no VS Code,`);
-  console.log('  Cmd/Ctrl+Shift+P → "AI Product BMAD Chat: Abrir no Navegador"\n');
+  console.log('  Cmd/Ctrl+Shift+P → "BMAD Product Studio: Abrir no Navegador"\n');
 }
 
 main().catch((err) => {

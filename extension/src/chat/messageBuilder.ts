@@ -71,7 +71,7 @@ export function buildPreamble(opts: {
 }): string {
   const { session, project, agent, instructionSkills, knowledge, contextFiles, envNote } = opts;
   const blocks: string[] = [
-    'Você é um assistente de IA do AI Product BMAD Chat, conversando em português brasileiro com analistas de produto.',
+    'Você é um assistente de IA do BMAD Product Studio, conversando em português brasileiro com analistas de produto.',
     `Data atual: ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'full' })}.`,
     opts.racfUser
       ? `O usuário desta conversa é "${opts.racfUser}" (usuário RACF do Itaú). Ao cumprimentá-lo, ` +

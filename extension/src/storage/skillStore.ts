@@ -373,7 +373,7 @@ const SEED_VERSION = 'v5';
  * exata já está descrita no schema da ferramenta portal_create_skill.
  * (O SKILL.md original embarcado não contém o marcador — verificado.)
  */
-const SKILL_CREATOR_ADAPTER = `Você vai criar (ou melhorar) uma skill do AI Product BMAD Chat seguindo o skill-creator da Anthropic. Abaixo está o SKILL.md original, embarcado verbatim (fonte: github.com/anthropics/skills, Apache-2.0). Siga o método dele com estas adaptações obrigatórias deste ambiente, que prevalecem sobre o SKILL.md:
+const SKILL_CREATOR_ADAPTER = `Você vai criar (ou melhorar) uma skill do BMAD Product Studio seguindo o skill-creator da Anthropic. Abaixo está o SKILL.md original, embarcado verbatim (fonte: github.com/anthropics/skills, Apache-2.0). Siga o método dele com estas adaptações obrigatórias deste ambiente, que prevalecem sobre o SKILL.md:
 
 - **Registro**: o produto final NÃO é uma pasta criada à mão no disco. Ao terminar o rascunho, registre com a ferramenta portal_create_skill: o name e a description que você escreveria no frontmatter viram os campos name/description; o corpo do SKILL.md vira o campo content (markdown). Nunca crie a skill como arquivo solto com portal_write_file.
 - **Modelo único**: toda skill funciona das duas formas ao mesmo tempo — o conteúdo é injetado no contexto quando a skill está ativa no menu Skills E pode ser invocado por /comando no chat (campo command; se omitido, é derivado do nome). Não existe escolha de tipo.

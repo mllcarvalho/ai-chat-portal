@@ -1,4 +1,4 @@
-# AI Product BMAD Chat
+# BMAD Product Studio
 
 Chat com os modelos do **GitHub Copilot** direto do navegador — com projetos, sessões, skills, agentes, bases de conhecimento e ferramentas MCP — usando o login que você já tem no VS Code. Sem chave de API, sem custo extra: se a sua conta tem Copilot, você tem o portal.
 
@@ -14,7 +14,7 @@ Tudo roda **local**: a extensão sobe um servidor em `127.0.0.1` (protegido por 
 ## Instalação — um comando
 
 ```bash
-npx ai-product-bmad-chat
+npx bmad-product-studio
 ```
 
 Pronto. O comando:
@@ -27,8 +27,8 @@ Pronto. O comando:
 
 > O portal vive enquanto houver uma janela do VS Code aberta — a extensão é o servidor.
 
-- **Reabrir depois:** rode o comando de novo (instantâneo) ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"AI Product BMAD Chat: Abrir no Navegador"**
-- **Atualizar:** `npx ai-product-bmad-chat@latest`
+- **Reabrir depois:** rode o comando de novo (instantâneo) ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"BMAD Product Studio: Abrir no Navegador"**
+- **Atualizar:** `npx bmad-product-studio@latest`
 - **Primeira mensagem:** o VS Code mostra uma notificação pedindo autorização para usar o Copilot — clique em **Autorizar**
 
 ## O que dá pra fazer
@@ -51,7 +51,7 @@ Dados do usuário ficam em `~/AIChatPortal/` (config, sessões, skills, agentes,
 | `extension/` | Extensão VS Code: servidor HTTP/SSE, loop agêntico, storage          |
 | `web/`       | Interface React (servida pela própria extensão)                      |
 | `shared/`    | Tipos TypeScript compartilhados (contrato da API)                    |
-| `installer/` | Pacote npm `ai-product-bmad-chat` — o instalador de um comando (npx) |
+| `installer/` | Pacote npm `bmad-product-studio` — o instalador de um comando (npx) |
 | `scripts/`   | `setup.mjs` (dev), `release.mjs` (publicação no npm)                 |
 
 ## Desenvolvimento
@@ -73,7 +73,7 @@ npm run dev:web   # Vite em http://localhost:5173 com proxy para a extensão
 npm run dev:ext   # esbuild em watch (recarregue a janela do VS Code para aplicar)
 ```
 
-No modo dev, pegue a URL com token pelo comando do VS Code **"AI Product BMAD Chat: Copiar URL do Portal"** e troque a porta para 5173.
+No modo dev, pegue a URL com token pelo comando do VS Code **"BMAD Product Studio: Copiar URL do Portal"** e troque a porta para 5173.
 
 ### Publicando uma versão nova
 
@@ -83,13 +83,13 @@ No modo dev, pegue a URL com token pelo comando do VS Code **"AI Product BMAD Ch
 npm run release
 ```
 
-O `release.mjs` builda tudo, gera o `.vsix`, embute no pacote `installer/` (sincronizando a versão) e publica no npm. Quem usa pega a nova versão com `npx ai-product-bmad-chat@latest`.
+O `release.mjs` builda tudo, gera o `.vsix`, embute no pacote `installer/` (sincronizando a versão) e publica no npm. Quem usa pega a nova versão com `npx bmad-product-studio@latest`.
 
 ## Solução de problemas
 
 - **Tela de checklist (onboarding)** — ela mesma diz o que falta: VS Code fechado, Copilot Chat ausente, conta deslogada ou modelos indisponíveis. Atualiza sozinha a cada 3s.
 - **"Confirme a permissão na janela do VS Code"** — na primeira mensagem o VS Code pede autorização para a extensão usar o Copilot; clique em **Autorizar** na notificação.
-- **Sem token de acesso** — abra o portal pelo comando "AI Product BMAD Chat: Abrir no Navegador" (a URL carrega o token).
+- **Sem token de acesso** — abra o portal pelo comando "BMAD Product Studio: Abrir no Navegador" (a URL carrega o token).
 - **`npx` não encontrado** — instale o Node.js 18+ em <https://nodejs.org> (o npx vem junto).
 - **"Node.js X é antigo demais"** — o instalador exige **Node 18+**. Confira com `node --version` e atualize pela versão LTS em <https://nodejs.org> (no Windows, dá pra usar o [nvm-windows](https://github.com/coreybutler/nvm-windows) se precisar manter várias versões). Depois rode o comando de novo.
 

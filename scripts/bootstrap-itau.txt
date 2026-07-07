@@ -1,6 +1,6 @@
 #!/bin/sh
 # =============================================================================
-#  Bootstrap da máquina para o AI Product BMAD Chat — rede corporativa (Itaú)
+#  Bootstrap da máquina para o BMAD Product Studio — rede corporativa (Itaú)
 # -----------------------------------------------------------------------------
 #  Prepara SOMENTE o que precisa existir ANTES de instalar o portal via npm:
 #    1. Instala a CA corporativa em ~/certs (se ainda não estiver lá)

@@ -82,7 +82,7 @@ function requestGithubConsent(): void {
   consentPending = true;
   void vscode.window
     .showInformationMessage(
-      'O AI Product BMAD Chat precisa de acesso à sua conta GitHub para mostrar os AI credits do Copilot.',
+      'O BMAD Product Studio precisa de acesso à sua conta GitHub para mostrar os AI credits do Copilot.',
       'Autorizar',
     )
     .then(async (choice) => {
@@ -110,7 +110,7 @@ async function githubSessionToken(): Promise<string> {
   if (!session) {
     requestGithubConsent();
     throw new Error(
-      'Autorize o AI Product BMAD Chat a acessar sua conta GitHub na janela do VS Code (notificação no canto inferior direito)',
+      'Autorize o BMAD Product Studio a acessar sua conta GitHub na janela do VS Code (notificação no canto inferior direito)',
     );
   }
   return session.accessToken;

@@ -31,7 +31,7 @@ export function proxyHost(): string {
   return PROXY_HOST;
 }
 
-const RC_MARKER = '# Proxy corporativo — gerenciado pelo AI Product BMAD Chat';
+const RC_MARKER = '# Proxy corporativo — gerenciado pelo BMAD Product Studio';
 
 /** Atualiza os exports no conteúdo de um rc; acrescenta um bloco se não houver. */
 function upsertRcContent(content: string, vars: Record<string, string>): string {
@@ -86,7 +86,7 @@ export function applyProxyToRcFiles(httpProxy: string, httpsProxy: string): RcUp
   return { updated };
 }
 
-const NPMRC_MARKER = '# npm — gerenciado pelo AI Product BMAD Chat';
+const NPMRC_MARKER = '# npm — gerenciado pelo BMAD Product Studio';
 
 /**
  * Garante no ~/.npmrc (criado se não existir) as chaves que o npm precisa para

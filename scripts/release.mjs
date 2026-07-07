@@ -23,7 +23,7 @@ const version = JSON.parse(
 ).version;
 
 // o nome publicado vem do installer/package.json — a branch beta publica
-// ai-product-bmad-chat-beta sem tocar neste script
+// bmad-product-studio-beta sem tocar neste script
 const pkgName = JSON.parse(
   readFileSync(join(root, 'installer', 'package.json'), 'utf8'),
 ).name;
@@ -54,7 +54,7 @@ run('npm run package');
 
 copyFileSync(
   join(root, 'extension', `ai-chat-portal-extension-${version}.vsix`),
-  join(root, 'installer', 'ai-product-bmad-chat.vsix'),
+  join(root, 'installer', 'bmad-product-studio.vsix'),
 );
 
 // o instalador sempre publica com a mesma versão da extensão
