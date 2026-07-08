@@ -136,7 +136,7 @@ export async function runSubagent(opts: {
     }
 
     const preamble = [
-      'Você é um subagente do AI Product BMAD Chat: uma instância independente disparada pelo ' +
+      'Você é um subagente do BMAD Product Studio: uma instância independente disparada pelo ' +
         'agente principal da conversa para cumprir a tarefa abaixo.',
       'Você NÃO fala com o usuário — sua resposta final é devolvida ao agente principal como ' +
         'resultado de ferramenta. Não faça perguntas; se faltar informação, diga o que assumiu.',
@@ -184,7 +184,7 @@ export async function runSubagent(opts: {
           const response = await model.sendRequest(
             messages,
             {
-              justification: 'AI Product BMAD Chat — subagente',
+              justification: 'BMAD Product Studio — subagente',
               ...(toolDefs.length
                 ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
                 : {}),

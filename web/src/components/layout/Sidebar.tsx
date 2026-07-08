@@ -108,7 +108,7 @@ export function Sidebar() {
   if (collapsed) {
     return (
       <aside className="sidebar sidebar--collapsed">
-        <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" title="AI Product BMAD Chat" />
+        <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" title="BMAD Product Studio" />
         <button className="sidebar__rail-btn" title="Expandir menu" onClick={toggleSidebar}>
           »
         </button>
@@ -150,7 +150,7 @@ export function Sidebar() {
         <img className="sidebar__brand-mark" src={itauLogo} alt="Itaú" />
         <div className="sidebar__brand-text">
           <span className="sidebar__logo">
-            ai<em>·</em>product<em>·</em>bmad<em>·</em>chat
+            bmad<em>·</em>product<em>·</em>studio
           </span>
           <span className="sidebar__byline">by Matheus Llobregat</span>
         </div>

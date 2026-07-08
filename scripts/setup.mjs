@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Comando único do AI Product BMAD Chat:
+ * Comando único do BMAD Product Studio:
  *   npm start
  * Instala dependências, builda tudo, empacota e instala a extensão no VS Code,
  * garante que o servidor está de pé e abre o portal no navegador.
@@ -179,7 +179,7 @@ if (!portal) {
     'O servidor do portal não respondeu.\n' +
       '  - Causa mais comum: o VS Code já estava aberto e não carregou a extensão recém-instalada.\n' +
       '    Feche TODAS as janelas do VS Code e rode npm start de novo.\n' +
-      '  - Se persistir, abra o VS Code e rode o comando "AI Product BMAD Chat: Abrir no Navegador"',
+      '  - Se persistir, abra o VS Code e rode o comando "BMAD Product Studio: Abrir no Navegador"',
   );
 }
 ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);
@@ -221,4 +221,4 @@ try {
 console.log('\n\x1b[32m✦ Tudo pronto!\x1b[0m');
 console.log(`  URL do portal: ${url}`);
 console.log('  Para reabrir depois: npm start (instantâneo) ou, no VS Code,');
-console.log('  Cmd/Ctrl+Shift+P → "AI Product BMAD Chat: Abrir no Navegador"\n');
+console.log('  Cmd/Ctrl+Shift+P → "BMAD Product Studio: Abrir no Navegador"\n');

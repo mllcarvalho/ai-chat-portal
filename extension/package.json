@@ -1,8 +1,8 @@
 {
   "name": "ai-chat-portal-extension",
-  "displayName": "AI Product BMAD Chat",
-  "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o AI Product BMAD Chat",
-  "version": "0.3.31",
+  "displayName": "BMAD Product Studio",
+  "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o BMAD Product Studio",
+  "version": "0.3.35",
   "publisher": "aichatportal",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "private": true,
@@ -22,15 +22,15 @@
     "commands": [
       {
         "command": "aiChatPortal.openInBrowser",
-        "title": "AI Product BMAD Chat: Abrir no Navegador"
+        "title": "BMAD Product Studio: Abrir no Navegador"
       },
       {
         "command": "aiChatPortal.copyUrl",
-        "title": "AI Product BMAD Chat: Copiar URL do Portal"
+        "title": "BMAD Product Studio: Copiar URL do Portal"
       },
       {
         "command": "aiChatPortal.warmup",
-        "title": "AI Product BMAD Chat: Autorizar uso do Copilot"
+        "title": "BMAD Product Studio: Autorizar uso do Copilot"
       }
     ]
   },

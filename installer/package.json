@@ -1,15 +1,15 @@
 {
-  "name": "ai-product-bmad-chat",
-  "version": "0.3.31",
-  "description": "Chat com os modelos do GitHub Copilot no navegador — instala a extensão do portal no VS Code e abre tudo pronto",
+  "name": "bmad-product-studio-beta",
+  "version": "0.3.35",
+  "description": "[BETA] Chat com os modelos do GitHub Copilot no navegador — instala a extensão do portal no VS Code e abre tudo pronto",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "license": "MIT",
   "bin": {
-    "ai-product-bmad-chat": "cli.cjs"
+    "bmad-product-studio-beta": "cli.cjs"
   },
   "files": [
     "cli.cjs",
-    "ai-product-bmad-chat.vsix"
+    "bmad-product-studio.vsix"
   ],
   "engines": {
     "node": ">=18"

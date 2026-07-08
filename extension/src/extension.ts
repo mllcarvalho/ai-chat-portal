@@ -64,7 +64,7 @@ async function doWarmup(context: vscode.ExtensionContext): Promise<void> {
   );
   if (!models.length) {
     void vscode.window.showWarningMessage(
-      'AI Product BMAD Chat: nenhum modelo do Copilot disponível. Verifique se o GitHub Copilot Chat está instalado e logado.',
+      'BMAD Product Studio: nenhum modelo do Copilot disponível. Verifique se o GitHub Copilot Chat está instalado e logado.',
     );
     return;
   }
@@ -72,19 +72,19 @@ async function doWarmup(context: vscode.ExtensionContext): Promise<void> {
     // requisição mínima só para disparar o diálogo de consentimento do VS Code
     const response = await models[0].sendRequest(
       [vscode.LanguageModelChatMessage.User('Responda apenas: ok')],
-      { justification: 'Autorizar o AI Product BMAD Chat a usar o Copilot' },
+      { justification: 'Autorizar o BMAD Product Studio a usar o Copilot' },
     );
     for await (const _ of response.text) {
       break;
     }
     await context.globalState.update('warmupDone', true);
     void vscode.window.showInformationMessage(
-      'AI Product BMAD Chat autorizado a usar o Copilot. Pode voltar para o navegador.',
+      'BMAD Product Studio autorizado a usar o Copilot. Pode voltar para o navegador.',
     );
   } catch (err) {
     if (err instanceof vscode.LanguageModelError && err.code === 'NoPermissions') {
       void vscode.window.showWarningMessage(
-        'AI Product BMAD Chat: permissão negada para usar o Copilot.',
+        'BMAD Product Studio: permissão negada para usar o Copilot.',
       );
     } else {
       throw err;
@@ -106,7 +106,7 @@ function maybeOfferWarmup(context: vscode.ExtensionContext): void {
       return true;
     }
     const choice = await vscode.window.showInformationMessage(
-      'O AI Product BMAD Chat precisa da sua autorização para usar os modelos do Copilot.',
+      'O BMAD Product Studio precisa da sua autorização para usar os modelos do Copilot.',
       'Autorizar',
     );
     if (choice === 'Autorizar') await doWarmup(context);
@@ -141,7 +141,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void checkEnvironment().then((env) => {
     if (!env.node) {
       void vscode.window.showWarningMessage(
-        'AI Product BMAD Chat: Node.js não foi encontrado no PATH. A instalação do BMAD (npx) e servidores MCP stdio não vão funcionar.',
+        'BMAD Product Studio: Node.js não foi encontrado no PATH. A instalação do BMAD (npx) e servidores MCP stdio não vão funcionar.',
       );
     }
     try {
@@ -231,7 +231,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.env.openExternal(vscode.Uri.parse(url));
       } else {
         void vscode.window.showWarningMessage(
-          'AI Product BMAD Chat: nenhum servidor ativo no momento.',
+          'BMAD Product Studio: nenhum servidor ativo no momento.',
         );
       }
     }),
@@ -242,7 +242,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         void vscode.window.showInformationMessage('URL do portal copiada.');
       } else {
         void vscode.window.showWarningMessage(
-          'AI Product BMAD Chat: nenhum servidor ativo no momento.',
+          'BMAD Product Studio: nenhum servidor ativo no momento.',
         );
       }
     }),

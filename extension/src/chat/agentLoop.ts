@@ -328,7 +328,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
           const response = await model.sendRequest(
             messages,
             {
-              justification: 'AI Product BMAD Chat — chat do analista',
+              justification: 'BMAD Product Studio — chat do analista',
               ...(toolDefs.length
                 ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
                 : {}),
@@ -524,7 +524,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
             ok = outcome.ok;
             content = outcome.content;
           } else {
-            // callMcpTool tem timeout próprio de 120s; aqui só o cancelamento
+            // callMcpTool tem timeout próprio de 5min (via SDK, com reset por progresso); aqui só o cancelamento
             content = await raceCancellation(
               callMcpTool(call.name, call.input as object),
               cts.token,

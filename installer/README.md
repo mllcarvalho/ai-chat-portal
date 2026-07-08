@@ -1,11 +1,11 @@
-# ai-product-bmad-chat
+# bmad-product-studio
 
 Chat com os modelos do **GitHub Copilot** no navegador — com projetos, sessões, skills, agentes e ferramentas MCP — usando o login que você já tem no VS Code.
 
 ## Instalação
 
 ```bash
-npx ai-product-bmad-chat
+npx bmad-product-studio
 ```
 
 Um comando: instala a extensão no seu VS Code, espera o servidor local subir e abre o portal no navegador **já autenticado** com sua conta GitHub do VS Code.
@@ -17,12 +17,12 @@ Um comando: instala a extensão no seu VS Code, espera o servidor local subir e 
 ## Atualizar
 
 ```bash
-npx ai-product-bmad-chat@latest
+npx bmad-product-studio@latest
 ```
 
 ## Reabrir depois
 
-Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"AI Product BMAD Chat: Abrir no Navegador"**.
+Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"BMAD Product Studio: Abrir no Navegador"**.
 
 ---
 

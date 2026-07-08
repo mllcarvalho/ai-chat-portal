@@ -37,7 +37,7 @@ export function registerShareRoutes(router: Router): void {
         }
         fileName = `${slugifyCommand(agent.name) || 'agente'}.agent.zip`;
         data = await exportAgentZip(agent.id);
-        subject = `Agente "${agent.name}" — AI Product BMAD Chat`;
+        subject = `Agente "${agent.name}" — BMAD Product Studio`;
       } else if (input.kind === 'knowledge') {
         const base = getBase(input.id);
         if (!base) {
@@ -46,7 +46,7 @@ export function registerShareRoutes(router: Router): void {
         }
         fileName = `${slugifyCommand(base.name) || 'base'}.zip`;
         data = await exportBaseZip(base.id);
-        subject = `Base de conhecimento "${base.name}" — AI Product BMAD Chat`;
+        subject = `Base de conhecimento "${base.name}" — BMAD Product Studio`;
       } else {
         const skill = getSkill(input.id);
         if (!skill) {
@@ -58,7 +58,7 @@ export function registerShareRoutes(router: Router): void {
         const file = (await exportSkillFile(input.id))!;
         fileName = file.fileName;
         data = file.data;
-        subject = `Skill "${skill.name}" — AI Product BMAD Chat`;
+        subject = `Skill "${skill.name}" — BMAD Product Studio`;
       }
       const result = await shareByEmail(fileName, data, subject);
       sendJson(res, 200, { ok: true, ...result });

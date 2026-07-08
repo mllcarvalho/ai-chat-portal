@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import {
   StdioClientTransport,
   getDefaultEnvironment,
@@ -27,7 +28,12 @@ import { withTimeout } from '../util';
 
 // primeiro boot de servidor stdio pode ser lento (venv, imports, STS via proxy)
 const START_TIMEOUT = 45_000;
-const CALL_TIMEOUT = 120_000;
+/**
+ * Teto por chamada de tool, passado ao SDK (que sem isso corta em 60s — o
+ * default DEFAULT_REQUEST_TIMEOUT_MSEC). Tools do ConsumerLab (uv/AWS atrás
+ * do proxy) passam fácil de 2 minutos; progresso reseta a contagem.
+ */
+const CALL_TIMEOUT = 300_000;
 const TOKEN_TIMEOUT = 15_000;
 const CONNECT_TIMEOUT = 20_000;
 /** Reconecta o proxy quando faltar menos que isto para o token expirar. */
@@ -655,13 +661,23 @@ export async function callMcpTool(qualifiedName: string, input: object): Promise
   const doCall = async (): Promise<string> => {
     const client = state.client;
     if (!client) throw new Error(`O servidor MCP "${ref.server}" está desligado`);
-    const result = await withTimeout(
-      client.callTool({ name: ref.tool, arguments: input as Record<string, unknown> }),
-      CALL_TIMEOUT,
-      undefined,
-    );
-    if (!result) throw new Error(`Timeout chamando ${ref.tool} (${CALL_TIMEOUT / 1000}s)`);
-    return extractText(result, ref.tool);
+    try {
+      // timeout via SDK (não via withTimeout): erro real do servidor propaga
+      // em vez de virar um "timeout" falso, e progresso reseta a contagem
+      const result = await client.callTool(
+        { name: ref.tool, arguments: input as Record<string, unknown> },
+        undefined,
+        { timeout: CALL_TIMEOUT, resetTimeoutOnProgress: true },
+      );
+      return extractText(result, ref.tool);
+    } catch (err) {
+      if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) {
+        throw new Error(
+          `Timeout chamando ${ref.tool} (${CALL_TIMEOUT / 1000}s sem resposta nem progresso do servidor MCP)`,
+        );
+      }
+      throw err;
+    }
   };
 
   try {

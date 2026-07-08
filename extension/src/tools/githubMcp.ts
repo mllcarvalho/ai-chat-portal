@@ -23,7 +23,7 @@ function requestGithubConsent(): void {
   consentPending = true;
   void vscode.window
     .showInformationMessage(
-      'O AI Product BMAD Chat precisa de acesso à sua conta GitHub para conectar no servidor MCP do GitHub.',
+      'O BMAD Product Studio precisa de acesso à sua conta GitHub para conectar no servidor MCP do GitHub.',
       'Autorizar',
     )
     .then(async (choice) => {
