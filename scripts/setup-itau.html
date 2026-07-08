@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BMAD Product Studio — Setup da máquina</title>
+<title>BMAD Studio — Setup da máquina</title>
 <style>
   :root{
     --paper:#F4F5F3;
@@ -56,9 +56,12 @@
     font-family:var(--mono);font-size:12px;letter-spacing:.08em;
     text-transform:uppercase;font-weight:700;display:flex;align-items:center;gap:8px;
   }
-  .brand::before{
-    content:"";width:10px;height:10px;background:var(--accent);
-    display:inline-block;border-radius:2px;
+  .itau-badge{
+    width:28px;height:28px;border-radius:8px;flex:none;
+    background:var(--accent);color:#fff;
+    display:inline-flex;align-items:center;justify-content:center;
+    font-family:var(--sans);font-size:11.5px;font-weight:700;
+    text-transform:lowercase;letter-spacing:-.03em;
   }
   .os-switch{
     display:flex;border:1px solid var(--border);border-radius:999px;
@@ -261,10 +264,10 @@
 
 <div class="topbar">
   <div class="topbar-in">
-    <span class="brand">BMAD Product Studio</span>
+    <span class="brand"><span class="itau-badge" aria-label="Itaú">itaú</span>BMAD Studio</span>
     <div class="os-switch" role="tablist" aria-label="Sistema operacional">
-      <button role="tab" data-os="mac" aria-selected="false">macOS</button>
       <button role="tab" data-os="win" aria-selected="false">Windows</button>
+      <button role="tab" data-os="mac" aria-selected="false">macOS</button>
     </div>
   </div>
 </div>
@@ -398,7 +401,7 @@
 
   <footer>
     <p>Para desfazer tudo o que o script configurou: <code>sh ~/Downloads/bootstrap-itau.sh --undo</code>.
-    Dúvidas ou problemas? Fale com o time do BMAD Product Studio.</p>
+    Dúvidas ou problemas? Fale com o time do BMAD Studio.</p>
   </footer>
 </main>
 
@@ -873,7 +876,7 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
   'use strict';
 
   /* ---------------- estado ---------------- */
-  var LS_KEY = 'bmad-setup-v1';
+  var LS_KEY = 'bmad-setup-v2';
   var state = { os: null, checks: {}, step2: false, step3: false };
   try {
     var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
