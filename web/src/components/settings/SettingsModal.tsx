@@ -3,6 +3,7 @@ import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useUi } from '../../stores/uiStore';
+import { AgentIcon } from '../common/AgentIcon';
 import { Modal } from '../common/Modal';
 
 export function SettingsModal() {
@@ -131,7 +132,7 @@ export function SettingsModal() {
                 checked={agent.enabled !== false}
                 onChange={(e) => void toggleBmadAgent(agent.id, e.target.checked)}
               />
-              {agent.icon} {agent.name}
+              <AgentIcon icon={agent.icon} /> {agent.name}
             </label>
           ))}
         </div>

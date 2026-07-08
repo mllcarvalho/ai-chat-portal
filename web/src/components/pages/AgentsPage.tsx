@@ -26,6 +26,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { formatMultiplier } from '../chat/MessageBubble';
+import { AgentIcon } from '../common/AgentIcon';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
@@ -401,7 +402,7 @@ export function AgentsPage() {
     >
       <div className="page-cols">
         <Panel title="Meus agentes" count={visibleAgents.length}>
-          {visibleAgents.length === 0 && (
+          {visibleAgents.length === 0 && !(draft && !draft.id) && (
             <EmptyState
               icon={<Bot className="icon icon--lg" aria-hidden />}
               title="Nenhum agente ainda"
@@ -412,6 +413,24 @@ export function AgentsPage() {
                 </button>
               }
             />
+          )}
+          {draft && !draft.id && (
+            <div className="page-list-item page-list-item--active page-list-item--draft">
+              <span className="page-list-item__meta">
+                <span className="mcp-status">rascunho</span>
+              </span>
+              <span className="item-card__name">
+                <AgentIcon icon={draft.icon} /> {draft.name.trim() || 'Novo agente'}
+              </span>
+              <span className="item-card__desc">
+                {draft.description.trim() || 'Preencha ao lado e salve.'}
+              </span>
+              <span className="page-list-item__actions">
+                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
+                  Descartar
+                </span>
+              </span>
+            </div>
           )}
           {visibleAgents.map((agent) => (
             <button
@@ -432,7 +451,7 @@ export function AgentsPage() {
               }
             >
               <span className="item-card__name">
-                {agent.icon ?? '🤖'} {agent.name}
+                <AgentIcon icon={agent.icon} /> {agent.name}
               </span>
               <span className="item-card__desc">
                 {agent.description || agent.instructions || '—'}

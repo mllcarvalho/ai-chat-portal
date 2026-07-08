@@ -351,7 +351,7 @@ export function SkillsPage() {
             />
           }
         >
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !(draft && !draft.id) && (
             <EmptyState
               icon={<Zap className="icon icon--lg" aria-hidden />}
               title={filter === 'all' ? 'Nenhuma skill ainda' : 'Nada neste escopo'}
@@ -368,6 +368,36 @@ export function SkillsPage() {
                 </button>
               }
             />
+          )}
+          {draft && !draft.id && (
+            <div className="page-list-item page-list-item--active page-list-item--draft">
+              <span className="page-list-item__meta">
+                <span
+                  className={`scope-badge${draft.scope === 'project' ? ' scope-badge--project' : ''}`}
+                >
+                  {draft.scope === 'project' ? (
+                    <>
+                      <Folder className="icon icon--sm" aria-hidden />{' '}
+                      {projectName(draft.projectId)}
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="icon icon--sm" aria-hidden /> Global
+                    </>
+                  )}
+                </span>
+                <span className="mcp-status">rascunho</span>
+              </span>
+              <span className="item-card__name">{draft.name.trim() || 'Nova skill'}</span>
+              <span className="item-card__desc">
+                {draft.description.trim() || 'Preencha ao lado e salve.'}
+              </span>
+              <span className="page-list-item__actions">
+                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
+                  Descartar
+                </span>
+              </span>
+            </div>
           )}
           {filtered.map((skill) => (
             <button

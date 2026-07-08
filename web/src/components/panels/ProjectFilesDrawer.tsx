@@ -157,7 +157,7 @@ function TreeLevel(props: {
         const isDir = entry.type === 'dir';
         const isCollapsed = isDir && props.collapsed.has(entry.path);
         return (
-          <div key={entry.path} style={{ paddingLeft: props.depth * 14 }}>
+          <div key={entry.path} style={{ paddingLeft: props.depth * 9 }}>
             <div
               className={`file-tree__row${pinned ? ' file-tree__row--pinned' : ''}`}
               onContextMenu={(e) => {
@@ -480,29 +480,25 @@ export function ProjectFilesDrawer() {
           continue;
         }
         try {
-          // o original sobe sempre, preservado byte a byte (código, planilha,
-          // PDF, imagem — nada é convertido nem descartado)
-          const b64 = await fileToBase64(item.file);
-          if (projectId) await api.writeProjectFileBinary(projectId, item.relPath, b64);
-          else if (workspaceSessionId) {
-            await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
-          }
-          okCount++;
-          // Excel/Word/PDF ganham um .md irmão com o texto extraído — é ele que
-          // o assistente consegue ler/fixar no contexto (as ferramentas só leem texto)
           if (isConvertibleDocument(item.file.name)) {
-            try {
-              const text = await extractDocumentText(item.file);
-              const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
-              if (projectId) await api.writeProjectFile(projectId, mdPath, text);
-              else if (workspaceSessionId) {
-                await api.writeSessionFile(workspaceSessionId, mdPath, text);
-              }
-              converted++;
-            } catch {
-              // original subiu; só a extração de texto falhou
+            // Excel/Word/PDF viram .md com o texto extraído (o binário original
+            // não sobe) — é o que o assistente consegue ler/fixar no contexto
+            const text = await extractDocumentText(item.file);
+            const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
+            if (projectId) await api.writeProjectFile(projectId, mdPath, text);
+            else if (workspaceSessionId) {
+              await api.writeSessionFile(workspaceSessionId, mdPath, text);
+            }
+            converted++;
+          } else {
+            // demais arquivos sobem preservados byte a byte (código, imagem…)
+            const b64 = await fileToBase64(item.file);
+            if (projectId) await api.writeProjectFileBinary(projectId, item.relPath, b64);
+            else if (workspaceSessionId) {
+              await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
             }
           }
+          okCount++;
         } catch {
           failed++;
         }
@@ -513,7 +509,7 @@ export function ProjectFilesDrawer() {
     }
     if (okCount) {
       const extra = converted
-        ? ` ${converted === 1 ? '1 documento ganhou' : `${converted} documentos ganharam`} um .md com o texto extraído (é o que o assistente lê).`
+        ? ` ${converted === 1 ? '1 documento convertido' : `${converted} documentos convertidos`} em .md (é o que o assistente lê).`
         : '';
       toast(
         `${okCount} arquivo${okCount === 1 ? '' : 's'} adicionado${okCount === 1 ? '' : 's'}.${extra}`,

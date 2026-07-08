@@ -2195,6 +2195,8 @@ select:focus {
   margin-left: auto;
   font-size: 10.5px;
   color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .file-tree__actions {
   display: flex;
@@ -2357,8 +2359,8 @@ button .icon {
   align-items: center;
   gap: 6px;
   padding: 0 8px 0 12px;
-  min-width: 120px;
-  max-width: 180px;
+  min-width: 150px;
+  max-width: 200px;
   font-size: 12.5px;
   font-family: var(--font-mono);
   color: var(--text-dim);
@@ -3174,6 +3176,10 @@ button.chip--action:disabled {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--text-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   display: flex;
   align-items: center;
@@ -3194,6 +3200,7 @@ button.chip--action:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .panel__filter {
   font-size: 12px;
@@ -3609,6 +3616,11 @@ button.chip--action:disabled {
 .page-list-item:hover .page-list-item__actions,
 .page-list-item--active .page-list-item__actions {
   opacity: 1;
+}
+/* rascunho na lista enquanto o item é criado no painel ao lado */
+.page-list-item--draft {
+  border-style: dashed;
+  cursor: default;
 }
 
 .scope-badge {

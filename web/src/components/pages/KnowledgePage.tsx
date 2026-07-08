@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Bookmark,
   BookOpen,
+  ChevronDown,
   FileText,
   Folder,
   Globe,
@@ -15,6 +16,7 @@ import {
   Plus,
   RefreshCw,
   RotateCw,
+  SquarePen,
   TriangleAlert,
   Upload,
 } from 'lucide-react';
@@ -29,6 +31,7 @@ import { api, getToken } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { Dropdown } from '../common/Dropdown';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
@@ -532,24 +535,6 @@ export function KnowledgePage() {
                     e.target.value = '';
                   }}
                 />
-                <button
-                  className="btn btn--sm"
-                  disabled={busy}
-                  onClick={() => uploadInputRef.current?.click()}
-                  title="Upload — enviar arquivos do computador (.md, .txt, Excel, Word, PDF)"
-                  aria-label="Upload de arquivos"
-                >
-                  <Upload className="icon" aria-hidden />
-                </button>
-                <button
-                  className="btn btn--sm"
-                  disabled={busy}
-                  onClick={() => setUrlFormOpen((open) => !open)}
-                  title="Adicionar documento a partir de uma URL (GitHub Pages, página ou arquivo de SharePoint, markdown publicado…)"
-                  aria-label="Adicionar por URL"
-                >
-                  <Link className="icon" aria-hidden />
-                </button>
                 {docs.some((d) => d.sourceUrl) && (
                   <button
                     className="btn btn--sm"
@@ -561,17 +546,53 @@ export function KnowledgePage() {
                     <RotateCw className="icon" aria-hidden />
                   </button>
                 )}
-                <button
-                  className="btn btn--sm"
-                  onClick={() => {
-                    setDocName('novo-documento.md');
-                    setDocContent('');
-                  }}
-                  title="Novo documento em branco"
-                  aria-label="Novo documento"
+                <Dropdown
+                  trigger={(open, toggle) => (
+                    <button
+                      className="btn btn--sm"
+                      disabled={busy}
+                      onClick={toggle}
+                      aria-expanded={open}
+                      title="Adicionar documento"
+                    >
+                      <Plus className="icon icon--sm" aria-hidden /> Adicionar{' '}
+                      <ChevronDown className="icon icon--sm" aria-hidden />
+                    </button>
+                  )}
                 >
-                  <Plus className="icon" aria-hidden />
-                </button>
+                  {(close) => (
+                    <>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          setDocName('novo-documento.md');
+                          setDocContent('');
+                        }}
+                      >
+                        <SquarePen className="icon icon--sm" aria-hidden /> Documento em branco
+                      </button>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          uploadInputRef.current?.click();
+                        }}
+                      >
+                        <Upload className="icon icon--sm" aria-hidden /> Upload de arquivos…
+                      </button>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          setUrlFormOpen((open) => !open);
+                        }}
+                      >
+                        <Link className="icon icon--sm" aria-hidden /> A partir de URL…
+                      </button>
+                    </>
+                  )}
+                </Dropdown>
               </>
               )}
             </>

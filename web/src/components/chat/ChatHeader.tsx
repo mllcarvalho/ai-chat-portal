@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bot, Columns2, Diamond, FileText, RefreshCw, Zap } from 'lucide-react';
+import { AgentIcon } from '../common/AgentIcon';
 import type { SessionMode, TokenUsage } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
@@ -200,7 +201,7 @@ export function ChatHeader() {
           <button className="pill-btn" onClick={toggle} title="Agente (preset de instruções)">
             {agent ? (
               <>
-                {agent.icon ?? <Bot className="icon" aria-hidden />} {agent.name}
+                <AgentIcon icon={agent.icon} /> {agent.name}
               </>
             ) : (
               <>
@@ -237,7 +238,7 @@ export function ChatHeader() {
                 }}
               >
                 <span>
-                  {a.icon ?? <Bot className="icon" aria-hidden />} {a.name}
+                  <AgentIcon icon={a.icon} /> {a.name}
                   {a.description && <span className="dropdown__item-sub">{a.description}</span>}
                 </span>
               </button>
