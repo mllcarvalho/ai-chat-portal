@@ -135,8 +135,9 @@ export function registerToolRoutes(router: Router): void {
     sendJson(res, 200, getConsumerLabStatus());
   });
 
-  router.post('/api/mcp/consumerlab/setup', ({ res }) => {
-    sendJson(res, 200, startConsumerLabSetup());
+  router.post('/api/mcp/consumerlab/setup', ({ res, body }) => {
+    const input = (body ?? {}) as { portal?: string };
+    sendJson(res, 200, startConsumerLabSetup(input.portal?.trim() || undefined));
   });
 
   router.post('/api/mcp/consumerlab/choose', ({ res, body }) => {

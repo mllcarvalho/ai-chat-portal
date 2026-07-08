@@ -283,16 +283,28 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
               browser para o login SSO. Você só escolhe a conta AWS quando ela aparecer aqui.
               {(doneBefore || failed) && ' Refaça quando as credenciais AWS expirarem.'}
             </p>
+            <p className="mcp-block__hint">
+              <strong>Em qual portal SSO fica a sua conta AWS?</strong> Escolha por onde entrar —
+              dá para trocar depois se a conta não aparecer na lista.
+            </p>
             <div className="mcp-block__actions">
-              <button className="btn btn--primary" disabled={busy} onClick={() => void call(api.startConsumerLab)}>
-                {failed ? (
-                  <><RotateCcw className="icon" aria-hidden /> Tentar de novo</>
-                ) : doneBefore ? (
-                  <><RotateCcw className="icon" aria-hidden /> Refazer setup</>
-                ) : (
-                  <><Rocket className="icon" aria-hidden /> Iniciar setup</>
-                )}
-              </button>
+              {(status?.ssoPortals ?? [{ id: 'itaulzprod', label: 'Landing Zone (itaulzprod)' }]).map(
+                (portal) => (
+                  <button
+                    key={portal.id}
+                    className="btn btn--primary"
+                    disabled={busy}
+                    onClick={() => void call(() => api.startConsumerLab(portal.id))}
+                  >
+                    {failed || doneBefore ? (
+                      <RotateCcw className="icon" aria-hidden />
+                    ) : (
+                      <Rocket className="icon" aria-hidden />
+                    )}{' '}
+                    {portal.label}
+                  </button>
+                ),
+              )}
             </div>
           </section>
         </div>

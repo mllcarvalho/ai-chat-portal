@@ -339,7 +339,8 @@ export const api = {
   testMcpProxy: (input: McpProxyInput) =>
     request<{ ok: boolean; tools: string[] }>('POST', '/api/mcp/proxies/test', input),
   getConsumerLab: () => request<ConsumerLabStatus>('GET', '/api/mcp/consumerlab'),
-  startConsumerLab: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/setup'),
+  startConsumerLab: (portal?: string) =>
+    request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/setup', portal ? { portal } : undefined),
   chooseConsumerLab: (choice: { accountId?: string; roleName?: string }) =>
     request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/choose', choice),
   switchConsumerLabSso: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/switch-sso'),
