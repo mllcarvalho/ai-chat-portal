@@ -53,9 +53,11 @@ interface BmadAction {
   placeholder?: string;
 }
 
-const GROUPS: { title: string; actions: BmadAction[] }[] = [
+/** Cor da etapa: pinta o título da linha e os ícones dos chips. */
+const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
   {
     title: 'Descobrir',
+    color: '#a87900',
     actions: [
       {
         command: 'bmad-brainstorming',
@@ -101,6 +103,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
   },
   {
     title: 'Definir',
+    color: '#1d4fa0',
     actions: [
       {
         command: 'bmad-product-brief',
@@ -146,6 +149,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
   },
   {
     title: 'Validar',
+    color: '#178246',
     actions: [
       {
         command: 'bmad-prd',
@@ -174,6 +178,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
   },
   {
     title: 'Planejar',
+    color: '#7c3aed',
     actions: [
       {
         command: 'bmad-create-epics-and-stories',
@@ -195,6 +200,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
   },
   {
     title: 'Mais',
+    color: '#0f766e',
     actions: [
       {
         command: 'bmad-help',
@@ -312,7 +318,9 @@ export function BmadActions() {
           <div className="bmad-deck__rows">
             {available.map((group) => (
               <div className="bmad-deck__row" key={group.title}>
-                <span className="bmad-deck__row-title">{group.title}</span>
+                <span className="bmad-deck__row-title" style={{ color: group.color }}>
+                  {group.title}
+                </span>
                 <span className="bmad-deck__chips">
                   {group.actions.map((action) => {
                     const preset = presetFor(action);
@@ -324,7 +332,8 @@ export function BmadActions() {
                         disabled={isStreaming}
                         onClick={() => onChipClick(action)}
                       >
-                        <action.icon className="icon" aria-hidden /> {action.label}
+                        <action.icon className="icon" aria-hidden style={{ color: group.color }} />{' '}
+                        {action.label}
                       </button>
                     );
                   })}

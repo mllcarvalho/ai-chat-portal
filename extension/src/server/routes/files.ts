@@ -184,6 +184,32 @@ export function registerFileRoutes(
     }
   });
 
+  // cria uma pasta vazia (com pais intermediários, se preciso)
+  router.post(`${base}/mkdir`, ({ res, params, body }) => {
+    const root = rootFor(params.id);
+    if (!root) {
+      sendError(res, 404, ownerNotFound);
+      return;
+    }
+    const rel = ((body ?? {}) as { path?: string }).path;
+    if (!rel?.trim()) {
+      sendError(res, 400, 'Parâmetro path é obrigatório');
+      return;
+    }
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      const dir = resolveInProject(root, rel.trim());
+      if (fs.existsSync(dir)) {
+        sendError(res, 400, 'Já existe um arquivo ou pasta com esse nome');
+        return;
+      }
+      fs.mkdirSync(dir, { recursive: true });
+      sendJson(res, 200, { ok: true, path: rel.trim() });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao criar pasta');
+    }
+  });
+
   // abre a pasta do arquivo no gerenciador do sistema (Finder/Explorer/…);
   // o revealFileInOS do VS Code resolve a diferença de plataforma
   router.post(`${base}/reveal`, async ({ res, params, body }) => {

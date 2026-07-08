@@ -11,6 +11,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   Maximize2,
   Pencil,
   Pin,
@@ -36,6 +37,9 @@ import { Modal } from '../common/Modal';
 
 /** Limite por arquivo enviado (o servidor recusa acima de 2 MB). */
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+
+/** Tipo de dado do drag interno (mover arquivo/pasta na árvore). */
+const MOVE_MIME = 'application/x-aiportal-path';
 
 /** Arquivo com o caminho relativo de destino na pasta de trabalho. */
 interface UploadItem {
@@ -145,6 +149,10 @@ function TreeLevel(props: {
   contextFiles: string[];
   canPin: boolean;
   collapsed: Set<string>;
+  /** Pasta sob o cursor durante um drag interno ('' = raiz). */
+  dragOverDir?: string;
+  onDragState: (dir?: string) => void;
+  onMove: (srcPath: string, destDir: string) => void;
   onToggleDir: (path: string) => void;
   onOpen: (entry: FileEntry) => void;
   onTogglePin: (entry: FileEntry) => void;
@@ -156,21 +164,51 @@ function TreeLevel(props: {
         const pinned = props.contextFiles.includes(entry.path);
         const isDir = entry.type === 'dir';
         const isCollapsed = isDir && props.collapsed.has(entry.path);
+        const isDropTarget = isDir && props.dragOverDir === entry.path;
         return (
           // os divs já se aninham (filhos dentro do div do pai), então cada
           // nível soma um passo CONSTANTE — depth * N aqui viraria recuo quadrático
           <div key={entry.path} style={{ paddingLeft: props.depth ? 10 : 0 }}>
             <div
-              className={`file-tree__row${pinned ? ' file-tree__row--pinned' : ''}`}
+              className={`file-tree__row${pinned ? ' file-tree__row--pinned' : ''}${isDropTarget ? ' file-tree__row--droptarget' : ''}`}
               onContextMenu={(e) => {
                 e.preventDefault();
                 props.onMenu(entry, e.clientX, e.clientY);
               }}
+              onDragOver={
+                isDir
+                  ? (e) => {
+                      if (!e.dataTransfer.types.includes(MOVE_MIME)) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = 'move';
+                      props.onDragState(entry.path);
+                    }
+                  : undefined
+              }
+              onDrop={
+                isDir
+                  ? (e) => {
+                      const src = e.dataTransfer.getData(MOVE_MIME);
+                      if (!src) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      props.onDragState(undefined);
+                      props.onMove(src, entry.path);
+                    }
+                  : undefined
+              }
             >
               <button
                 className={`file-tree__item${isDir ? ' file-tree__item--dir' : ''}`}
                 onClick={() => (isDir ? props.onToggleDir(entry.path) : props.onOpen(entry))}
                 title={isDir ? (isCollapsed ? 'Expandir pasta' : 'Recolher pasta') : undefined}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(MOVE_MIME, entry.path);
+                  e.dataTransfer.effectAllowed = 'move';
+                }}
+                onDragEnd={() => props.onDragState(undefined)}
               >
                 <span className="file-tree__chevron">
                   {isDir &&
@@ -215,6 +253,9 @@ function TreeLevel(props: {
                 contextFiles={props.contextFiles}
                 canPin={props.canPin}
                 collapsed={props.collapsed}
+                dragOverDir={props.dragOverDir}
+                onDragState={props.onDragState}
+                onMove={props.onMove}
                 onToggleDir={props.onToggleDir}
                 onOpen={props.onOpen}
                 onTogglePin={props.onTogglePin}
@@ -269,6 +310,11 @@ export function ProjectFilesDrawer() {
   /** Renomeando arquivo/pasta (modal com input). */
   const [renaming, setRenaming] = useState<FileEntry>();
   const [renameDraft, setRenameDraft] = useState('');
+  /** Criando pasta nova dentro de `parent` ('' = raiz). */
+  const [newFolder, setNewFolder] = useState<{ parent: string }>();
+  const [newFolderName, setNewFolderName] = useState('');
+  /** Pasta destacada como destino durante um drag interno ('' = raiz). */
+  const [dragOverDir, setDragOverDir] = useState<string>();
   /** Progresso do envio em lote (pasta inteira). */
   const [uploading, setUploading] = useState<{ done: number; total: number }>();
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -426,6 +472,27 @@ export function ProjectFilesDrawer() {
     setRenameDraft(entry.name);
   };
 
+  /** Renomeia/move no servidor e remapeia abas do preview, viewer e pins. */
+  const changePath = async (oldPath: string, newPath: string) => {
+    const remap = (p: string) =>
+      p === oldPath ? newPath : p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : p;
+    if (projectId) await api.renameProjectFile(projectId, oldPath, newPath);
+    else if (workspaceSessionId) {
+      await api.renameSessionFile(workspaceSessionId, oldPath, newPath);
+    }
+    previewApplyRename(oldPath, newPath);
+    if (viewing && remap(viewing.path) !== viewing.path) {
+      setViewing({ ...viewing, path: remap(viewing.path) });
+    }
+    if (canPin && session?.contextFiles?.length) {
+      const next = session.contextFiles.map(remap);
+      if (next.some((p, i) => p !== session.contextFiles![i])) {
+        await patchCurrent({ contextFiles: next });
+      }
+    }
+    await reload();
+  };
+
   const submitRename = async () => {
     if (!renaming) return;
     const name = renameDraft.trim();
@@ -439,28 +506,43 @@ export function ProjectFilesDrawer() {
     }
     const slash = renaming.path.lastIndexOf('/');
     const newPath = slash === -1 ? name : `${renaming.path.slice(0, slash)}/${name}`;
-    const remap = (p: string) =>
-      p === renaming.path
-        ? newPath
-        : p.startsWith(renaming.path + '/')
-          ? newPath + p.slice(renaming.path.length)
-          : p;
     try {
-      if (projectId) await api.renameProjectFile(projectId, renaming.path, newPath);
-      else if (workspaceSessionId) {
-        await api.renameSessionFile(workspaceSessionId, renaming.path, newPath);
-      }
-      previewApplyRename(renaming.path, newPath);
-      if (viewing && remap(viewing.path) !== viewing.path) {
-        setViewing({ ...viewing, path: remap(viewing.path) });
-      }
-      if (canPin && session?.contextFiles?.length) {
-        const next = session.contextFiles.map(remap);
-        if (next.some((p, i) => p !== session.contextFiles![i])) {
-          await patchCurrent({ contextFiles: next });
-        }
-      }
+      await changePath(renaming.path, newPath);
       setRenaming(undefined);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  /** Move (drag & drop na árvore) um arquivo/pasta para dentro de destDir ('' = raiz). */
+  const moveEntry = async (srcPath: string, destDir: string) => {
+    const name = srcPath.split('/').pop()!;
+    const parent = srcPath.includes('/') ? srcPath.slice(0, srcPath.lastIndexOf('/')) : '';
+    if (parent === destDir) return;
+    if (destDir === srcPath || destDir.startsWith(srcPath + '/')) {
+      toast('Não dá para mover uma pasta para dentro dela mesma.', 'error');
+      return;
+    }
+    try {
+      await changePath(srcPath, destDir ? `${destDir}/${name}` : name);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const submitNewFolder = async () => {
+    if (!newFolder) return;
+    const name = newFolderName.trim();
+    if (!name) return;
+    if (/[/\\]/.test(name)) {
+      toast('O nome não pode conter barras.', 'error');
+      return;
+    }
+    const path = newFolder.parent ? `${newFolder.parent}/${name}` : name;
+    try {
+      if (projectId) await api.createProjectFolder(projectId, path);
+      else if (workspaceSessionId) await api.createSessionFolder(workspaceSessionId, path);
+      setNewFolder(undefined);
       await reload();
     } catch (err) {
       toast((err as Error).message, 'error');
@@ -557,6 +639,14 @@ export function ProjectFilesDrawer() {
           onClick: () => toggleDir(entry.path),
         },
         'separator',
+        {
+          label: 'Nova pasta dentro…',
+          icon: <FolderPlus className="icon icon--sm" aria-hidden />,
+          onClick: () => {
+            setNewFolderName('');
+            setNewFolder({ parent: entry.path });
+          },
+        },
         {
           label: 'Renomear',
           icon: <Pencil className="icon icon--sm" aria-hidden />,
@@ -718,7 +808,7 @@ export function ProjectFilesDrawer() {
                   uploadRef.current?.click();
                 }}
               >
-                Arquivos…
+                <Upload className="icon icon--sm" aria-hidden /> Arquivos…
               </button>
               <button
                 className="dropdown__item"
@@ -727,7 +817,17 @@ export function ProjectFilesDrawer() {
                   folderRef.current?.click();
                 }}
               >
-                Pasta (projeto)…
+                <Folder className="icon icon--sm" aria-hidden /> Pasta (projeto)…
+              </button>
+              <button
+                className="dropdown__item"
+                onClick={() => {
+                  close();
+                  setNewFolderName('');
+                  setNewFolder({ parent: '' });
+                }}
+              >
+                <FolderPlus className="icon icon--sm" aria-hidden /> Nova pasta vazia…
               </button>
             </>
           )}
@@ -874,7 +974,26 @@ export function ProjectFilesDrawer() {
             )}
           </div>
         ) : (
-          <div className="file-tree">
+          <div
+            className={`file-tree${dragOverDir === '' ? ' file-tree--droptarget' : ''}`}
+            // drop no fundo da árvore move para a raiz (as pastas fazem stopPropagation)
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes(MOVE_MIME)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              setDragOverDir('');
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverDir(undefined);
+            }}
+            onDrop={(e) => {
+              const src = e.dataTransfer.getData(MOVE_MIME);
+              if (!src) return;
+              e.preventDefault();
+              setDragOverDir(undefined);
+              void moveEntry(src, '');
+            }}
+          >
             {tree.length === 0 && (
               <div className="empty-state">
                 Pasta vazia. Adicione arquivos acima ou peça ao assistente para gerar (modo Agent).
@@ -886,6 +1005,9 @@ export function ProjectFilesDrawer() {
               contextFiles={contextFiles}
               canPin={canPin}
               collapsed={collapsed}
+              dragOverDir={dragOverDir}
+              onDragState={setDragOverDir}
+              onMove={(src, dest) => void moveEntry(src, dest)}
               onToggleDir={toggleDir}
               onOpen={(e) => void openFile(e)}
               onTogglePin={(e) => void togglePin(e)}
@@ -994,6 +1116,36 @@ export function ProjectFilesDrawer() {
               value={renameDraft}
               onChange={(e) => setRenameDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && void submitRename()}
+            />
+          </div>
+        </Modal>
+      )}
+      {newFolder && (
+        <Modal
+          title={newFolder.parent ? `Nova pasta em ${newFolder.parent}` : 'Nova pasta'}
+          onClose={() => setNewFolder(undefined)}
+          footer={
+            <>
+              <button className="btn btn--ghost" onClick={() => setNewFolder(undefined)}>
+                Cancelar
+              </button>
+              <button
+                className="btn btn--primary"
+                disabled={!newFolderName.trim()}
+                onClick={() => void submitNewFolder()}
+              >
+                Criar pasta
+              </button>
+            </>
+          }
+        >
+          <div className="field">
+            <label>Nome da pasta</label>
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void submitNewFolder()}
             />
           </div>
         </Modal>
