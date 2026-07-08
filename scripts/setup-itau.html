@@ -83,7 +83,7 @@
   }
   h1{
     font-size:clamp(30px,5.5vw,44px);font-weight:800;
-    letter-spacing:-.03em;line-height:1.08;max-width:14ch;
+    letter-spacing:-.03em;line-height:1.08;max-width:20ch;
   }
   .lede{color:var(--muted);margin-top:16px;max-width:56ch}
   .lede strong{color:var(--ink)}
@@ -277,7 +277,7 @@
 
   <section class="hero">
     <p class="eyebrow">Setup da máquina · rede Itaú</p>
-    <h1>Três passos para rodar o portal.</h1>
+    <h1>Três passos para rodar o BMAD Studio.</h1>
     <p class="lede">
       Esta página <strong>não executa nada</strong> na sua máquina — os botões copiam
       os comandos prontos, e você cola no <strong data-osword>terminal</strong>.
@@ -287,6 +287,7 @@
       <a href="#step1" id="prog1"><span class="dot"></span><span id="prog1-label">1 · Programas</span></a>
       <a href="#step2" id="prog2"><span class="dot"></span>2 · Configuração</a>
       <a href="#step3" id="prog3"><span class="dot"></span>3 · Rodar o portal</a>
+      <a href="#step4" id="prog4"><span class="dot"></span>4 · Aprovar no VS Code</a>
     </nav>
   </section>
 
@@ -396,6 +397,30 @@
 
     <div class="actions">
       <button class="btn done-toggle" id="step3-done" aria-pressed="false">✓ Portal rodando</button>
+    </div>
+  </section>
+
+  <!-- ================= PASSO 4 ================= -->
+  <section class="step" id="step4">
+    <div class="step-head">
+      <span class="step-no">4</span>
+      <h2>Aprovar o portal no VS Code</h2>
+      <span class="step-status" id="step4-status">pendente</span>
+    </div>
+    <p class="step-desc">
+      Ao iniciar a <strong>primeira conversa</strong>, o portal pede uma aprovação
+      dentro do <strong>VS Code</strong>. Deixe o VS Code aberto, olhe a janela dele
+      e <strong>aceite a solicitação</strong> que aparecer — sem essa aprovação a
+      conversa não anda.
+    </p>
+
+    <div class="callout">
+      <span>Não apareceu nada? Clique na janela do VS Code para trazê-la para frente —
+      o aviso pode estar esperando lá. Isso acontece <strong>só na primeira vez</strong>.</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn done-toggle" id="step4-done" aria-pressed="false">✓ Aprovei no VS Code</button>
     </div>
   </section>
 
@@ -888,7 +913,7 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
 
   /* ---------------- estado ---------------- */
   var LS_KEY = 'bmad-setup-v2';
-  var state = { os: null, checks: {}, step2: false, step3: false };
+  var state = { os: null, checks: {}, step2: false, step3: false, step4: false };
   try {
     var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     if (saved && typeof saved === 'object') {
@@ -896,6 +921,7 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
       state.checks = saved.checks || {};
       state.step2 = !!saved.step2;
       state.step3 = !!saved.step3;
+      state.step4 = !!saved.step4;
     }
   } catch (e) { /* localStorage indisponível — segue sem persistir */ }
   if (state.os !== 'mac' && state.os !== 'win') {
@@ -1079,11 +1105,17 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
     st3.classList.toggle('all-ok', state.step3);
     $('#step3-done').setAttribute('aria-pressed', String(state.step3));
 
+    var st4 = $('#step4-status');
+    st4.textContent = state.step4 ? '✓ aprovado' : 'pendente';
+    st4.classList.toggle('all-ok', state.step4);
+    $('#step4-done').setAttribute('aria-pressed', String(state.step4));
+
     // trilha do topo
     $('#prog1').classList.toggle('done', okCount === APPS.length);
     $('#prog1-label').textContent = '1 · Programas ' + okCount + '/' + APPS.length;
     $('#prog2').classList.toggle('done', state.step2);
     $('#prog3').classList.toggle('done', state.step3);
+    $('#prog4').classList.toggle('done', state.step4);
   }
 
   /* ---------------- eventos ---------------- */
@@ -1158,6 +1190,9 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
   });
   $('#step3-done').addEventListener('click', function () {
     state.step3 = !state.step3; save(); render();
+  });
+  $('#step4-done').addEventListener('click', function () {
+    state.step4 = !state.step4; save(); render();
   });
 
   render();
