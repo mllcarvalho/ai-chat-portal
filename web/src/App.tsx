@@ -16,6 +16,7 @@ import { McpServersPage } from './components/pages/McpServersPage';
 import { KnowledgePage } from './components/pages/KnowledgePage';
 import { BmadDocPage } from './components/pages/BmadDocPage';
 import { ProjectFilesDrawer } from './components/panels/ProjectFilesDrawer';
+import { PreviewPane } from './components/panels/PreviewPane';
 import { NewProjectModal } from './components/panels/NewProjectModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { Toasts } from './components/common/Toasts';
@@ -24,6 +25,7 @@ import { EnvBanner } from './components/layout/EnvBanner';
 import { DiagnosticsBanner } from './components/layout/DiagnosticsBanner';
 import { DiagnosticsPage } from './components/pages/DiagnosticsPage';
 import { useDiagnostics } from './stores/diagnosticsStore';
+import { usePreview } from './stores/previewStore';
 
 export function App() {
   const health = useCatalog((s) => s.health);
@@ -32,7 +34,9 @@ export function App() {
   const loadProjects = useSessions((s) => s.loadProjects);
   const loadSessions = useSessions((s) => s.loadSessions);
   const panel = useUi((s) => s.panel);
+  const view = useUi((s) => s.view);
   const loggedIn = useUi((s) => s.loggedIn);
+  const previewEnabled = usePreview((s) => s.enabled);
   const startDiagnostics = useDiagnostics((s) => s.start);
   const [booted, setBooted] = useState(false);
 
@@ -80,6 +84,7 @@ export function App() {
       <div className="app-shell">
         <Sidebar />
         <MainArea />
+        {view === 'chat' && previewEnabled && <PreviewPane />}
         {panel.kind === 'files' && <ProjectFilesDrawer />}
         {panel.kind === 'newProject' && <NewProjectModal />}
         {panel.kind === 'settings' && <SettingsModal />}

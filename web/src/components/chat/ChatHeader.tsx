@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionMode, TokenUsage } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
+import { usePreview } from '../../stores/previewStore';
 import { useUi } from '../../stores/uiStore';
 import { Dropdown } from '../common/Dropdown';
 import { formatCredits, formatMultiplier, formatPriceCategory, formatTokens } from './MessageBubble';
@@ -39,6 +40,8 @@ export function ChatHeader() {
   const openPanel = useUi((s) => s.openPanel);
   const closePanel = useUi((s) => s.closePanel);
   const setView = useUi((s) => s.setView);
+  const previewEnabled = usePreview((s) => s.enabled);
+  const togglePreview = usePreview((s) => s.toggle);
   const [title, setTitle] = useState(session?.title ?? '');
 
   useEffect(() => {
@@ -355,6 +358,18 @@ export function ChatHeader() {
           </div>
         )}
       </Dropdown>
+
+      <button
+        className={`pill-btn${previewEnabled ? ' pill-btn--active' : ''}`}
+        onClick={() => {
+          // ligar o preview sem o painel de arquivos aberto não teria de onde abrir abas
+          if (!previewEnabled && panel.kind !== 'files') openPanel({ kind: 'files' });
+          togglePreview();
+        }}
+        title="Modo preview: abas de arquivos ao lado do chat — clique num arquivo do painel Arquivos para abrir aqui"
+      >
+        ⧉ Preview
+      </button>
 
       <button
         className={`pill-btn${panel.kind === 'files' ? ' pill-btn--active' : ''}`}

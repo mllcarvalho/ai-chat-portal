@@ -206,6 +206,11 @@ export const api = {
     ),
   revealSessionFile: (id: string, path: string) =>
     request<{ ok: boolean }>('POST', `/api/sessions/${id}/files/reveal`, { path }),
+  renameSessionFile: (id: string, path: string, newPath: string) =>
+    request<{ ok: boolean; path: string }>('POST', `/api/sessions/${id}/files/rename`, {
+      path,
+      newPath,
+    }),
 
   listProjects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (name: string) => request<Project>('POST', '/api/projects', { name }),
@@ -232,6 +237,11 @@ export const api = {
     ),
   revealProjectFile: (id: string, path: string) =>
     request<{ ok: boolean }>('POST', `/api/projects/${id}/files/reveal`, { path }),
+  renameProjectFile: (id: string, path: string, newPath: string) =>
+    request<{ ok: boolean; path: string }>('POST', `/api/projects/${id}/files/rename`, {
+      path,
+      newPath,
+    }),
   copilotQuota: (fresh = false) =>
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
   bmadStatus: () => request<BmadStatus>('GET', '/api/bmad'),
