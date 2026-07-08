@@ -549,12 +549,23 @@ npmrc_unset() {
 uv_bin() { if [ "$IS_WINDOWS" -eq 1 ]; then printf 'uv.exe'; else printf 'uv'; fi; }
 
 # Diretório de scripts do Python (onde `pip install --user` põe o uv).
+# O scheme "user" do sysconfig dá o caminho REAL (no Windows é versionado:
+# ...\AppData\Roaming\Python\Python314\Scripts — montar na mão erra a pasta).
 python_scripts_dirs() {
-  _code="import sysconfig,site,os;print(sysconfig.get_path('scripts'));print(os.path.join(site.getuserbase(),'Scripts' if os.name=='nt' else 'bin'))"
+  _code="import sysconfig,os;print(sysconfig.get_path('scripts'));s=getattr(sysconfig,'get_preferred_scheme',None);print(sysconfig.get_path('scripts',s('user') if s else os.name+'_user'))"
   for _py in python3 python py; do
     command -v "$_py" >/dev/null 2>&1 || continue
     _out=$("$_py" -c "$_code" 2>/dev/null)
-    if [ -n "$_out" ]; then printf '%s\n' "$_out"; return 0; fi
+    [ -n "$_out" ] || continue
+    # no Git Bash o Python devolve C:\...; converte pro formato /c/... do MSYS
+    if [ "$IS_WINDOWS" -eq 1 ] && command -v cygpath >/dev/null 2>&1; then
+      printf '%s\n' "$_out" | while IFS= read -r _p; do
+        [ -n "$_p" ] && cygpath -u "$_p" 2>/dev/null
+      done
+    else
+      printf '%s\n' "$_out"
+    fi
+    return 0
   done
 }
 
