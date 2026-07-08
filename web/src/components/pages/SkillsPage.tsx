@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Download,
+  Folder,
+  FolderOpen,
+  Globe,
+  Mail,
+  Maximize2,
+  Pencil,
+  Plus,
+  Search,
+  Upload,
+  X,
+  Zap,
+} from 'lucide-react';
 import type { Skill } from '@aiportal/shared';
-import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
+import { UPLOAD_LIMITS, formatByteLimit, isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -35,6 +49,18 @@ const EMPTY: Draft = {
 /** 'all' | 'global' | 'bmad' | id de projeto */
 type ScopeFilter = string;
 
+/** Limite de um anexo da pasta da skill (o servidor recusa acima disso). */
+const ASSET_LIMIT_LABEL = formatByteLimit(UPLOAD_LIMITS.skillFileBytes);
+
+/** Campos extraídos de um arquivo importado (.md/.txt ou .skill.zip). */
+interface ParsedImport {
+  name: string;
+  description: string;
+  command: string;
+  content: string;
+  pendingFiles?: Array<{ path: string; base64: string }>;
+}
+
 /**
  * Arquivo .md de skill: frontmatter opcional (name/description/command — o
  * formato gerado pelo botão Baixar) + corpo markdown. Sem frontmatter, o
@@ -65,6 +91,7 @@ export function SkillsPage() {
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
   const [filter, setFilter] = useState<ScopeFilter>('all');
+  const [query, setQuery] = useState('');
   const [draft, setDraft] = useState<Draft | undefined>();
   const [expandContent, setExpandContent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,6 +100,10 @@ export function SkillsPage() {
 
   const uploadAsset = async (file: File) => {
     if (!draft?.id) return;
+    if (file.size > UPLOAD_LIMITS.skillFileBytes) {
+      toast(`"${file.name}" passa do limite de ${ASSET_LIMIT_LABEL} e não foi anexado.`, 'error');
+      return;
+    }
     setBusy(true);
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -119,13 +150,28 @@ export function SkillsPage() {
 
   // as skills BMAD (auto-registradas) só aparecem no agregador delas,
   // para não poluir "Todos" e "Globais"
-  const filtered = useMemo(() => {
+  const scoped = useMemo(() => {
     if (filter === 'bmad') return skills.filter((s) => isBmadAsset(s.id));
     const own = skills.filter((s) => !isBmadAsset(s.id));
     if (filter === 'all') return own;
     if (filter === 'global') return own.filter((s) => s.scope === 'global');
     return own.filter((s) => s.projectId === filter);
   }, [skills, filter]);
+
+  // busca por nome/comando/descrição, aplicada por cima do filtro de escopo
+  const needle = query.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      needle
+        ? scoped.filter(
+            (s) =>
+              s.name.toLowerCase().includes(needle) ||
+              (s.command ?? slugifyCommand(s.name)).toLowerCase().includes(needle) ||
+              s.description.toLowerCase().includes(needle),
+          )
+        : scoped,
+    [scoped, needle],
+  );
 
   const newDraft = () =>
     setDraft({
@@ -140,53 +186,91 @@ export function SkillsPage() {
     projectId: filterProjectId ?? contextProjectId ?? projects[0]?.id,
   });
 
+  /** Lê e interpreta um arquivo de import (.md/.txt ou .skill.zip). Lança erro legível. */
+  const parseImportFile = async (file: File): Promise<ParsedImport> => {
+    if (/\.zip$/i.test(file.name)) {
+      const JSZip = (await import('jszip')).default;
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      // aceita o .skill.zip do portal E uma pasta de skill zipada do disco
+      // (skill.md/SKILL.md em qualquer caixa, mesmo dentro de uma subpasta)
+      const result = await parseSkillZip(zip);
+      if (!result) {
+        throw new Error('o zip não contém um skill.md/SKILL.md — não é um zip de skill.');
+      }
+      const parsed = parseSkillFile(result.markdown);
+      return {
+        name: parsed.name ?? file.name.replace(/\.(skill\.)?zip$/i, ''),
+        description: parsed.description ?? '',
+        command: parsed.command ?? '',
+        content: parsed.content,
+        pendingFiles: result.files.length ? result.files : undefined,
+      };
+    }
+    const parsed = parseSkillFile(await file.text());
+    if (!parsed.content) throw new Error('o arquivo está vazio.');
+    return {
+      name: parsed.name ?? file.name.replace(/\.(md|markdown|txt)$/i, ''),
+      description: parsed.description ?? '',
+      command: parsed.command ?? '',
+      content: parsed.content,
+    };
+  };
+
   // importa um .md (ou .skill.zip com anexos): o conteúdo vai para o editor e
   // o usuário completa nome, comando, escopo e descrição antes de salvar
   const importFile = async (file: File) => {
     try {
-      if (/\.zip$/i.test(file.name)) {
-        const JSZip = (await import('jszip')).default;
-        const zip = await JSZip.loadAsync(await file.arrayBuffer());
-        // aceita o .skill.zip do portal E uma pasta de skill zipada do disco
-        // (skill.md/SKILL.md em qualquer caixa, mesmo dentro de uma subpasta)
-        const result = await parseSkillZip(zip);
-        if (!result) {
-          toast('O zip não contém um skill.md/SKILL.md — não é um zip de skill.', 'error');
-          return;
-        }
-        const parsed = parseSkillFile(result.markdown);
-        setDraft({
-          ...draftBase(),
-          name: parsed.name ?? file.name.replace(/\.(skill\.)?zip$/i, ''),
-          description: parsed.description ?? '',
-          command: parsed.command ?? '',
-          content: parsed.content,
-          pendingFiles: result.files.length ? result.files : undefined,
-        });
-        toast(
-          result.files.length
-            ? `Skill importada com ${result.files.length} anexo(s) — revise e salve para gravar tudo.`
-            : 'Conteúdo importado — revise os campos e salve.',
-          'ok',
-        );
-        return;
-      }
-      const parsed = parseSkillFile(await file.text());
-      if (!parsed.content) {
-        toast('O arquivo está vazio.', 'error');
-        return;
-      }
-      setDraft({
-        ...draftBase(),
-        name: parsed.name ?? file.name.replace(/\.(md|markdown|txt)$/i, ''),
-        description: parsed.description ?? '',
-        command: parsed.command ?? '',
-        content: parsed.content,
-      });
-      toast('Conteúdo importado — revise os campos e salve.', 'ok');
-    } catch {
-      toast('Não foi possível ler o arquivo.', 'error');
+      const parsed = await parseImportFile(file);
+      setDraft({ ...draftBase(), ...parsed });
+      toast(
+        parsed.pendingFiles?.length
+          ? `Skill importada com ${parsed.pendingFiles.length} anexo(s) — revise e salve para gravar tudo.`
+          : 'Conteúdo importado — revise os campos e salve.',
+        'ok',
+      );
+    } catch (err) {
+      toast(`"${file.name}": ${(err as Error).message || 'não foi possível ler o arquivo.'}`, 'error');
     }
+  };
+
+  // vários arquivos de uma vez: cada um vira uma skill salva direto (sem passar
+  // pelo editor), no escopo do filtro/contexto atual — mesmo padrão da AgentsPage
+  const importFiles = async (files: FileList) => {
+    const list = Array.from(files);
+    if (list.length === 1) {
+      await importFile(list[0]);
+      return;
+    }
+    setBusy(true);
+    let okCount = 0;
+    const base = draftBase();
+    for (const file of list) {
+      try {
+        const parsed = await parseImportFile(file);
+        const saved = await api.createSkill({
+          scope: base.scope,
+          projectId: base.scope === 'project' ? base.projectId : undefined,
+          name: parsed.name,
+          description: parsed.description,
+          command: parsed.command || undefined,
+          content: parsed.content,
+        });
+        for (const pending of parsed.pendingFiles ?? []) {
+          await api.uploadSkillFile(saved.id, pending.path, pending.base64);
+        }
+        okCount++;
+      } catch (err) {
+        toast(`"${file.name}": ${(err as Error).message || 'não foi possível ler o arquivo.'}`, 'error');
+      }
+    }
+    if (okCount) {
+      await loadSkills();
+      toast(
+        `${okCount} skill${okCount === 1 ? ' importada' : 's importadas'} — revise nome/escopo se precisar.`,
+        'ok',
+      );
+    }
+    setBusy(false);
   };
 
   // baixa a skill: .md com frontmatter, ou .skill.zip quando ela tem anexos
@@ -292,7 +376,7 @@ export function SkillsPage() {
 
   return (
     <PageShell
-      icon="⚡"
+      icon={<Zap className="icon icon--lg" aria-hidden />}
       title="Skills"
       subtitle="Instruções reutilizáveis em markdown. Toda skill pode ser ativada no contexto da conversa ou invocada por /comando."
       actions={
@@ -301,18 +385,23 @@ export function SkillsPage() {
             ref={fileInput}
             type="file"
             accept=".md,.markdown,.txt,.zip"
+            multiple
             style={{ display: 'none' }}
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void importFile(file);
+              if (e.target.files?.length) void importFiles(e.target.files);
               e.target.value = '';
             }}
           />
-          <button className="btn" onClick={() => fileInput.current?.click()}>
-            ⬆ Importar (.md ou .zip)
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
+            title="Importar skills (.md ou .skill.zip) — vários arquivos de uma vez criam as skills direto"
+          >
+            <Upload className="icon" aria-hidden /> Importar (.md ou .zip)
           </button>
           <button className="btn btn--primary" onClick={newDraft}>
-            ＋ Nova skill
+            <Plus className="icon" aria-hidden /> Nova skill
           </button>
         </>
       }
@@ -322,24 +411,52 @@ export function SkillsPage() {
           title="Biblioteca"
           count={filtered.length}
           actions={
-            <Select
+            <>
+              <div className="panel-search">
+                <Search className="icon icon--sm" aria-hidden />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar…"
+                  aria-label="Buscar skill por nome, comando ou descrição"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setQuery('');
+                  }}
+                />
+                {query && (
+                  <button title="Limpar busca" aria-label="Limpar busca" onClick={() => setQuery('')}>
+                    <X className="icon icon--sm" aria-hidden />
+                  </button>
+                )}
+              </div>
+              <Select
               compact
               align="right"
               value={filter}
               onChange={setFilter}
               options={[
                 { value: 'all', label: hasBmad ? 'Todos (sem BMAD)' : 'Todos os escopos' },
-                { value: 'global', label: '🌐 Globais' },
-                ...(hasBmad ? [{ value: 'bmad', label: '🅱️ BMAD' }] : []),
-                ...projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` })),
+                { value: 'global', label: <><Globe className="icon" aria-hidden /> Globais</> },
+                ...(hasBmad ? [{ value: 'bmad', label: 'BMAD' }] : []),
+                ...projects.map((p) => ({
+                  value: p.id,
+                  label: <><Folder className="icon" aria-hidden /> {p.name}</>,
+                })),
               ]}
-            />
+              />
+            </>
           }
         >
-          {filtered.length === 0 && (
+          {filtered.length === 0 && !(draft && !draft.id) && (
             <EmptyState
-              icon="⚡"
-              title={filter === 'all' ? 'Nenhuma skill ainda' : 'Nada neste escopo'}
+              icon={<Zap className="icon icon--lg" aria-hidden />}
+              title={
+                needle
+                  ? 'Nada encontrado na busca'
+                  : filter === 'all'
+                    ? 'Nenhuma skill ainda'
+                    : 'Nada neste escopo'
+              }
               hint={
                 <>
                   Skills são instruções reutilizáveis (markdown): ative no menu Skills da conversa
@@ -349,10 +466,40 @@ export function SkillsPage() {
               }
               action={
                 <button className="btn btn--primary" onClick={newDraft}>
-                  ＋ Criar primeira skill
+                  <Plus className="icon" aria-hidden /> Criar primeira skill
                 </button>
               }
             />
+          )}
+          {draft && !draft.id && (
+            <div className="page-list-item page-list-item--active page-list-item--draft">
+              <span className="page-list-item__meta">
+                <span
+                  className={`scope-badge${draft.scope === 'project' ? ' scope-badge--project' : ''}`}
+                >
+                  {draft.scope === 'project' ? (
+                    <>
+                      <Folder className="icon icon--sm" aria-hidden />{' '}
+                      {projectName(draft.projectId)}
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="icon icon--sm" aria-hidden /> Global
+                    </>
+                  )}
+                </span>
+                <span className="mcp-status">rascunho</span>
+              </span>
+              <span className="item-card__name">{draft.name.trim() || 'Nova skill'}</span>
+              <span className="item-card__desc">
+                {draft.description.trim() || 'Preencha ao lado e salve.'}
+              </span>
+              <span className="page-list-item__actions">
+                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
+                  Descartar
+                </span>
+              </span>
+            </div>
           )}
           {filtered.map((skill) => (
             <button
@@ -367,11 +514,18 @@ export function SkillsPage() {
                 <span
                   className={`scope-badge${skill.scope === 'project' ? ' scope-badge--project' : ''}`}
                 >
-                  {isBmadAsset(skill.id)
-                    ? '🅱️ BMAD'
-                    : skill.scope === 'project'
-                      ? `📁 ${projectName(skill.projectId)}`
-                      : '🌐 Global'}
+                  {isBmadAsset(skill.id) ? (
+                    'BMAD'
+                  ) : skill.scope === 'project' ? (
+                    <>
+                      <Folder className="icon icon--sm" aria-hidden />{' '}
+                      {projectName(skill.projectId)}
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="icon icon--sm" aria-hidden /> Global
+                    </>
+                  )}
                 </span>
               </span>
               <span className="item-card__name">{skill.name}</span>
@@ -385,7 +539,7 @@ export function SkillsPage() {
                     void download(skill);
                   }}
                 >
-                  ⬇ Baixar
+                  <Download className="icon icon--sm" aria-hidden /> Baixar
                 </span>
                 {!isBmadAsset(skill.id) && (
                   <span
@@ -397,7 +551,7 @@ export function SkillsPage() {
                       void emailShare(skill.id);
                     }}
                   >
-                    ✉️
+                    <Mail className="icon" aria-hidden />
                   </span>
                 )}
                 <span
@@ -440,7 +594,9 @@ export function SkillsPage() {
                 <label>Escopo</label>
                 <Select
                   value={draft.scope}
-                  disabled={!!draft.id}
+                  // skills BMAD são gerenciadas pela integração; as demais podem
+                  // trocar de escopo mesmo depois de criadas (a pasta é movida)
+                  disabled={!!draft.id && isBmadAsset(draft.id)}
                   onChange={(value) => {
                     const scope = value as Draft['scope'];
                     setDraft({
@@ -453,10 +609,14 @@ export function SkillsPage() {
                     });
                   }}
                   options={[
-                    { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                    {
+                      value: 'global',
+                      label: <><Globe className="icon" aria-hidden /> Global</>,
+                      hint: 'Vale em todas as conversas',
+                    },
                     {
                       value: 'project',
-                      label: '📁 Projeto',
+                      label: <><Folder className="icon" aria-hidden /> Projeto</>,
                       hint: 'Só nas conversas do projeto',
                       disabled: projects.length === 0,
                     },
@@ -468,9 +628,12 @@ export function SkillsPage() {
                   <label>Projeto</label>
                   <Select
                     value={draft.projectId ?? ''}
-                    disabled={!!draft.id}
+                    disabled={!!draft.id && isBmadAsset(draft.id)}
                     onChange={(value) => setDraft({ ...draft, projectId: value })}
-                    options={projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` }))}
+                    options={projects.map((p) => ({
+                      value: p.id,
+                      label: <><Folder className="icon" aria-hidden /> {p.name}</>,
+                    }))}
                   />
                 </div>
               )}
@@ -491,7 +654,7 @@ export function SkillsPage() {
                   onClick={() => setExpandContent(true)}
                   title="Editar em tela cheia (com visualização do markdown)"
                 >
-                  ⤢ Expandir
+                  <Maximize2 className="icon" aria-hidden /> Expandir
                 </button>
               </div>
               <textarea
@@ -516,14 +679,15 @@ export function SkillsPage() {
                       title="Abrir a pasta da skill no gerenciador de arquivos — os anexos ficam lá"
                       onClick={() => void openFolder()}
                     >
-                      📂 Abrir pasta
+                      <FolderOpen className="icon" aria-hidden /> Abrir pasta
                     </button>
                     <button
                       className="btn btn--sm btn--ghost"
                       disabled={busy}
+                      title={`Anexar um arquivo à pasta da skill — até ${ASSET_LIMIT_LABEL}`}
                       onClick={() => assetInput.current?.click()}
                     >
-                      ⬆ Anexar arquivo
+                      <Upload className="icon" aria-hidden /> Anexar arquivo
                     </button>
                   </span>
                 )}
@@ -541,10 +705,10 @@ export function SkillsPage() {
               <p className="page-hint" style={{ margin: 0 }} title={[...(draft.files ?? []), ...(draft.pendingFiles ?? []).map((f) => f.path)].join('\n') || undefined}>
                 {draft.id
                   ? (draft.files?.length ?? 0) > 0
-                    ? `📎 Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
+                    ? `Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
                     : 'Nenhum anexo — esta skill é só o markdown acima.'
                   : (draft.pendingFiles?.length ?? 0) > 0
-                    ? `📎 ${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
+                    ? `${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
                     : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}
               </p>
             </div>
@@ -566,7 +730,7 @@ export function SkillsPage() {
         ) : (
           <Panel className="panel--placeholder">
             <EmptyState
-              icon="✏️"
+              icon={<Pencil className="icon icon--lg" aria-hidden />}
               title="Nenhuma skill selecionada"
               hint="Selecione uma skill ao lado para editar, ou crie uma nova."
             />

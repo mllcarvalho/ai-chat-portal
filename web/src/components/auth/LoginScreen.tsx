@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { api } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 
@@ -96,7 +97,8 @@ export function LoginScreen() {
           Máquina pessoal, sem proxy corporativo? Deixe os dois campos em branco: nada é alterado
           na máquina. Preenchendo, a senha entra só na URL do proxy gravada nas configurações
           (settings.json, .bashrc/.zshrc, ~/.npmrc e a tela Rede do portal). O login fica salvo
-          neste navegador — use o ↻ da sidebar para relogar.
+          neste navegador — use o <RefreshCw className="icon icon--sm" aria-hidden /> da sidebar
+          para relogar.
         </p>
       </div>
     </div>

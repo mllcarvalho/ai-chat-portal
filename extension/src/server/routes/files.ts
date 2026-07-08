@@ -89,12 +89,19 @@ export function registerFileRoutes(
       sendError(res, 404, ownerNotFound);
       return;
     }
-    const input = (body ?? {}) as { path?: string; content?: string };
-    if (!input.path?.trim() || typeof input.content !== 'string') {
-      sendError(res, 400, 'path e content são obrigatórios');
+    // content (texto UTF-8) ou contentBase64 (binário preservado byte a byte —
+    // uploads de planilha/PDF/imagem chegam assim)
+    const input = (body ?? {}) as { path?: string; content?: string; contentBase64?: string };
+    const hasText = typeof input.content === 'string';
+    const hasBinary = typeof input.contentBase64 === 'string';
+    if (!input.path?.trim() || (!hasText && !hasBinary)) {
+      sendError(res, 400, 'path e content (ou contentBase64) são obrigatórios');
       return;
     }
-    if (Buffer.byteLength(input.content) > WRITE_LIMIT) {
+    const data = hasBinary
+      ? Buffer.from(input.contentBase64!, 'base64')
+      : Buffer.from(input.content!, 'utf8');
+    if (data.byteLength > WRITE_LIMIT) {
       sendError(res, 400, `Arquivo excede o limite de ${WRITE_LIMIT / 1024 / 1024} MB`);
       return;
     }
@@ -102,7 +109,7 @@ export function registerFileRoutes(
       fs.mkdirSync(root, { recursive: true });
       const file = resolveInProject(root, input.path.trim());
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, input.content, 'utf8');
+      fs.writeFileSync(file, data);
       sendJson(res, 200, { ok: true, path: input.path.trim() });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao gravar arquivo');
@@ -126,14 +133,80 @@ export function registerFileRoutes(
         return;
       }
       const file = resolveInProject(root, rel);
-      if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      if (file === path.resolve(root)) {
+        sendError(res, 400, 'Não é possível excluir a raiz da pasta de trabalho');
+        return;
+      }
+      if (!fs.existsSync(file)) {
         sendError(res, 404, 'Arquivo não encontrado');
         return;
       }
-      fs.unlinkSync(file);
+      if (fs.statSync(file).isDirectory()) fs.rmSync(file, { recursive: true, force: true });
+      else fs.unlinkSync(file);
       sendJson(res, 200, { ok: true });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao excluir arquivo');
+    }
+  });
+
+  // renomeia (ou move) arquivo/pasta dentro da pasta de trabalho
+  router.post(`${base}/rename`, ({ res, params, body }) => {
+    const root = rootFor(params.id);
+    if (!root) {
+      sendError(res, 404, ownerNotFound);
+      return;
+    }
+    const input = (body ?? {}) as { path?: string; newPath?: string };
+    if (!input.path?.trim() || !input.newPath?.trim()) {
+      sendError(res, 400, 'path e newPath são obrigatórios');
+      return;
+    }
+    try {
+      const from = resolveInProject(root, input.path.trim());
+      const to = resolveInProject(root, input.newPath.trim());
+      if (from === path.resolve(root)) {
+        sendError(res, 400, 'Não é possível renomear a raiz da pasta de trabalho');
+        return;
+      }
+      if (!fs.existsSync(from)) {
+        sendError(res, 404, 'Arquivo não encontrado');
+        return;
+      }
+      if (from !== to && fs.existsSync(to)) {
+        sendError(res, 400, 'Já existe um arquivo ou pasta com esse nome');
+        return;
+      }
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.renameSync(from, to);
+      sendJson(res, 200, { ok: true, path: input.newPath.trim() });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao renomear');
+    }
+  });
+
+  // cria uma pasta vazia (com pais intermediários, se preciso)
+  router.post(`${base}/mkdir`, ({ res, params, body }) => {
+    const root = rootFor(params.id);
+    if (!root) {
+      sendError(res, 404, ownerNotFound);
+      return;
+    }
+    const rel = ((body ?? {}) as { path?: string }).path;
+    if (!rel?.trim()) {
+      sendError(res, 400, 'Parâmetro path é obrigatório');
+      return;
+    }
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      const dir = resolveInProject(root, rel.trim());
+      if (fs.existsSync(dir)) {
+        sendError(res, 400, 'Já existe um arquivo ou pasta com esse nome');
+        return;
+      }
+      fs.mkdirSync(dir, { recursive: true });
+      sendJson(res, 200, { ok: true, path: rel.trim() });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao criar pasta');
     }
   });
 

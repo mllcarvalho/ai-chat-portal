@@ -4,6 +4,16 @@ import * as vscode from 'vscode';
 export const MODEL_RETRIES = 2;
 export const MODEL_RETRY_DELAY_MS = 1500;
 
+/** O gateway pendurou sem erro e sem tokens — vale retry como um 504. */
+export class ModelIdleTimeoutError extends Error {
+  constructor(idleMs: number) {
+    super(
+      `O modelo ficou ${Math.round(idleMs / 1000)}s sem enviar progresso e a rodada foi abandonada. ` +
+        'Tente de novo em instantes.',
+    );
+  }
+}
+
 export function isRateLimitError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return /\b429\b/.test(msg) || msg.includes('rate limit') || msg.includes('too many requests');
@@ -16,6 +26,7 @@ export function isRateLimitError(err: unknown): boolean {
  * entram: retry não muda o resultado.
  */
 export function isTransientModelError(err: unknown): boolean {
+  if (err instanceof ModelIdleTimeoutError) return true;
   if (err instanceof vscode.LanguageModelError && err.code !== 'Unknown') return false;
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return (

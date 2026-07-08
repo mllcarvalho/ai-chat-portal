@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Eye, Pencil } from 'lucide-react';
 import { Markdown } from './Markdown';
 import { Modal } from './Modal';
 
@@ -35,14 +36,14 @@ export function MarkdownEditorModal(props: {
             className={`btn btn--sm${preview ? '' : ' btn--primary'}`}
             onClick={() => setPreview(false)}
           >
-            ✏️ Editar
+            <Pencil className="icon" aria-hidden /> Editar
           </button>
         )}
         <button
           className={`btn btn--sm${preview ? ' btn--primary' : ''}`}
           onClick={() => setPreview(true)}
         >
-          👁 Visualizar
+          <Eye className="icon" aria-hidden /> Visualizar
         </button>
       </div>
       {preview ? (

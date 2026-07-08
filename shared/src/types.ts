@@ -142,6 +142,8 @@ export interface TokenUsage {
   credits?: number;
 }
 
+export type ChatFinishReason = 'stop' | 'cancelled' | 'max_rounds' | 'error';
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -150,6 +152,8 @@ export interface ChatMessage {
   modelId?: string;
   usage?: TokenUsage;
   createdAt: string;
+  /** Como a resposta terminou (mensagens assistant) — habilita o "continuar" no max_rounds. */
+  finishReason?: ChatFinishReason;
   error?: { code: string; message: string };
 }
 
@@ -167,6 +171,12 @@ export interface Session {
   /** Arquivos do projeto fixados no contexto (caminhos relativos à raiz). */
   contextFiles?: string[];
   messages: ChatMessage[];
+  /**
+   * Resumo automático da parte antiga da conversa que já não cabe na janela do
+   * modelo — injetado no lugar das mensagens podadas. Cobre as mensagens até
+   * throughMessageId (inclusive); atualizado em background quando a poda avança.
+   */
+  historySummary?: { throughMessageId: string; summary: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -465,6 +475,40 @@ export interface BmadStatus {
   agents: BmadAgentInfo[];
   /** Skills de workflow (/bmad-*) registradas no projeto. */
   skillCount: number;
+}
+
+/**
+ * Tipos de artefato BMAD reconhecidos em _bmad-output/ do projeto (detecção
+ * por convenção de nome do BMAD v6/BMM — melhor esforço).
+ */
+export type BmadArtifactKind =
+  | 'brainstorming'
+  | 'market-research'
+  | 'domain-research'
+  | 'technical-research'
+  | 'product-brief'
+  | 'prd'
+  | 'prfaq'
+  | 'ux-design'
+  | 'prd-validation'
+  | 'adversarial-review'
+  | 'epics'
+  | 'implementation-readiness';
+
+/** Artefato BMAD encontrado na pasta _bmad-output/ do projeto. */
+export interface BmadArtifact {
+  kind: BmadArtifactKind;
+  /** Nome do arquivo. */
+  name: string;
+  /** Caminho relativo à raiz do projeto (ex.: _bmad-output/planning-artifacts/prd.md). */
+  path: string;
+  /** Última modificação (ISO). */
+  mtime: string;
+}
+
+/** Resposta de GET /api/bmad/artifacts?projectId=… */
+export interface BmadArtifactsReport {
+  artifacts: BmadArtifact[];
 }
 
 export interface KnowledgeBase {

@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Bot,
+  Folder,
+  Globe,
+  Link,
+  Mail,
+  Maximize2,
+  Package,
+  Pencil,
+  Plus,
+  Puzzle,
+  Search,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import {
   isBmadAsset,
   slugifyCommand,
   type AgentPreset,
@@ -13,6 +28,7 @@ import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { formatMultiplier } from '../chat/MessageBubble';
+import { AgentIcon } from '../common/AgentIcon';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
@@ -44,6 +60,7 @@ const EMPTY: Draft = {
 interface PickItem {
   id: string;
   label: string;
+  icon?: LucideIcon;
 }
 
 /** Resumo dos vínculos do agente para a lista (ex: "2 skills · 1 base"). */
@@ -53,7 +70,7 @@ function linkSummary(agent: AgentPreset): string {
   const bases = agent.knowledgeBaseIds?.length ?? 0;
   if (skills) parts.push(`${skills} skill${skills === 1 ? '' : 's'}`);
   if (bases) parts.push(`${bases} base${bases === 1 ? '' : 's'}`);
-  return parts.length ? ` · 🔗 ${parts.join(' · ')}` : '';
+  return parts.length ? ` · ${parts.join(' · ')}` : '';
 }
 
 /** Modal de seleção de vínculos (skills ou bases): busca + checkboxes. */
@@ -100,7 +117,9 @@ function LinkPickerModal(props: {
               checked={props.selected.includes(it.id)}
               onChange={() => props.onToggle(it.id)}
             />
-            <span>{it.label}</span>
+            <span>
+              {it.icon && <it.icon className="icon" aria-hidden />} {it.label}
+            </span>
           </label>
         ))}
         {filtered.length === 0 && (
@@ -128,6 +147,7 @@ export function AgentsPage() {
   // conversa rápida nasce no projeto aberto (se houver)
   const contextProjectId = session?.projectId ?? viewProjectId ?? null;
   const [draft, setDraft] = useState<Draft | undefined>();
+  const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [vsAgents, setVsAgents] = useState<VsCodeAgent[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -135,6 +155,16 @@ export function AgentsPage() {
   const [picker, setPicker] = useState<'skills' | 'bases' | null>(null);
   const [expandInstructions, setExpandInstructions] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // busca por nome/descrição na lista de agentes
+  const needle = query.trim().toLowerCase();
+  const shownAgents = needle
+    ? visibleAgents.filter(
+        (a) =>
+          a.name.toLowerCase().includes(needle) ||
+          (a.description ?? '').toLowerCase().includes(needle),
+      )
+    : visibleAgents;
 
   useEffect(() => {
     void loadAgents();
@@ -165,9 +195,9 @@ export function AgentsPage() {
     });
   };
 
-  const skillLabel = (s: Skill) => `${s.name}${s.scope === 'project' ? ' 📁' : ''}`;
+  const skillLabel = (s: Skill) => s.name;
   const baseLabel = (b: KnowledgeBase) =>
-    `${b.scope === 'project' ? '📁' : '🌐'} ${b.name}${b.enabled ? '' : ' (desativada no geral)'}`;
+    `${b.name}${b.enabled ? '' : ' (desativada no geral)'}`;
 
   const save = async () => {
     if (!draft) return;
@@ -353,7 +383,7 @@ export function AgentsPage() {
 
   return (
     <PageShell
-      icon="🤖"
+      icon={<Bot className="icon icon--lg" aria-hidden />}
       title="Agentes"
       subtitle="Presets de instruções + modelo + modo que você aplica a uma conversa."
       actions={
@@ -375,29 +405,78 @@ export function AgentsPage() {
             onClick={() => importInputRef.current?.click()}
             title="Importar agentes exportados (.agent.json ou .agent.zip com skills e bases)"
           >
-            📦 Importar
+            <Package className="icon" aria-hidden /> Importar
           </button>
           <button className="btn btn--primary" onClick={() => setDraft({ ...EMPTY })}>
-            ＋ Novo agente
+            <Plus className="icon" aria-hidden /> Novo agente
           </button>
         </>
       }
     >
       <div className="page-cols">
-        <Panel title="Meus agentes" count={visibleAgents.length}>
-          {visibleAgents.length === 0 && (
+        <Panel
+          title="Meus agentes"
+          count={shownAgents.length}
+          actions={
+            visibleAgents.length > 0 ? (
+              <div className="panel-search">
+                <Search className="icon icon--sm" aria-hidden />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar…"
+                  aria-label="Buscar agente por nome ou descrição"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setQuery('');
+                  }}
+                />
+                {query && (
+                  <button title="Limpar busca" aria-label="Limpar busca" onClick={() => setQuery('')}>
+                    <X className="icon icon--sm" aria-hidden />
+                  </button>
+                )}
+              </div>
+            ) : undefined
+          }
+        >
+          {needle && visibleAgents.length > 0 && shownAgents.length === 0 && (
             <EmptyState
-              icon="🤖"
+              icon={<Search className="icon icon--lg" aria-hidden />}
+              title="Nada encontrado"
+              hint="Nenhum agente com esse nome ou descrição."
+            />
+          )}
+          {visibleAgents.length === 0 && !(draft && !draft.id) && (
+            <EmptyState
+              icon={<Bot className="icon icon--lg" aria-hidden />}
               title="Nenhum agente ainda"
               hint="Crie um preset de instruções ou importe um chat mode do VS Code abaixo."
               action={
                 <button className="btn btn--primary" onClick={() => setDraft({ ...EMPTY })}>
-                  ＋ Criar primeiro agente
+                  <Plus className="icon" aria-hidden /> Criar primeiro agente
                 </button>
               }
             />
           )}
-          {visibleAgents.map((agent) => (
+          {draft && !draft.id && (
+            <div className="page-list-item page-list-item--active page-list-item--draft">
+              <span className="page-list-item__meta">
+                <span className="mcp-status">rascunho</span>
+              </span>
+              <span className="item-card__name">
+                <AgentIcon icon={draft.icon} /> {draft.name.trim() || 'Novo agente'}
+              </span>
+              <span className="item-card__desc">
+                {draft.description.trim() || 'Preencha ao lado e salve.'}
+              </span>
+              <span className="page-list-item__actions">
+                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
+                  Descartar
+                </span>
+              </span>
+            </div>
+          )}
+          {shownAgents.map((agent) => (
             <button
               className={`page-list-item${draft?.id === agent.id ? ' page-list-item--active' : ''}`}
               key={agent.id}
@@ -416,7 +495,7 @@ export function AgentsPage() {
               }
             >
               <span className="item-card__name">
-                {agent.icon ?? '🤖'} {agent.name}
+                <AgentIcon icon={agent.icon} /> {agent.name}
               </span>
               <span className="item-card__desc">
                 {agent.description || agent.instructions || '—'}
@@ -456,7 +535,7 @@ export function AgentsPage() {
                       void emailShare(agent.id);
                     }}
                   >
-                    ✉️
+                    <Mail className="icon" aria-hidden />
                   </span>
                 )}
                 <span
@@ -487,7 +566,9 @@ export function AgentsPage() {
               <div className="panel__divider">Chat modes do VS Code</div>
               {vsAgents.map((vs) => (
                 <div className="page-list-item page-list-item--static" key={vs.id}>
-                  <span className="item-card__name">🧩 {vs.name}</span>
+                  <span className="item-card__name">
+                    <Puzzle className="icon" aria-hidden /> {vs.name}
+                  </span>
                   <span className="item-card__desc">
                     {vs.description || '—'}
                     <em style={{ opacity: 0.7 }}>
@@ -576,7 +657,7 @@ export function AgentsPage() {
                 <label>Skills vinculadas ({draft.skillIds.length})</label>
                 <div className="link-field">
                   <button className="btn btn--sm btn--ghost" onClick={() => setPicker('skills')}>
-                    🔗 Vincular skills
+                    <Link className="icon" aria-hidden /> Vincular skills
                   </button>
                   {renderLinkChips('skillIds')}
                 </div>
@@ -589,7 +670,7 @@ export function AgentsPage() {
                 <label>Bases vinculadas ({draft.knowledgeBaseIds.length})</label>
                 <div className="link-field">
                   <button className="btn btn--sm btn--ghost" onClick={() => setPicker('bases')}>
-                    🔗 Vincular bases
+                    <Link className="icon" aria-hidden /> Vincular bases
                   </button>
                   {renderLinkChips('knowledgeBaseIds')}
                 </div>
@@ -607,7 +688,7 @@ export function AgentsPage() {
                   onClick={() => setExpandInstructions(true)}
                   title="Editar em tela cheia"
                 >
-                  ⤢ Expandir
+                  <Maximize2 className="icon" aria-hidden /> Expandir
                 </button>
               </div>
               <textarea
@@ -634,7 +715,7 @@ export function AgentsPage() {
         ) : (
           <Panel className="panel--placeholder">
             <EmptyState
-              icon="✏️"
+              icon={<Pencil className="icon icon--lg" aria-hidden />}
               title="Nenhum agente selecionado"
               hint="Selecione um agente ao lado para editar, crie um novo ou importe um chat mode do VS Code."
             />
@@ -646,7 +727,11 @@ export function AgentsPage() {
         <LinkPickerModal
           title="Vincular skills"
           emptyHint="Nenhuma skill no portal ainda."
-          items={skills.map((s) => ({ id: s.id, label: skillLabel(s) }))}
+          items={skills.map((s) => ({
+            id: s.id,
+            label: skillLabel(s),
+            icon: s.scope === 'project' ? Folder : undefined,
+          }))}
           selected={draft.skillIds}
           onToggle={(id) => toggleDraftLink('skillIds', id)}
           onClose={() => setPicker(null)}
@@ -656,7 +741,11 @@ export function AgentsPage() {
         <LinkPickerModal
           title="Vincular bases de conhecimento"
           emptyHint="Nenhuma base de conhecimento ainda."
-          items={bases.map((b) => ({ id: b.id, label: baseLabel(b) }))}
+          items={bases.map((b) => ({
+            id: b.id,
+            label: baseLabel(b),
+            icon: b.scope === 'project' ? Folder : Globe,
+          }))}
           selected={draft.knowledgeBaseIds}
           onToggle={(id) => toggleDraftLink('knowledgeBaseIds', id)}
           onClose={() => setPicker(null)}

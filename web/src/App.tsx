@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from './api/client';
 import { useCatalog } from './stores/catalogStore';
+import { useChat } from './stores/chatStore';
 import { useSessions } from './stores/sessionsStore';
 import { useUi } from './stores/uiStore';
 import { Sidebar } from './components/layout/Sidebar';
@@ -15,7 +16,6 @@ import { AgentsPage } from './components/pages/AgentsPage';
 import { McpServersPage } from './components/pages/McpServersPage';
 import { KnowledgePage } from './components/pages/KnowledgePage';
 import { BmadDocPage } from './components/pages/BmadDocPage';
-import { ProjectFilesDrawer } from './components/panels/ProjectFilesDrawer';
 import { NewProjectModal } from './components/panels/NewProjectModal';
 import { SettingsModal } from './components/settings/SettingsModal';
 import { Toasts } from './components/common/Toasts';
@@ -43,6 +43,9 @@ export function App() {
         await Promise.all([loadAll(), loadProjects(), loadSessions(null)]);
         // diagnóstico do ambiente em background — só interrompe se algo falhar
         void startDiagnostics();
+        // retoma gerações que seguiam rodando no servidor (inclusive de
+        // conversas em background) antes do reload da página
+        void useChat.getState().resumeAll();
       }
       setBooted(true);
     })();
@@ -80,7 +83,6 @@ export function App() {
       <div className="app-shell">
         <Sidebar />
         <MainArea />
-        {panel.kind === 'files' && <ProjectFilesDrawer />}
         {panel.kind === 'newProject' && <NewProjectModal />}
         {panel.kind === 'settings' && <SettingsModal />}
         <ConfirmDialog />

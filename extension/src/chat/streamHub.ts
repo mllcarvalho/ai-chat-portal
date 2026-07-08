@@ -12,13 +12,15 @@ interface BufferedEvent {
 /**
  * Stream de chat que sobrevive à conexão HTTP: todo evento fica num buffer e
  * uma reconexão (POST /api/chat/attach) recebe o replay completo antes de
- * seguir ao vivo. A geração só é cancelada se ninguém reconectar dentro do
+ * seguir ao vivo. Suporta VÁRIOS clientes ao mesmo tempo (duas abas, webview +
+ * browser) — cada attach vira um sink extra, sem derrubar os demais. A geração
+ * só é cancelada se TODOS os clientes sumirem e ninguém reconectar dentro do
  * período de graça — espelha o comportamento do Copilot Chat, que não perde a
  * resposta num reload.
  */
 export class ChatStream {
   private buffer: BufferedEvent[] = [];
-  private sink?: SseStream;
+  private sinks = new Set<SseStream>();
   private closeCallbacks: Array<() => void> = [];
   private graceTimer?: NodeJS.Timeout;
   closed = false;
@@ -41,31 +43,30 @@ export class ChatStream {
     if (this.closed) return;
     if (event === 'done') this.generationDone = true;
     this.buffer.push({ event, data });
-    this.sink?.send(event, data);
+    for (const sink of this.sinks) sink.send(event, data);
   }
 
-  /** Troca a conexão HTTP e faz replay de tudo que já foi emitido. */
+  /** Soma uma conexão HTTP ao stream e faz replay de tudo que já foi emitido para ela. */
   attach(sse: SseStream): void {
     if (this.graceTimer) {
       clearTimeout(this.graceTimer);
       this.graceTimer = undefined;
     }
-    const previous = this.sink;
-    this.sink = sse;
-    previous?.close();
+    this.sinks.add(sse);
     for (const { event, data } of this.buffer) {
       sse.send(event, data as ChatSseEvents[ChatSseEventName]);
     }
     sse.onClose(() => {
-      // conexão caiu no meio da geração: espera uma reconexão antes de desistir
-      if (this.sink !== sse || this.closed) return;
+      this.sinks.delete(sse);
+      // o último cliente caiu no meio da geração: espera uma reconexão antes de desistir
+      if (this.sinks.size || this.closed) return;
       this.graceTimer = setTimeout(() => {
         for (const cb of this.closeCallbacks) cb();
       }, REATTACH_GRACE_MS);
     });
   }
 
-  /** Dispara só quando o cliente sumiu de vez (sem reconexão no período de graça). */
+  /** Dispara só quando TODOS os clientes sumiram de vez (sem reconexão no período de graça). */
   onClose(cb: () => void): void {
     this.closeCallbacks.push(cb);
   }
@@ -74,7 +75,8 @@ export class ChatStream {
     if (this.closed) return;
     this.closed = true;
     if (this.graceTimer) clearTimeout(this.graceTimer);
-    this.sink?.close();
+    for (const sink of this.sinks) sink.close();
+    this.sinks.clear();
     if (bySession.get(this.sessionId) === this) bySession.delete(this.sessionId);
   }
 }
@@ -89,4 +91,11 @@ export function registerStream(stream: ChatStream): void {
 export function activeStream(sessionId: string): ChatStream | undefined {
   const stream = bySession.get(sessionId);
   return stream && !stream.closed && !stream.generationDone ? stream : undefined;
+}
+
+/** Sessões com geração em andamento — usado no boot da SPA para retomar todas. */
+export function activeSessionIds(): string[] {
+  return [...bySession.values()]
+    .filter((s) => !s.closed && !s.generationDone)
+    .map((s) => s.sessionId);
 }

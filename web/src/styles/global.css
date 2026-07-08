@@ -711,6 +711,30 @@ select:focus {
   font-size: 13px;
 }
 
+/* "tentar novamente" dentro do banner de erro — sempre visível */
+.msg__error-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  color: var(--danger);
+  text-decoration: underline;
+}
+
+.msg__error-retry:hover {
+  color: var(--danger);
+  background: rgba(201, 58, 44, 0.12);
+}
+
+/* "continuar" após o limite de rodadas — em destaque e sem esperar o hover */
+.msg__actions:has(.msg__action--primary) {
+  opacity: 1;
+}
+
+.msg__action--primary {
+  color: var(--accent);
+}
+
 /* cursor pulsante durante streaming */
 .stream-caret::after {
   content: '▍';
@@ -859,6 +883,21 @@ select:focus {
 .tool-card__approval-actions {
   display: flex;
   gap: 8px;
+}
+
+/* botão "Reverter" das tools de escrita (checkpoint do workspace) */
+.tool-card__revert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px 8px;
+}
+.tool-card__revert-error {
+  font-size: 11px;
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spinner {
@@ -2195,6 +2234,8 @@ select:focus {
   margin-left: auto;
   font-size: 10.5px;
   color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .file-tree__actions {
   display: flex;
@@ -2226,6 +2267,17 @@ select:focus {
 .file-tree__pin--on {
   filter: none;
   opacity: 1;
+}
+
+/* destino de um drag interno (mover arquivo/pasta entre pastas) */
+.file-tree__row--droptarget {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+.file-tree--droptarget {
+  outline: 1px dashed var(--accent-border);
+  outline-offset: -2px;
+  border-radius: 6px;
 }
 
 .file-viewer pre {
@@ -2270,6 +2322,244 @@ select:focus {
   border-radius: var(--radius-sm);
   overflow: auto;
   padding: 8px;
+}
+
+/* ---------- ícones (lucide) ---------- */
+
+/* uso: <IconName className="icon" aria-hidden /> — traço fino, alinhado ao texto */
+.icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  vertical-align: -0.18em;
+}
+.icon--sm {
+  width: 12px;
+  height: 12px;
+}
+.icon--lg {
+  width: 18px;
+  height: 18px;
+}
+button .icon {
+  pointer-events: none;
+}
+
+/* ---------- modo preview (split view com abas, estilo VS Code) ---------- */
+
+/* o header do chat segue inteiro no topo; o split fica abaixo dele */
+.chat-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.chat-split__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-pane {
+  position: relative;
+  width: min(520px, 42vw);
+  min-width: 320px;
+  max-width: 70vw;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-1);
+  border-left: 1px solid var(--border-strong);
+}
+.preview-pane--resizing {
+  user-select: none;
+}
+.preview-pane__resizer {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 6;
+}
+.preview-pane__resizer:hover,
+.preview-pane--resizing .preview-pane__resizer {
+  background: var(--accent-border);
+  opacity: 0.6;
+}
+.preview-tabs {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  min-height: 36px;
+}
+.preview-tabs__list {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.preview-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  min-width: 150px;
+  max-width: 200px;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  background: transparent;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.preview-tab:hover {
+  background: var(--bg-hover);
+}
+.preview-tab--active {
+  background: var(--bg-1);
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.preview-tab__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.preview-tab__close {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-faint);
+  opacity: 0;
+}
+.preview-tab:hover .preview-tab__close,
+.preview-tab--active .preview-tab__close {
+  opacity: 1;
+}
+.preview-tab__close:hover {
+  background: var(--bg-3);
+  color: var(--text);
+}
+.preview-tabs__off {
+  padding: 0 12px;
+  font-size: 15px;
+  color: var(--text-faint);
+  border-left: 1px solid var(--border);
+}
+.preview-tabs__off:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.preview-pane__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.preview-pane__path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-pane__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.preview-pane__body > pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.preview-pane__body .html-preview {
+  min-height: 0;
+}
+.preview-pane__editor {
+  flex: 1;
+  width: 100%;
+  min-height: 280px;
+}
+.preview-pane__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+/* ---------- menu de contexto (botão direito na árvore de arquivos) ---------- */
+
+.context-menu {
+  position: fixed;
+  z-index: 90;
+  min-width: 200px;
+  padding: 5px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+}
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+}
+.context-menu__item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.context-menu__item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.context-menu__item--danger {
+  color: var(--danger);
+}
+.context-menu__item--danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+.context-menu__icon {
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+.context-menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
 /* diagramas mermaid nos balões do chat e nos documentos renderizados */
@@ -2400,6 +2690,33 @@ select:focus {
   border-style: dashed;
 }
 
+/* input de URL com senha embutida: mascara usuario:senha@ e olhinho para revelar */
+.secret-input {
+  position: relative;
+  display: flex;
+}
+.secret-input input {
+  flex: 1;
+  width: 100%;
+  padding-right: 34px;
+}
+.secret-input__eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.secret-input__eye:hover {
+  color: var(--text);
+}
+
 /* ---------- ações BMAD no chat ---------- */
 
 .bmad-deck-wrap {
@@ -2438,6 +2755,16 @@ select:focus {
 }
 .bmad-deck__header:hover {
   color: var(--accent-strong);
+}
+/* marca em vermelho (herança do 🅱️ original): destaca a barra no meio do chat */
+.bmad-deck__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+}
+.bmad-deck__brand .icon {
+  fill: currentColor;
 }
 .bmad-deck__hint {
   font-weight: 500;
@@ -2494,6 +2821,29 @@ select:focus {
 .bmad-chip:disabled {
   opacity: 0.5;
   cursor: default;
+}
+/* progresso do fluxo: chip cuja ação já tem artefato em _bmad-output/ */
+.bmad-chip--done {
+  border-color: rgba(23, 130, 70, 0.38);
+}
+.bmad-chip__check {
+  color: var(--ok);
+  margin-left: 3px;
+}
+/* próximo passo sugerido do fluxo */
+.bmad-chip--suggested {
+  border-color: var(--accent-border);
+}
+.bmad-chip__badge {
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 @media (max-width: 640px) {
   .bmad-deck__row {
@@ -2571,6 +2921,16 @@ select:focus {
 .empty-state__action,
 .empty-state .btn {
   margin-top: 10px;
+}
+/* mais de um botão na ação (ex.: Instalar / Agora não) fica lado a lado */
+.empty-state__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.empty-state__action .btn {
+  margin-top: 0;
 }
 
 /* ---------- onboarding ---------- */
@@ -2936,6 +3296,10 @@ button.chip--action:disabled {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--text-dim);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin: 0;
   display: flex;
   align-items: center;
@@ -2956,6 +3320,7 @@ button.chip--action:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .panel__filter {
   font-size: 12px;
@@ -3372,6 +3737,11 @@ button.chip--action:disabled {
 .page-list-item--active .page-list-item__actions {
   opacity: 1;
 }
+/* rascunho na lista enquanto o item é criado no painel ao lado */
+.page-list-item--draft {
+  border-style: dashed;
+  cursor: default;
+}
 
 .scope-badge {
   font-size: 10.5px;
@@ -3777,3 +4147,82 @@ button.chip--action:disabled {
   }
 }
 
+
+/* ---------- busca/filtro nas telas de gestão (sidebar, arquivos, páginas) ---------- */
+
+/* Caixa de busca compacta: ícone + input + botão de limpar. */
+.panel-search,
+.sidebar__search,
+.files-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  color: var(--text-faint);
+}
+.panel-search:focus-within,
+.sidebar__search:focus-within,
+.files-panel__search:focus-within {
+  border-color: var(--accent);
+}
+.panel-search input,
+.sidebar__search input,
+.files-panel__search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.panel-search input:focus,
+.sidebar__search input:focus,
+.files-panel__search input:focus {
+  border: none;
+  box-shadow: none;
+}
+.panel-search > button,
+.sidebar__search > button,
+.files-panel__search > button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text-faint);
+}
+.panel-search > button:hover,
+.sidebar__search > button:hover,
+.files-panel__search > button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+/* no cabeçalho de um Panel, a busca não pode esmagar as outras ações */
+.panel-search {
+  max-width: 190px;
+}
+.panel-search--block {
+  max-width: none;
+  margin-bottom: 10px;
+}
+.sidebar__search {
+  margin: 0 14px 10px;
+}
+.files-panel__search {
+  margin: 10px 16px 0;
+}
+
+/* bolinha de "não salvo" na aba ativa do preview */
+.preview-tab__dirty {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}

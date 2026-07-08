@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BookOpen, Bot, Clock, Package, Settings, User, Zap } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { PageShell } from './PageShell';
 import {
@@ -21,7 +22,7 @@ export function BmadDocPage() {
 
   return (
     <PageShell
-      icon="📖"
+      icon={<BookOpen className="icon icon--lg" aria-hidden />}
       title="Doc BMAD"
       subtitle="O framework por trás do portal: fases, agentes e o que cada skill /bmad-* faz."
     >
@@ -43,12 +44,16 @@ export function BmadDocPage() {
         </p>
       </section>
 
-      <h3 className="bmaddoc__section-title">🤖 Os agentes</h3>
+      <h3 className="bmaddoc__section-title">
+        <Bot className="icon" aria-hidden /> Os agentes
+      </h3>
       <div className="bmaddoc__agents">
         {BMAD_AGENTS.map((agent) => (
           <div className="bmaddoc__agent" key={agent.code}>
             <div className="bmaddoc__agent-head">
-              <span className="bmaddoc__agent-icon">{agent.icon}</span>
+              <span className="bmaddoc__agent-icon">
+                <agent.icon className="icon icon--lg" aria-hidden />
+              </span>
               <div>
                 <div className="bmaddoc__agent-name">{agent.persona}</div>
                 <div className="bmaddoc__agent-role">{agent.role}</div>
@@ -59,11 +64,15 @@ export function BmadDocPage() {
         ))}
       </div>
 
-      <h3 className="bmaddoc__section-title">⚡ As skills, por função</h3>
+      <h3 className="bmaddoc__section-title">
+        <Zap className="icon" aria-hidden /> As skills, por função
+      </h3>
       {BMAD_CATEGORIES.map((category) => (
         <section className="bmaddoc__category" key={category.id}>
           <div className="bmaddoc__category-head">
-            <span className="bmaddoc__category-icon">{category.icon}</span>
+            <span className="bmaddoc__category-icon">
+              <category.icon className="icon icon--lg" aria-hidden />
+            </span>
             <div className="bmaddoc__category-text">
               <span className="bmaddoc__category-title">{category.title}</span>
               <span className="bmaddoc__category-blurb">{category.blurb}</span>
@@ -114,18 +123,27 @@ export function BmadDocPage() {
             <div className="bmaddoc__detail-tags">
               <code className="bmaddoc__detail-command">/{selected.skill.command}</code>
               <span className="chip">
-                {selected.category.icon} {selected.category.title}
+                <selected.category.icon className="icon icon--sm" aria-hidden />{' '}
+                {selected.category.title}
               </span>
             </div>
             <p className="bmaddoc__detail-desc">{selected.skill.description}</p>
             <dl className="bmaddoc__detail-fields">
-              <dt>👤 Quem executa</dt>
+              <dt>
+                <User className="icon icon--sm" aria-hidden /> Quem executa
+              </dt>
               <dd>{selected.skill.agent}</dd>
-              <dt>⚙️ O que faz</dt>
+              <dt>
+                <Settings className="icon icon--sm" aria-hidden /> O que faz
+              </dt>
               <dd>{selected.skill.does}</dd>
-              <dt>🕐 Quando usar</dt>
+              <dt>
+                <Clock className="icon icon--sm" aria-hidden /> Quando usar
+              </dt>
               <dd>{selected.skill.whenToUse}</dd>
-              <dt>📦 O que produz</dt>
+              <dt>
+                <Package className="icon icon--sm" aria-hidden /> O que produz
+              </dt>
               <dd>{selected.skill.produces}</dd>
             </dl>
           </div>

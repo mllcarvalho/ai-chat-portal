@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Code,
+  FileText,
+  Folder,
+  Paperclip,
+  Pencil,
+  Pin,
+  SendHorizontal,
+  Square,
+  X,
+} from 'lucide-react';
+import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import type { ChatAttachment, FileEntry } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
@@ -11,24 +23,35 @@ import {
   isConvertibleDocument,
 } from '../../lib/extractDocument';
 
-/** Limite por arquivo anexado (o servidor recusa acima de 512 KB). */
-const MAX_ATTACHMENT_BYTES = 512 * 1024;
+/** Limite por arquivo anexado (o servidor recusa acima disso). */
+const MAX_ATTACHMENT_BYTES = UPLOAD_LIMITS.chatAttachmentChars;
+const ATTACHMENT_LIMIT_LABEL = formatByteLimit(MAX_ATTACHMENT_BYTES);
 /** Limite do arquivo original quando há conversão (Excel/Word/PDF). */
-const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
+const MAX_SOURCE_BYTES = UPLOAD_LIMITS.chatSourceFileBytes;
+const SOURCE_LIMIT_LABEL = formatByteLimit(MAX_SOURCE_BYTES);
 
 /** Heurística simples: arquivos binários costumam ter NUL nos primeiros bytes. */
 function looksBinary(content: string): boolean {
   return content.slice(0, 4096).includes('\0');
 }
 
-/** Achata a árvore de arquivos da pasta de trabalho em caminhos de arquivo. */
+/** Achata a árvore da pasta de trabalho em caminhos; pastas entram com "/" no
+    final — fixar uma pasta injeta os arquivos dela (expandidos pelo servidor). */
 function flattenFiles(entries: FileEntry[]): string[] {
   const paths: string[] = [];
   for (const entry of entries) {
     if (entry.type === 'file') paths.push(entry.path);
+    else paths.push(`${entry.path}/`);
     if (entry.children) paths.push(...flattenFiles(entry.children));
   }
   return paths;
+}
+
+/** Nome curto de um pin: "docs/guia.md" → "guia.md"; "docs/" → "docs/". */
+function pinLabel(path: string): string {
+  const isDir = path.endsWith('/');
+  const name = path.replace(/\/+$/, '').split('/').pop() ?? path;
+  return isDir ? `${name}/` : name;
 }
 
 export function Composer() {
@@ -170,7 +193,7 @@ export function Composer() {
       let content: string;
       if (isConvertibleDocument(file.name)) {
         if (file.size > MAX_SOURCE_BYTES) {
-          toast(`"${file.name}" passa de 10 MB e não foi anexado.`, 'error');
+          toast(`"${file.name}" passa do limite de ${SOURCE_LIMIT_LABEL} e não foi anexado.`, 'error');
           continue;
         }
         try {
@@ -181,7 +204,10 @@ export function Composer() {
         }
       } else {
         if (file.size > MAX_ATTACHMENT_BYTES) {
-          toast(`"${file.name}" passa de 512 KB e não foi anexado.`, 'error');
+          toast(
+            `"${file.name}" passa do limite de ${ATTACHMENT_LIMIT_LABEL} e não foi anexado.`,
+            'error',
+          );
           continue;
         }
         content = await file.text();
@@ -191,7 +217,10 @@ export function Composer() {
         }
       }
       if (content.length > MAX_ATTACHMENT_BYTES) {
-        toast(`"${file.name}" convertido passa de 512 KB de texto e não foi anexado.`, 'error');
+        toast(
+          `"${file.name}" convertido passa do limite de ${ATTACHMENT_LIMIT_LABEL} de texto e não foi anexado.`,
+          'error',
+        );
         continue;
       }
       next.push({ name: file.name, content });
@@ -338,9 +367,20 @@ export function Composer() {
               key={path}
               className={`slash-menu__item${i === hashIndex ? ' slash-menu__item--sel' : ''}`}
               onClick={() => pickHash(path)}
-              title={`Fixar ${path} no contexto da conversa`}
+              title={
+                path.endsWith('/')
+                  ? `Fixar a pasta ${path} (todos os arquivos dela) no contexto da conversa`
+                  : `Fixar ${path} no contexto da conversa`
+              }
             >
-              <span className="slash-menu__cmd">📄 {path.split('/').pop()}</span>
+              <span className="slash-menu__cmd">
+                {path.endsWith('/') ? (
+                  <Folder className="icon" aria-hidden style={{ color: '#b45309' }} />
+                ) : (
+                  <FileText className="icon" aria-hidden />
+                )}{' '}
+                {pinLabel(path)}
+              </span>
               <span className="slash-menu__desc">{path}</span>
             </button>
           ))}
@@ -352,13 +392,13 @@ export function Composer() {
             className="attachment-chip attachment-chip--editing"
             title="Ao enviar, a conversa é reescrita a partir da mensagem editada — as respostas seguintes são descartadas"
           >
-            ✏️ editando mensagem — Esc cancela
+            <Pencil className="icon icon--sm" aria-hidden /> editando mensagem — Esc cancela
             <button
               className="attachment-chip__remove"
               title="Cancelar edição"
               onClick={() => setEditingId(undefined)}
             >
-              ✕
+              <X className="icon icon--sm" aria-hidden />
             </button>
           </span>
         </div>
@@ -375,11 +415,20 @@ export function Composer() {
             <span
               className="attachment-chip attachment-chip--pinned"
               key={path}
-              title={`${path} — fixado no contexto · clique para abrir o painel de arquivos`}
+              title={
+                path.endsWith('/')
+                  ? `${path} — pasta fixada no contexto (os arquivos dela entram na conversa) · clique para abrir o painel de arquivos`
+                  : `${path} — fixado no contexto · clique para abrir o painel de arquivos`
+              }
               role="button"
               onClick={() => openPanel({ kind: 'files' })}
             >
-              📌 {path.split('/').pop()}
+              {path.endsWith('/') ? (
+                <Folder className="icon icon--sm" aria-hidden style={{ color: '#b45309' }} />
+              ) : (
+                <Pin className="icon icon--sm" aria-hidden />
+              )}{' '}
+              {pinLabel(path)}
               <button
                 className="attachment-chip__remove"
                 title="Remover do contexto"
@@ -390,7 +439,7 @@ export function Composer() {
                   });
                 }}
               >
-                ✕
+                <X className="icon icon--sm" aria-hidden />
               </button>
             </span>
           ))}
@@ -400,13 +449,13 @@ export function Composer() {
         <div className="composer__attachments">
           {attachments.map((att) => (
             <span className="attachment-chip" key={att.name} title={att.name}>
-              📎 {att.name}
+              <Paperclip className="icon icon--sm" aria-hidden /> {att.name}
               <button
                 className="attachment-chip__remove"
                 title="Remover anexo"
                 onClick={() => setAttachments((curr) => curr.filter((a) => a.name !== att.name))}
               >
-                ✕
+                <X className="icon icon--sm" aria-hidden />
               </button>
             </span>
           ))}
@@ -425,17 +474,17 @@ export function Composer() {
         />
         <button
           className="composer__attach"
-          title="Anexar arquivos ao contexto: texto, Excel, Word ou PDF (ou arraste para cá)"
+          title={`Anexar arquivos ao contexto: texto até ${ATTACHMENT_LIMIT_LABEL}; Excel, Word ou PDF até ${SOURCE_LIMIT_LABEL} (ou arraste para cá)`}
           onClick={() => fileInputRef.current?.click()}
         >
-          📎
+          <Paperclip className="icon" aria-hidden />
         </button>
         <button
           className="composer__attach"
           title="Anexar a seleção (ou o arquivo) ativa no editor do VS Code"
           onClick={() => void addEditorContext()}
         >
-          {'</>'}
+          <Code className="icon" aria-hidden />
         </button>
         <textarea
           ref={textareaRef}
@@ -461,7 +510,7 @@ export function Composer() {
             onClick={() => session && stop(session.id)}
             title="Parar geração"
           >
-            ■
+            <Square className="icon" aria-hidden />
           </button>
         ) : (
           <button
@@ -470,12 +519,14 @@ export function Composer() {
             disabled={!text.trim() && !attachments.length}
             title="Enviar"
           >
-            ➤
+            <SendHorizontal className="icon" aria-hidden />
           </button>
         )}
       </div>
       <div className="composer__hint">
-        Enter envia · Shift+Enter quebra linha · "/" comandos · "#" referencia arquivo · 📎 anexa
+        Enter envia · Shift+Enter quebra linha · "/" comandos · "#" referencia arquivo ou pasta ·{' '}
+        <Paperclip className="icon icon--sm" aria-hidden /> anexa (até {ATTACHMENT_LIMIT_LABEL} de
+        texto por arquivo)
       </div>
     </div>
   );

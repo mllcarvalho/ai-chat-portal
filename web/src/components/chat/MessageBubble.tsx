@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { ArrowDown, ArrowUp, Copy, Paperclip, Pencil, Play, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { ChatMessage, MessagePart } from '@aiportal/shared';
 import { useCatalog } from '../../stores/catalogStore';
 import { useChat } from '../../stores/chatStore';
@@ -79,7 +80,7 @@ export const MessageBubble = memo(function MessageBubble(props: {
                   key={att.name}
                   title={`${att.name} · ${(att.content.length / 1024).toFixed(1)} KB`}
                 >
-                  📎 {att.name}
+                  <Paperclip className="icon icon--sm" aria-hidden /> {att.name}
                 </span>
               ))}
             </div>
@@ -92,7 +93,7 @@ export const MessageBubble = memo(function MessageBubble(props: {
               title="Editar e reenviar — a conversa é reescrita a partir daqui"
               onClick={() => useUi.getState().seedComposer(text, message.id)}
             >
-              ✏️ editar
+              <Pencil className="icon icon--sm" aria-hidden /> editar
             </button>
           </div>
         )}
@@ -151,13 +152,27 @@ export const MessageBubble = memo(function MessageBubble(props: {
           </span>
         )}
         {message.error && (
-          <div className="msg__error">⚠ {message.error.message}</div>
+          <div className="msg__error">
+            <TriangleAlert className="icon" aria-hidden /> {message.error.message}
+            {isLastAssistant && !streaming && !actionsDisabled && (
+              <button
+                className="msg__action msg__error-retry"
+                title="Reenviar a última mensagem e gerar a resposta de novo"
+                onClick={() => {
+                  const sessionId = useSessions.getState().current?.id;
+                  if (sessionId) useChat.getState().regenerate(sessionId);
+                }}
+              >
+                <RefreshCw className="icon icon--sm" aria-hidden /> tentar novamente
+              </button>
+            )}
+          </div>
         )}
         {!streaming && !actionsDisabled && (
           <div className="msg__actions">
             {messageText(message) && (
               <button className="msg__action" title="Copiar a resposta inteira" onClick={copyMessage}>
-                ⧉ copiar
+                <Copy className="icon icon--sm" aria-hidden /> copiar
               </button>
             )}
             {isLastAssistant && (
@@ -169,7 +184,16 @@ export const MessageBubble = memo(function MessageBubble(props: {
                   if (sessionId) useChat.getState().regenerate(sessionId);
                 }}
               >
-                ↻ regenerar
+                <RefreshCw className="icon icon--sm" aria-hidden /> regenerar
+              </button>
+            )}
+            {isLastAssistant && message.finishReason === 'max_rounds' && (
+              <button
+                className="msg__action msg__action--primary"
+                title="A resposta parou no limite de rodadas de ferramentas — pede para o assistente seguir de onde parou"
+                onClick={() => void useChat.getState().send('Continue de onde parou.')}
+              >
+                <Play className="icon icon--sm" aria-hidden /> continuar
               </button>
             )}
           </div>
@@ -179,7 +203,8 @@ export const MessageBubble = memo(function MessageBubble(props: {
             className="msg__usage"
             title="Tokens enviados ao modelo (entrada, somando todas as rodadas) e gerados (saída) · requisições ao Copilot nesta resposta · AI credits realmente descontados da licença nesta resposta (medidos na cota do Copilot)"
           >
-            ↑ {formatTokens(message.usage.inputTokens)} · ↓ {formatTokens(message.usage.outputTokens)} tokens
+            <ArrowUp className="icon icon--sm" aria-hidden /> {formatTokens(message.usage.inputTokens)} ·{' '}
+            <ArrowDown className="icon icon--sm" aria-hidden /> {formatTokens(message.usage.outputTokens)} tokens
             {' · '}
             {message.usage.requests} req
             {(() => {

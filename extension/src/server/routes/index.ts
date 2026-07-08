@@ -18,6 +18,7 @@ import { registerCopilotRoutes } from './copilot';
 import { registerEditorRoutes } from './editor';
 import { registerShareRoutes } from './share';
 import { registerDiagnosticsRoutes } from './diagnostics';
+import { registerCheckpointRoutes } from './checkpoints';
 
 export interface RouteDeps {
   context: vscode.ExtensionContext;
@@ -48,5 +49,6 @@ export function buildRouter(deps: RouteDeps): Router {
   registerEditorRoutes(router);
   registerShareRoutes(router);
   registerDiagnosticsRoutes(router);
+  registerCheckpointRoutes(router);
   return router;
 }

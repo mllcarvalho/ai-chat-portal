@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionMode } from '@aiportal/shared';
 import { PROJECT_META_DIR, bmadRootDir } from '../storage/paths';
+import { createCheckpoint, type CheckpointOperation } from '../storage/checkpointStore';
 import { createAgent } from '../storage/agentStore';
 import {
   createBase,
@@ -17,6 +18,12 @@ import { searchWeb } from './webSearch';
 
 export const READ_LIMIT = 256 * 1024;
 export const WRITE_LIMIT = 2 * 1024 * 1024;
+/**
+ * Teto de segurança do portal_edit_file: acima disso a edição é recusada.
+ * A edição lê o arquivo INTEIRO (nunca o clamp de leitura — gravar um
+ * conteúdo truncado de volta destruiria o resto do arquivo).
+ */
+export const EDIT_LIMIT = 10 * 1024 * 1024;
 export const LIST_LIMIT = 500;
 
 export interface BuiltinToolDef {
@@ -611,6 +618,50 @@ export function readFileClamped(file: string, label: string): string {
   }
 }
 
+/** Lê o arquivo inteiro para edição (sem clamp), recusando acima de EDIT_LIMIT. */
+function readFileForEdit(file: string, label: string): string {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Arquivo não encontrado: ${label}`);
+    }
+    throw err;
+  }
+  if (!stat.isFile()) throw new Error(`Não é um arquivo: ${label}`);
+  if (stat.size > EDIT_LIMIT) {
+    throw new Error(
+      `Arquivo grande demais para edição: ${label} tem ${(stat.size / 1024 / 1024).toFixed(1)} MB ` +
+        `(limite de ${EDIT_LIMIT / 1024 / 1024} MB)`,
+    );
+  }
+  return fs.readFileSync(file, 'utf8');
+}
+
+/**
+ * Snapshot de segurança antes de uma mutação. Falha no checkpoint não bloqueia
+ * a ferramenta (melhor executar sem undo do que negar a operação): sem id, o
+ * card na UI apenas não oferece "Reverter".
+ */
+function tryCheckpoint(
+  workRoot: string,
+  tool: string,
+  operation: CheckpointOperation,
+  targets: Array<{ absPath: string; relPath: string }>,
+): string | undefined {
+  try {
+    return createCheckpoint(workRoot, tool, operation, targets);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Sufixo que a UI (ToolCallCard) parseia para oferecer o botão "Reverter". */
+function checkpointNote(id: string | undefined): string {
+  return id ? `\n[checkpoint:${id}]` : '';
+}
+
 interface ToolOutcome {
   ok: boolean;
   content: string;
@@ -872,9 +923,15 @@ export async function dispatchBuiltinTool(
         if (args.overwrite === false && fs.existsSync(file)) {
           throw new Error(`Arquivo já existe: ${rel}`);
         }
+        const ck = tryCheckpoint(workRoot, name, 'write', [
+          { absPath: file, relPath: path.relative(workRoot, file) },
+        ]);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, content, 'utf8');
-        return { ok: true, content: `Arquivo salvo: ${rel} (${Buffer.byteLength(content)} bytes)` };
+        return {
+          ok: true,
+          content: `Arquivo salvo: ${rel} (${Buffer.byteLength(content)} bytes)${checkpointNote(ck)}`,
+        };
       }
       case 'portal_read_file': {
         const rel = asString(args.path, 'path');
@@ -893,7 +950,7 @@ export async function dispatchBuiltinTool(
         const find = asString(args.find, 'find');
         const replace = typeof args.replace === 'string' ? args.replace : '';
         const file = resolveInProject(workRoot, rel);
-        const content = readFileClamped(file, rel);
+        const content = readFileForEdit(file, rel);
         let count = 0;
         for (let i = content.indexOf(find); i >= 0; i = content.indexOf(find, i + find.length)) {
           count++;
@@ -912,9 +969,15 @@ export async function dispatchBuiltinTool(
           args.replaceAll === true
             ? content.split(find).join(replace)
             : content.replace(find, () => replace);
+        const ck = tryCheckpoint(workRoot, name, 'edit', [
+          { absPath: file, relPath: path.relative(workRoot, file) },
+        ]);
         fs.writeFileSync(file, updated, 'utf8');
         const n = args.replaceAll === true ? count : 1;
-        return { ok: true, content: `${rel}: ${n} ocorrência${n === 1 ? '' : 's'} substituída${n === 1 ? '' : 's'}` };
+        return {
+          ok: true,
+          content: `${rel}: ${n} ocorrência${n === 1 ? '' : 's'} substituída${n === 1 ? '' : 's'}${checkpointNote(ck)}`,
+        };
       }
       case 'portal_search_files': {
         const query = asString(args.query, 'query');
@@ -967,15 +1030,18 @@ export async function dispatchBuiltinTool(
         const rel = asString(args.path, 'path');
         const target = resolveInProject(workRoot, rel);
         if (!fs.existsSync(target)) throw new Error(`Não existe: ${rel}`);
-        if (fs.statSync(target).isDirectory()) {
-          if (args.recursive !== true) {
-            throw new Error(`${rel} é uma pasta — para excluir com o conteúdo, passe recursive: true`);
-          }
-          fs.rmSync(target, { recursive: true, force: true });
-          return { ok: true, content: `Pasta excluída: ${rel}` };
+        const isDir = fs.statSync(target).isDirectory();
+        if (isDir && args.recursive !== true) {
+          throw new Error(`${rel} é uma pasta — para excluir com o conteúdo, passe recursive: true`);
         }
-        fs.rmSync(target, { force: true });
-        return { ok: true, content: `Arquivo excluído: ${rel}` };
+        const ck = tryCheckpoint(workRoot, name, 'delete', [
+          { absPath: target, relPath: path.relative(workRoot, target) },
+        ]);
+        fs.rmSync(target, { recursive: isDir, force: true });
+        return {
+          ok: true,
+          content: `${isDir ? 'Pasta excluída' : 'Arquivo excluído'}: ${rel}${checkpointNote(ck)}`,
+        };
       }
       case 'portal_move_file': {
         const fromRel = asString(args.from, 'from');
@@ -986,9 +1052,15 @@ export async function dispatchBuiltinTool(
         if (fs.existsSync(to) && args.overwrite !== true) {
           throw new Error(`Destino já existe: ${toRel} (use overwrite: true para substituir)`);
         }
+        // snapshot da origem e do destino: reverter restaura a origem e o
+        // destino volta ao estado anterior (conteúdo antigo, ou apagado)
+        const ck = tryCheckpoint(workRoot, name, 'move', [
+          { absPath: from, relPath: path.relative(workRoot, from) },
+          { absPath: to, relPath: path.relative(workRoot, to) },
+        ]);
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.renameSync(from, to);
-        return { ok: true, content: `Movido: ${fromRel} → ${toRel}` };
+        return { ok: true, content: `Movido: ${fromRel} → ${toRel}${checkpointNote(ck)}` };
       }
       case 'portal_fetch_url': {
         const url = normalizeSourceUrl(asString(args.url, 'url'));

@@ -9,6 +9,7 @@ import {
   listSessions,
   saveSession,
 } from '../../storage/sessionStore';
+import { sessionExportFileName, sessionToMarkdown } from '../../storage/sessionMarkdown';
 import { registerFileRoutes } from './files';
 
 const MODES: SessionMode[] = ['ask', 'plan', 'agent'];
@@ -37,6 +38,28 @@ export function registerSessionRoutes(router: Router): void {
       return;
     }
     sendJson(res, 201, session);
+  });
+
+  // download da conversa inteira como Markdown legível (?format=md)
+  router.get('/api/sessions/:id/export', ({ res, params, query }) => {
+    const format = query.get('format') || 'md';
+    if (format !== 'md') {
+      sendError(res, 400, 'Formato não suportado (use format=md)');
+      return;
+    }
+    const session = getSession(params.id);
+    if (!session) {
+      sendError(res, 404, 'Sessão não encontrada');
+      return;
+    }
+    const fileName = sessionExportFileName(session);
+    const data = Buffer.from(sessionToMarkdown(session), 'utf8');
+    res.writeHead(200, {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Length': data.length,
+      'Content-Disposition': `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    });
+    res.end(data);
   });
 
   router.get('/api/sessions/:id', ({ res, params }) => {

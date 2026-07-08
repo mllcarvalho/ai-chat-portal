@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { useUi } from '../../stores/uiStore';
 
 /** Moldura comum das páginas de gestão (skills, agentes, MCPs, conhecimento). */
 export function PageShell(props: {
-  icon?: string;
+  icon?: ReactNode;
   title: string;
   subtitle?: string;
   actions?: ReactNode;
@@ -21,7 +22,7 @@ export function PageShell(props: {
         <div className="page__actions">
           {props.actions}
           <button className="btn" onClick={() => setView('chat')} title="Voltar ao chat">
-            ✕ Fechar
+            <X className="icon" aria-hidden /> Fechar
           </button>
         </div>
       </div>
@@ -58,7 +59,7 @@ export function Panel(props: {
 
 /** Estado vazio com forma: ícone, título e dica — nada de texto solto. */
 export function EmptyState(props: {
-  icon?: string;
+  icon?: ReactNode;
   title: string;
   hint?: ReactNode;
   action?: ReactNode;

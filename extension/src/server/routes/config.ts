@@ -54,13 +54,9 @@ export function registerConfigRoutes(router: Router): void {
           }
         : undefined;
     const previous = getConfig().network;
-    const updated = patchConfig({
-      ...(patch.projectsRoot ? { projectsRoot: patch.projectsRoot.trim() } : {}),
-      ...(network ? { network } : {}),
-      ...(microsoft ? { microsoft } : {}),
-    });
-    // mantém em sincronia os arquivos gravados no login (settings.json do
-    // VS Code, .bashrc/.zshrc e ~/.npmrc) quando a rede muda por esta tela
+    // aplica primeiro nos arquivos da máquina (settings.json do VS Code,
+    // .bashrc/.zshrc e ~/.npmrc); só persiste a config se tudo deu certo —
+    // evita config salva divergente do que está gravado na máquina
     if (network) {
       try {
         const proxyChanged =
@@ -79,11 +75,16 @@ export function registerConfigRoutes(router: Router): void {
         sendError(
           res,
           500,
-          `Configuração salva, mas falhou ao reaplicar nos arquivos da máquina: ${(err as Error).message}`,
+          `Nada foi salvo: falhou ao aplicar a rede nos arquivos da máquina: ${(err as Error).message}`,
         );
         return;
       }
     }
+    const updated = patchConfig({
+      ...(patch.projectsRoot ? { projectsRoot: patch.projectsRoot.trim() } : {}),
+      ...(network ? { network } : {}),
+      ...(microsoft ? { microsoft } : {}),
+    });
     const { token: _token, ...safe } = updated;
     sendJson(res, 200, safe);
   });

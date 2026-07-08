@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Folder, MessagesSquare, Plus } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -33,7 +34,9 @@ export function HomeScreen() {
       </h1>
       <div className="home__choices">
         <button className="home-card" onClick={enterMesa}>
-          <span className="home-card__icon">💬</span>
+          <span className="home-card__icon">
+            <MessagesSquare className="icon icon--lg" aria-hidden />
+          </span>
           <span className="home-card__title">MESA</span>
           <span className="home-card__desc">
             Espaço aberto: pergunte qualquer coisa no chat, sem vínculo com projeto.
@@ -46,7 +49,9 @@ export function HomeScreen() {
             else setChoosingProject((v) => !v);
           }}
         >
-          <span className="home-card__icon">📁</span>
+          <span className="home-card__icon">
+            <Folder className="icon icon--lg" aria-hidden />
+          </span>
           <span className="home-card__title">PROJETO</span>
           <span className="home-card__desc">
             Trabalhe dentro de um projeto, com arquivos, instruções e conversas organizadas.
@@ -57,14 +62,14 @@ export function HomeScreen() {
         <div className="home__projects">
           {projects.map((project) => (
             <button key={project.id} className="home__project-item" onClick={() => enterProject(project.id)}>
-              📁 {project.name}
+              <Folder className="icon" aria-hidden /> {project.name}
             </button>
           ))}
           <button
             className="home__project-item home__project-item--new"
             onClick={() => openPanel({ kind: 'newProject' })}
           >
-            ＋ Novo projeto
+            <Plus className="icon" aria-hidden /> Novo projeto
           </button>
         </div>
       )}

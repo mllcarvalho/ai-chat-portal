@@ -1,4 +1,5 @@
 import { memo, useState, type ReactNode } from 'react';
+import { Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -17,7 +18,13 @@ function CodeBlock(props: { language?: string; children: ReactNode; raw: string 
       <div className="code-block__bar">
         <span>{props.language ?? 'código'}</span>
         <button className="code-block__copy" onClick={copy}>
-          {copied ? 'copiado ✓' : 'copiar'}
+          {copied ? (
+            <>
+              copiado <Check className="icon icon--sm" aria-hidden />
+            </>
+          ) : (
+            'copiar'
+          )}
         </button>
       </div>
       <pre>{props.children}</pre>

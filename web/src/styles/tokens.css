@@ -48,8 +48,8 @@
   --sidebar-w-collapsed: 58px;
 
   /* Escala global da UI: o portal roda muito em notebook, então tudo é
-     renderizado como se o navegador estivesse em 90% — cabe mais na tela. */
-  --app-zoom: 0.9;
+     renderizado como se o navegador estivesse em 95% — cabe mais na tela. */
+  --app-zoom: 0.95;
 
   --ease: cubic-bezier(0.25, 0.8, 0.3, 1);
 }

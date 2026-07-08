@@ -1,5 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  Bookmark,
+  BookOpen,
+  ChevronDown,
+  FileText,
+  Folder,
+  Globe,
+  Import,
+  Link,
+  Mail,
+  Maximize2,
+  Package,
+  Pencil,
+  Plus,
+  RefreshCw,
+  RotateCw,
+  Search,
+  SquarePen,
+  TriangleAlert,
+  Upload,
+  X,
+} from 'lucide-react';
+import {
   DEFAULT_PORT,
   PORT_RANGE,
   slugifyCommand,
@@ -10,10 +33,20 @@ import { api, getToken } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { Dropdown } from '../common/Dropdown';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
+
+/** Hostname de uma URL para exibição — URL inválida não pode quebrar a lista. */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
 
 export function KnowledgePage() {
   const toast = useUi((s) => s.toast);
@@ -28,6 +61,7 @@ export function KnowledgePage() {
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState<KnowledgeBase | undefined>();
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [docQuery, setDocQuery] = useState('');
   const [docName, setDocName] = useState('');
   const [docContent, setDocContent] = useState('');
   const [newBaseName, setNewBaseName] = useState('');
@@ -90,6 +124,12 @@ export function KnowledgePage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  // busca por nome nos documentos da base aberta
+  const docNeedle = docQuery.trim().toLowerCase();
+  const shownDocs = docNeedle
+    ? docs.filter((d) => d.name.toLowerCase().includes(docNeedle))
+    : docs;
+
   const reload = async () => {
     const list = await api.listKnowledge(projectId).catch(() => [] as KnowledgeBase[]);
     setBases(list);
@@ -123,6 +163,7 @@ export function KnowledgePage() {
     setSelected(base);
     setDocName('');
     setDocContent('');
+    setDocQuery('');
     setUrlFormOpen(false);
     setDocs(await api.listKnowledgeDocs(base.id).catch(() => []));
   };
@@ -367,7 +408,7 @@ export function KnowledgePage() {
 
   return (
     <PageShell
-      icon="📚"
+      icon={<BookOpen className="icon icon--lg" aria-hidden />}
       title="Bases de conhecimento"
       subtitle="Documentos usados como contexto das conversas — enviados do computador ou sincronizados de uma URL."
       actions={
@@ -389,17 +430,17 @@ export function KnowledgePage() {
             onClick={() => setBaseModal(true)}
             title="Importar uma base exportada em .zip"
           >
-            📦 Importar .zip
+            <Package className="icon" aria-hidden /> Importar .zip
           </button>
           <button
             className="btn"
             onClick={() => setCaptureModal(true)}
             title="Capturar páginas abertas no navegador (SharePoint, intranet…) sem configurar nada"
           >
-            🔖 Capturar do navegador
+            <Bookmark className="icon" aria-hidden /> Capturar do navegador
           </button>
           <button className="btn btn--primary" onClick={() => setBaseModal(true)}>
-            ＋ Nova base
+            <Plus className="icon" aria-hidden /> Nova base
           </button>
         </>
       }
@@ -415,7 +456,12 @@ export function KnowledgePage() {
             >
               <span className="item-card__name" style={{ justifyContent: 'space-between' }}>
                 <span>
-                  {base.scope === 'project' ? '📁' : '🌐'} {base.name}
+                  {base.scope === 'project' ? (
+                    <Folder className="icon" aria-hidden />
+                  ) : (
+                    <Globe className="icon" aria-hidden />
+                  )}{' '}
+                  {base.name}
                 </span>
                 <button
                   className={`switch${base.enabled ? ' switch--on' : ''}`}
@@ -452,7 +498,7 @@ export function KnowledgePage() {
                     void emailShare('knowledge', base.id);
                   }}
                 >
-                  ✉️
+                  <Mail className="icon" aria-hidden />
                 </span>
                 <span
                   role="button"
@@ -469,12 +515,12 @@ export function KnowledgePage() {
           ))}
           {bases.length === 0 && (
             <EmptyState
-              icon="📚"
+              icon={<BookOpen className="icon icon--lg" aria-hidden />}
               title="Nenhuma base ainda"
               hint="Use “Nova base” no topo para criar a primeira."
               action={
                 <button className="btn btn--primary" onClick={() => setBaseModal(true)}>
-                  ＋ Nova base
+                  <Plus className="icon" aria-hidden /> Nova base
                 </button>
               }
             />
@@ -493,7 +539,7 @@ export function KnowledgePage() {
                 title="Atualizar as listas — capturas do navegador não aparecem sozinhas"
                 aria-label="Atualizar listas"
               >
-                🔄
+                <RefreshCw className="icon" aria-hidden />
               </button>
               {selected && (
               <>
@@ -508,24 +554,6 @@ export function KnowledgePage() {
                     e.target.value = '';
                   }}
                 />
-                <button
-                  className="btn btn--sm"
-                  disabled={busy}
-                  onClick={() => uploadInputRef.current?.click()}
-                  title="Upload — enviar arquivos do computador (.md, .txt, Excel, Word, PDF)"
-                  aria-label="Upload de arquivos"
-                >
-                  ⬆
-                </button>
-                <button
-                  className="btn btn--sm"
-                  disabled={busy}
-                  onClick={() => setUrlFormOpen((open) => !open)}
-                  title="Adicionar documento a partir de uma URL (GitHub Pages, página ou arquivo de SharePoint, markdown publicado…)"
-                  aria-label="Adicionar por URL"
-                >
-                  🔗
-                </button>
                 {docs.some((d) => d.sourceUrl) && (
                   <button
                     className="btn btn--sm"
@@ -534,20 +562,56 @@ export function KnowledgePage() {
                     title="Sincronizar todos os documentos com fonte remota"
                     aria-label="Sincronizar documentos remotos"
                   >
-                    ⟳
+                    <RotateCw className="icon" aria-hidden />
                   </button>
                 )}
-                <button
-                  className="btn btn--sm"
-                  onClick={() => {
-                    setDocName('novo-documento.md');
-                    setDocContent('');
-                  }}
-                  title="Novo documento em branco"
-                  aria-label="Novo documento"
+                <Dropdown
+                  trigger={(open, toggle) => (
+                    <button
+                      className="btn btn--sm"
+                      disabled={busy}
+                      onClick={toggle}
+                      aria-expanded={open}
+                      title="Adicionar documento"
+                    >
+                      <Plus className="icon icon--sm" aria-hidden /> Adicionar{' '}
+                      <ChevronDown className="icon icon--sm" aria-hidden />
+                    </button>
+                  )}
                 >
-                  ＋
-                </button>
+                  {(close) => (
+                    <>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          setDocName('novo-documento.md');
+                          setDocContent('');
+                        }}
+                      >
+                        <SquarePen className="icon icon--sm" aria-hidden /> Documento em branco
+                      </button>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          uploadInputRef.current?.click();
+                        }}
+                      >
+                        <Upload className="icon icon--sm" aria-hidden /> Upload de arquivos…
+                      </button>
+                      <button
+                        className="dropdown__item"
+                        onClick={() => {
+                          close();
+                          setUrlFormOpen((open) => !open);
+                        }}
+                      >
+                        <Link className="icon icon--sm" aria-hidden /> A partir de URL…
+                      </button>
+                    </>
+                  )}
+                </Dropdown>
               </>
               )}
             </>
@@ -555,6 +619,29 @@ export function KnowledgePage() {
         >
           {selected ? (
             <>
+              {docs.length > 0 && (
+                <div className="panel-search panel-search--block">
+                  <Search className="icon icon--sm" aria-hidden />
+                  <input
+                    value={docQuery}
+                    onChange={(e) => setDocQuery(e.target.value)}
+                    placeholder="Buscar documento…"
+                    aria-label="Buscar documento por nome"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setDocQuery('');
+                    }}
+                  />
+                  {docQuery && (
+                    <button
+                      title="Limpar busca"
+                      aria-label="Limpar busca"
+                      onClick={() => setDocQuery('')}
+                    >
+                      <X className="icon icon--sm" aria-hidden />
+                    </button>
+                  )}
+                </div>
+              )}
               {urlFormOpen && (
                 <div className="panel__form-block">
                   <div className="field">
@@ -578,11 +665,11 @@ export function KnowledgePage() {
                     disabled={busy || !remoteUrl.trim()}
                     onClick={() => void addRemoteDoc()}
                   >
-                    ＋ Adicionar da URL
+                    <Plus className="icon" aria-hidden /> Adicionar da URL
                   </button>
                 </div>
               )}
-              {docs.map((doc) => (
+              {shownDocs.map((doc) => (
                 <div
                   className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
                   key={doc.name}
@@ -590,11 +677,25 @@ export function KnowledgePage() {
                   role="button"
                   title={doc.sourceUrl}
                 >
-                  <span className="item-card__name">{doc.sourceUrl ? '🔗' : '📄'} {doc.name}</span>
+                  <span className="item-card__name">
+                    {doc.sourceUrl ? (
+                      <Link className="icon" aria-hidden />
+                    ) : (
+                      <FileText className="icon" aria-hidden />
+                    )}{' '}
+                    {doc.name}
+                  </span>
                   <span className="item-card__desc">
                     {(doc.size / 1024).toFixed(1)} KB
-                    {doc.sourceUrl ? ` · ${new URL(doc.sourceUrl).hostname}` : ''}
-                    {doc.syncError ? ' · ⚠ erro no último sync' : ''}
+                    {doc.sourceUrl ? ` · ${hostnameOf(doc.sourceUrl)}` : ''}
+                    {doc.syncError ? (
+                      <>
+                        {' · '}
+                        <TriangleAlert className="icon icon--sm" aria-hidden /> erro no último sync
+                      </>
+                    ) : (
+                      ''
+                    )}
                   </span>
                   <span className="page-list-item__actions">
                     {doc.sourceUrl && (
@@ -634,12 +735,23 @@ export function KnowledgePage() {
                 </div>
               ))}
               {docs.length === 0 && (
-                <EmptyState icon="📄" title="Base vazia" hint="Crie o primeiro documento acima." />
+                <EmptyState
+                  icon={<FileText className="icon icon--lg" aria-hidden />}
+                  title="Base vazia"
+                  hint="Crie o primeiro documento acima."
+                />
+              )}
+              {docs.length > 0 && shownDocs.length === 0 && (
+                <EmptyState
+                  icon={<Search className="icon icon--lg" aria-hidden />}
+                  title="Nada encontrado"
+                  hint="Nenhum documento com esse nome nesta base."
+                />
               )}
             </>
           ) : (
             <EmptyState
-              icon="👈"
+              icon={<ArrowLeft className="icon icon--lg" aria-hidden />}
               title="Nenhuma base selecionada"
               hint="Selecione uma base para ver os documentos."
             />
@@ -653,9 +765,18 @@ export function KnowledgePage() {
               if (!opened?.sourceUrl) return null;
               return (
                 <p className="page-hint">
-                  🔗 Sincronizado de <code>{opened.sourceUrl}</code>
+                  <Link className="icon icon--sm" aria-hidden /> Sincronizado de{' '}
+                  <code>{opened.sourceUrl}</code>
                   {opened.syncedAt ? ` em ${new Date(opened.syncedAt).toLocaleString()}` : ''}
-                  {opened.syncError ? ` · ⚠ último sync falhou: ${opened.syncError}` : ''}
+                  {opened.syncError ? (
+                    <>
+                      {' · '}
+                      <TriangleAlert className="icon icon--sm" aria-hidden /> último sync falhou:{' '}
+                      {opened.syncError}
+                    </>
+                  ) : (
+                    ''
+                  )}
                   . Edições manuais são sobrescritas ao sincronizar.
                 </p>
               );
@@ -672,7 +793,7 @@ export function KnowledgePage() {
                   onClick={() => setExpandDoc(true)}
                   title="Editar em tela cheia (com visualização do markdown)"
                 >
-                  ⤢ Expandir
+                  <Maximize2 className="icon" aria-hidden /> Expandir
                 </button>
               </div>
               <textarea
@@ -695,7 +816,7 @@ export function KnowledgePage() {
         ) : (
           <Panel className="panel--placeholder">
             <EmptyState
-              icon="✏️"
+              icon={<Pencil className="icon icon--lg" aria-hidden />}
               title="Nenhum documento aberto"
               hint="Abra ou crie um documento para editar."
             />
@@ -733,10 +854,19 @@ export function KnowledgePage() {
               value={newBaseScope}
               onChange={(value) => setNewBaseScope(value as 'global' | 'project')}
               options={[
-                { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                {
+                  value: 'global',
+                  label: <><Globe className="icon" aria-hidden /> Global</>,
+                  hint: 'Vale em todas as conversas',
+                },
                 {
                   value: 'project',
-                  label: projectName ? `📁 Projeto: ${projectName}` : '📁 Projeto atual',
+                  label: (
+                    <>
+                      <Folder className="icon" aria-hidden />{' '}
+                      {projectName ? `Projeto: ${projectName}` : 'Projeto atual'}
+                    </>
+                  ),
                   hint: projectId ? undefined : 'Abra um projeto primeiro',
                   disabled: !projectId,
                 },
@@ -749,7 +879,7 @@ export function KnowledgePage() {
             onClick={() => void createBase()}
             style={{ width: '100%', justifyContent: 'center' }}
           >
-            ＋ Criar base
+            <Plus className="icon" aria-hidden /> Criar base
           </button>
           <div className="panel__divider">ou importe uma base existente</div>
           <button
@@ -759,7 +889,7 @@ export function KnowledgePage() {
             title="Importar uma base exportada em .zip (usa o escopo selecionado acima)"
             style={{ width: '100%', justifyContent: 'center' }}
           >
-            📦 Importar .zip
+            <Package className="icon" aria-hidden /> Importar .zip
           </button>
         </Modal>
       )}
@@ -779,7 +909,12 @@ export function KnowledgePage() {
                 style={{ width: '100%', justifyContent: 'flex-start', marginBottom: 6 }}
                 onClick={() => void moveDocTo(b)}
               >
-                {b.scope === 'project' ? '📁' : '🌐'} {b.name}
+                {b.scope === 'project' ? (
+                  <Folder className="icon" aria-hidden />
+                ) : (
+                  <Globe className="icon" aria-hidden />
+                )}{' '}
+                {b.name}
                 <span style={{ color: 'var(--text-dim)', marginLeft: 'auto', fontSize: 12 }}>
                   {b.docCount} doc{b.docCount === 1 ? '' : 's'}
                 </span>
@@ -794,7 +929,7 @@ export function KnowledgePage() {
       )}
 
       {captureModal && (
-        <Modal title="🔖 Capturar do navegador" onClose={() => setCaptureModal(false)}>
+        <Modal title="Capturar do navegador" onClose={() => setCaptureModal(false)}>
           <p style={{ marginTop: 0 }}>
             Para páginas que exigem login no navegador (SharePoint, intranet…): o botão abaixo roda
             na própria aba onde a página está aberta e envia o conteúdo para o portal — sem
@@ -814,7 +949,7 @@ export function KnowledgePage() {
               onClick={(e) => e.preventDefault()}
               title="Arraste este botão para a barra de favoritos do navegador"
             >
-              📥 Enviar para o portal
+              <Import className="icon" aria-hidden /> Enviar para o portal
             </a>
           </div>
           <ol style={{ margin: '0 0 10px', paddingLeft: 20, lineHeight: 1.7 }}>

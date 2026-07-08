@@ -20,3 +20,12 @@ export function releaseRequest(requestId: string): void {
   active.delete(requestId);
   cts?.dispose();
 }
+
+/**
+ * Cancela TODAS as gerações em andamento — usado quando esta janela cede o
+ * portal para outra: sem isso a geração órfã seguia gastando créditos e ainda
+ * gravava a resposta velha no session.json depois de a janela nova assumir.
+ */
+export function cancelAllRequests(): void {
+  for (const cts of active.values()) cts.cancel();
+}

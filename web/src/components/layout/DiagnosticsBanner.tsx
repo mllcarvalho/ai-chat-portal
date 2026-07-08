@@ -1,3 +1,4 @@
+import { OctagonAlert, X } from 'lucide-react';
 import { useDiagnostics } from '../../stores/diagnosticsStore';
 import { useUi } from '../../stores/uiStore';
 
@@ -18,7 +19,9 @@ export function DiagnosticsBanner() {
   const failed = report.checks.filter((c) => c.status === 'fail').map((c) => c.label);
   return (
     <div className="env-banner env-banner--critical" role="status">
-      <span className="env-banner__icon">⛔</span>
+      <span className="env-banner__icon">
+        <OctagonAlert className="icon" aria-hidden />
+      </span>
       <span className="env-banner__text">
         O diagnóstico encontrou {report.problemCount} problema(s) no ambiente:{' '}
         {failed.join(', ')}.
@@ -27,7 +30,7 @@ export function DiagnosticsBanner() {
         Ver diagnóstico
       </button>
       <button className="env-banner__close" onClick={dismiss} aria-label="Dispensar aviso">
-        ×
+        <X className="icon" aria-hidden />
       </button>
     </div>
   );

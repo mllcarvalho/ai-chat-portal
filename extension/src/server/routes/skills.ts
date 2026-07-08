@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { exportSkillFile } from '../../storage/skillZip';
 import {
@@ -16,7 +17,7 @@ import {
 } from '../../storage/skillStore';
 
 /** Teto por anexo de skill (o body inteiro já é limitado a 10 MB pelo router). */
-const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+const MAX_ASSET_BYTES = UPLOAD_LIMITS.skillFileBytes;
 
 export function registerSkillRoutes(router: Router): void {
   // Sem projectId devolve o catálogo completo (globais + todos os projetos);
@@ -88,11 +89,21 @@ export function registerSkillRoutes(router: Router): void {
       description?: string;
       command?: string;
       content?: string;
+      scope?: 'global' | 'project';
+      projectId?: string;
     };
     if (patch.command) patch.command = patch.command.trim().replace(/^\//, '');
+    if (patch.scope && patch.scope !== 'global' && patch.scope !== 'project') {
+      sendError(res, 400, 'scope deve ser "global" ou "project"');
+      return;
+    }
+    if (patch.scope === 'project' && !patch.projectId && !getSkill(params.id)?.projectId) {
+      sendError(res, 400, 'Skills de projeto precisam de projectId');
+      return;
+    }
     const updated = updateSkill(params.id, patch);
     if (!updated) {
-      sendError(res, 404, 'Skill não encontrada');
+      sendError(res, 404, 'Skill ou projeto não encontrado');
       return;
     }
     sendJson(res, 200, updated);
@@ -131,7 +142,7 @@ export function registerSkillRoutes(router: Router): void {
     }
     const data = Buffer.from(input.contentBase64, 'base64');
     if (data.length > MAX_ASSET_BYTES) {
-      sendError(res, 400, `Anexo excede o limite de ${MAX_ASSET_BYTES / (1024 * 1024)} MB`);
+      sendError(res, 400, `Anexo excede o limite de ${formatByteLimit(MAX_ASSET_BYTES)}`);
       return;
     }
     const ok = writeSkillAsset(params.id, input.path.trim(), data);

@@ -77,11 +77,25 @@ export function patchProject(
   return updated;
 }
 
-/** Só desregistra o projeto (renomeia o project.json); a pasta e os arquivos ficam no disco. */
-export function unregisterProject(id: string): boolean {
+/**
+ * Move a pasta inteira do projeto para a lixeira interna (projectsRoot/.trash),
+ * de onde o usuário ainda pode recuperar manualmente. Se o rename falhar
+ * (ex.: arquivo aberto no Windows), cai no comportamento antigo de só
+ * desregistrar, deixando a pasta no lugar.
+ */
+export function unregisterProject(id: string): { ok: boolean; trashed: boolean } {
   const project = getProject(id);
-  if (!project) return false;
-  const metaPath = projectJsonPath(project.dirName);
-  fs.renameSync(metaPath, `${metaPath}.removed`);
-  return true;
+  if (!project) return { ok: false, trashed: false };
+  const dir = projectDir(project);
+  const trashDir = path.join(getConfig().projectsRoot, '.trash');
+  try {
+    ensureDir(trashDir);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.renameSync(dir, path.join(trashDir, `${project.dirName}-${stamp}`));
+    return { ok: true, trashed: true };
+  } catch {
+    const metaPath = projectJsonPath(project.dirName);
+    fs.renameSync(metaPath, `${metaPath}.removed`);
+    return { ok: true, trashed: false };
+  }
 }

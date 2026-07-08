@@ -1,5 +1,18 @@
 import { useState } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Drama,
+  MessagesSquare,
+  Play,
+  Settings,
+  Terminal,
+  Undo2,
+  X,
+} from 'lucide-react';
 import type { MessagePart } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -8,10 +21,80 @@ import { Markdown } from '../common/Markdown';
 type ToolCallPart = Extract<MessagePart, { type: 'tool_call' }>;
 type ToolResultPart = Extract<MessagePart, { type: 'tool_result' }>;
 
-/** Caminho do arquivo alvo, quando a tool opera em um arquivo. */
-function inputPath(call: ToolCallPart): string | undefined {
+/** Rótulos amigáveis das ferramentas builtin (MCPs/desconhecidas mantêm o nome cru). */
+const TOOL_LABELS: Record<string, string> = {
+  portal_write_file: 'Criando arquivo',
+  portal_edit_file: 'Editando arquivo',
+  portal_read_file: 'Lendo arquivo',
+  portal_list_files: 'Listando arquivos',
+  portal_search_files: 'Buscando nos arquivos',
+  portal_delete_file: 'Excluindo arquivo',
+  portal_move_file: 'Movendo arquivo',
+  portal_run_command: 'Executando comando',
+  portal_fetch_url: 'Consultando página',
+  portal_web_search: 'Pesquisando na web',
+  portal_spawn_subagent: 'Consultando subagente',
+  portal_ask_user: 'Perguntando ao usuário',
+  portal_load_skill: 'Carregando skill',
+  portal_read_skill_file: 'Lendo anexo de skill',
+  portal_search_knowledge: 'Buscando na base de conhecimento',
+  portal_read_knowledge: 'Lendo base de conhecimento',
+  portal_save_knowledge: 'Salvando na base de conhecimento',
+  portal_create_skill: 'Criando skill',
+  portal_create_agent: 'Criando agente',
+  bmad_read_file: 'Lendo arquivo do BMAD',
+  bmad_list_files: 'Listando arquivos do BMAD',
+  bmad_write_custom: 'Gravando customização do BMAD',
+};
+
+/** Resumo humano do input principal (path, query, comando…) exibido no título do card. */
+function inputSummary(call: ToolCallPart): string | undefined {
   const input = (call.input ?? {}) as Record<string, unknown>;
-  return typeof input.path === 'string' && input.path.trim() ? input.path.trim() : undefined;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  switch (call.toolName) {
+    case 'portal_move_file': {
+      const from = str(input.from);
+      const to = str(input.to);
+      return from && to ? `${from} → ${to}` : (from ?? to);
+    }
+    case 'portal_run_command':
+      return str(input.command);
+    case 'portal_fetch_url':
+      return str(input.url);
+    case 'portal_web_search':
+    case 'portal_search_files':
+    case 'portal_search_knowledge':
+      return str(input.query);
+    case 'portal_read_knowledge': {
+      const parts = [str(input.base), str(input.doc)].filter((v): v is string => !!v);
+      return parts.length ? parts.join(' / ') : undefined;
+    }
+    case 'portal_save_knowledge':
+      return str(input.base);
+    case 'portal_load_skill': {
+      const command = str(input.command);
+      return command ? `/${command.replace(/^\//, '')}` : undefined;
+    }
+    case 'portal_create_skill':
+    case 'portal_create_agent':
+      return str(input.name);
+    default:
+      // a maioria das ferramentas de arquivo usa o campo path
+      return str(input.path);
+  }
+}
+
+/**
+ * Marcador "[checkpoint:<id>]" que o backend anexa ao resultado das tools de
+ * escrita — vira o botão "Reverter" e sai do texto exibido.
+ */
+const CHECKPOINT_RE = /\n?\[checkpoint:([a-z0-9-]+)\]\s*$/;
+
+function parseCheckpoint(result?: ToolResultPart): { id?: string; content: string } {
+  if (!result) return { content: '' };
+  const match = CHECKPOINT_RE.exec(result.content);
+  if (!match) return { content: result.content };
+  return { id: match[1], content: result.content.replace(CHECKPOINT_RE, '') };
 }
 
 /**
@@ -68,7 +151,7 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
   return (
     <div className={`subagent-bubble${result && !result.ok ? ' subagent-bubble--error' : ''}`}>
       <div className="subagent-bubble__head">
-        <span className="subagent-bubble__avatar">🎭</span>
+        <span className="subagent-bubble__avatar"><Drama className="icon" aria-hidden /></span>
         <span className="subagent-bubble__name">{label}</span>
         {running ? (
           <span className="tool-card__status tool-card__status--running">
@@ -76,9 +159,13 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
           </span>
         ) : result ? (
           result.ok ? (
-            <span className="tool-card__status">✓ {(result.durationMs / 1000).toFixed(1)}s</span>
+            <span className="tool-card__status">
+              <Check className="icon icon--sm" aria-hidden /> {(result.durationMs / 1000).toFixed(1)}s
+            </span>
           ) : (
-            <span className="tool-card__status tool-card__status--error">✕ falhou</span>
+            <span className="tool-card__status tool-card__status--error">
+              <X className="icon icon--sm" aria-hidden /> falhou
+            </span>
           )
         ) : null}
         {task && (
@@ -87,7 +174,12 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
             onClick={() => setTaskOpen((v) => !v)}
             title={taskOpen ? 'Ocultar a tarefa enviada' : 'Ver a tarefa enviada'}
           >
-            {taskOpen ? '▾ tarefa' : '▸ tarefa'}
+            {taskOpen ? (
+              <ChevronDown className="icon icon--sm" aria-hidden />
+            ) : (
+              <ChevronRight className="icon icon--sm" aria-hidden />
+            )}{' '}
+            tarefa
           </button>
         )}
       </div>
@@ -112,6 +204,10 @@ export function ToolCallCard(props: {
   const { call, result, running } = props;
   const [open, setOpen] = useState(false);
   const [freeAnswer, setFreeAnswer] = useState('');
+  const [revertState, setRevertState] = useState<'idle' | 'reverting' | 'reverted' | 'error'>(
+    'idle',
+  );
+  const [revertError, setRevertError] = useState('');
   // o card renderiza dentro da sessão aberta — pendências vêm do stream dela
   const sessionId = useSessions((s) => s.current?.id);
   const stream = useChat((s) => (sessionId ? s.streams[sessionId] : undefined));
@@ -154,32 +250,87 @@ export function ToolCallCard(props: {
     </span>
   ) : result ? (
     result.ok ? (
-      <span className="tool-card__status">✓ {(result.durationMs / 1000).toFixed(1)}s</span>
+      <span className="tool-card__status">
+        <Check className="icon icon--sm" aria-hidden /> {(result.durationMs / 1000).toFixed(1)}s
+      </span>
     ) : (
-      <span className="tool-card__status tool-card__status--error">✕ falhou</span>
+      <span className="tool-card__status tool-card__status--error">
+        <X className="icon icon--sm" aria-hidden /> falhou
+      </span>
     )
   ) : (
     <span className="tool-card__status">—</span>
   );
 
   const icon =
-    call.toolName === 'portal_run_command' ? '＞_' : call.toolName === 'portal_ask_user' ? '💬' : '⚙';
+    call.toolName === 'portal_run_command' ? (
+      <Terminal className="icon" aria-hidden />
+    ) : call.toolName === 'portal_ask_user' ? (
+      <MessagesSquare className="icon" aria-hidden />
+    ) : (
+      <Settings className="icon" aria-hidden />
+    );
 
-  const path = inputPath(call);
+  const summary = inputSummary(call);
+  const checkpoint = parseCheckpoint(result);
+  const doRevert = async () => {
+    if (!checkpoint.id || revertState === 'reverting' || revertState === 'reverted') return;
+    setRevertState('reverting');
+    setRevertError('');
+    try {
+      await api.revertCheckpoint(checkpoint.id);
+      setRevertState('reverted');
+    } catch (err) {
+      setRevertError(err instanceof Error ? err.message : String(err));
+      setRevertState('error');
+    }
+  };
 
   return (
     <div className="tool-card">
       <button className="tool-card__head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-card__icon">{open ? '▾' : '▸'}</span>
+        <span className="tool-card__icon">
+          {open ? (
+            <ChevronDown className="icon icon--sm" aria-hidden />
+          ) : (
+            <ChevronRight className="icon icon--sm" aria-hidden />
+          )}
+        </span>
         <span className="tool-card__icon">{icon}</span>
-        <span className="tool-card__name">{call.toolName}</span>
-        {path && (
-          <span className="tool-card__path" title={path}>
-            {path}
+        <span className="tool-card__name">{TOOL_LABELS[call.toolName] ?? call.toolName}</span>
+        {summary && (
+          <span className="tool-card__path" title={summary}>
+            {summary}
           </span>
         )}
         {status}
       </button>
+      {checkpoint.id && result?.ok && (
+        <div className="tool-card__revert">
+          <button
+            className="btn btn--sm btn--ghost"
+            disabled={revertState === 'reverting' || revertState === 'reverted'}
+            onClick={doRevert}
+            title="Restaura o estado do(s) arquivo(s) antes desta alteração"
+          >
+            {revertState === 'reverted' ? (
+              <>
+                <Check className="icon icon--sm" aria-hidden /> Revertido
+              </>
+            ) : (
+              <>
+                <Undo2 className="icon icon--sm" aria-hidden />{' '}
+                {revertState === 'reverting' ? 'Revertendo…' : 'Reverter'}
+              </>
+            )}
+          </button>
+          {revertState === 'error' && (
+            <span className="tool-card__revert-error" title={revertError}>
+              {revertError}
+            </span>
+          )}
+        </div>
+      )}
       {awaitingApproval && (
         <div className="tool-card__approval">
           <pre className="tool-card__command">{pendingApproval.command}</pre>
@@ -188,7 +339,7 @@ export function ToolCallCard(props: {
           </div>
           <div className="tool-card__approval-actions">
             <button className="btn btn--sm btn--primary" onClick={() => respondApproval(true)}>
-              ▶ Executar
+              <Play className="icon" aria-hidden /> Executar
             </button>
             <button className="btn btn--sm btn--ghost" onClick={() => respondApproval(false)}>
               Negar
@@ -251,7 +402,7 @@ export function ToolCallCard(props: {
           {result && (
             <>
               <h5>{result.ok ? 'Resultado' : 'Erro'}</h5>
-              <pre>{result.content}</pre>
+              <pre>{checkpoint.content}</pre>
             </>
           )}
         </div>
