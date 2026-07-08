@@ -157,7 +157,9 @@ function TreeLevel(props: {
         const isDir = entry.type === 'dir';
         const isCollapsed = isDir && props.collapsed.has(entry.path);
         return (
-          <div key={entry.path} style={{ paddingLeft: props.depth * 9 }}>
+          // os divs já se aninham (filhos dentro do div do pai), então cada
+          // nível soma um passo CONSTANTE — depth * N aqui viraria recuo quadrático
+          <div key={entry.path} style={{ paddingLeft: props.depth ? 10 : 0 }}>
             <div
               className={`file-tree__row${pinned ? ' file-tree__row--pinned' : ''}`}
               onContextMenu={(e) => {
