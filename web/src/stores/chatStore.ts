@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChatAttachment, ChatMessage, MessagePart } from '@aiportal/shared';
-import { api } from '../api/client';
+import { api, type ApiError } from '../api/client';
 import { attachChat, streamChat, type ChatStreamHandlers } from '../api/sseChat';
 import { useSessions } from './sessionsStore';
 import { useCatalog } from './catalogStore';
@@ -45,6 +45,11 @@ interface ChatState {
   regenerate: (sessionId: string) => void;
   /** Reconecta a uma resposta que segue rodando no servidor (reload da página). */
   resume: (sessionId: string) => Promise<void>;
+  /**
+   * Boot da SPA: retoma TODAS as gerações em andamento no servidor, inclusive
+   * de conversas em background — sem isso elas morrem ao fim da graça de 120s.
+   */
+  resumeAll: () => Promise<void>;
   respondApproval: (sessionId: string, approved: boolean) => void;
   respondQuestion: (sessionId: string, answer: string) => void;
   stop: (sessionId: string) => void;
@@ -61,8 +66,12 @@ const FILE_MUTATING_TOOLS = [
   'portal_move_file',
 ];
 
-/** Espera entre tentativas de reconexão do stream (a graça do servidor é 120s). */
-const REATTACH_DELAYS_MS = [800, 1500, 3000, 5000, 8000];
+/**
+ * Espera entre tentativas de reconexão do stream. A soma cobre ~110s — quase
+ * toda a graça de 120s do servidor, para sobreviver a quedas longas de
+ * VPN/proxy corporativo (30–90s) sem desistir antes da hora.
+ */
+const REATTACH_DELAYS_MS = [800, 1500, 3000, 5000, 8000, 12000, 15000, 15000, 15000, 15000, 15000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -204,6 +213,7 @@ export const useChat = create<ChatState>((set, get) => {
             ...(done.modelId || ctx.modelId ? { modelId: done.modelId ?? ctx.modelId } : {}),
             ...(done.usage ? { usage: done.usage } : {}),
             createdAt: new Date().toISOString(),
+            ...(done.finishReason ? { finishReason: done.finishReason } : {}),
             ...(ctx.errorInfo ? { error: ctx.errorInfo } : {}),
           };
           // se o usuário voltou para a sessão no meio do stream, o reload
@@ -242,6 +252,16 @@ export const useChat = create<ChatState>((set, get) => {
       const fresh = await api.getSession(sessionId);
       useSessions.getState().mutateSession(sessionId, () => fresh);
       void useSessions.getState().loadSessions(fresh.projectId ?? null);
+      // terminou com a última mensagem sendo do usuário: a geração se perdeu
+      // (extensão reiniciada no meio) — sem isto o usuário fica sem explicação
+      const last = fresh.messages[fresh.messages.length - 1];
+      if (last?.role === 'user') {
+        toastFor(
+          sessionId,
+          'A resposta foi interrompida (o VS Code pode ter sido reiniciado). Use "Regenerar" para tentar de novo.',
+          'error',
+        );
+      }
     } catch {
       // servidor fora do ar — o parcial local fica na tela até o próximo reload
     }
@@ -345,11 +365,16 @@ export const useChat = create<ChatState>((set, get) => {
         userParts.push({ type: 'attachment', name: att.name, content: att.content });
       }
       const userMessage: ChatMessage = {
-        id: `local-${Date.now()}`,
+        // UUID gerado aqui e enviado ao servidor: os dois lados persistem o
+        // MESMO id mesmo se a conexão cair antes do meta (editar/regenerar
+        // dependem desse id para achar a mensagem)
+        id: crypto.randomUUID(),
         role: 'user',
         parts: userParts,
         createdAt: new Date().toISOString(),
       };
+      // guarda o estado pré-envio para desfazer se o servidor rejeitar o pedido
+      const messagesBefore = session.messages;
       sessions.mutateSession(sessionId, (s) => {
         // editar/regenerar: descarta localmente o mesmo trecho que o servidor descarta
         let messages = s.messages;
@@ -362,10 +387,12 @@ export const useChat = create<ChatState>((set, get) => {
 
       // título otimista na sidebar: mesma regra do servidor (1ª linha da 1ª
       // mensagem, 60 chars) — sem esperar o fim do stream para refletir
+      let appliedOptimisticTitle = false;
       if (session.title === 'Nova conversa' && session.messages.length === 0) {
         const firstLine = text.split('\n')[0] || attachments[0]?.name || 'Nova conversa';
         const title = firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
         sessions.applyLocalTitle(sessionId, session.projectId ?? undefined, title);
+        appliedOptimisticTitle = true;
       }
 
       set((state) => ({ streams: { ...state.streams, [sessionId]: { parts: [] } } }));
@@ -382,6 +409,7 @@ export const useChat = create<ChatState>((set, get) => {
           {
             sessionId,
             text,
+            userMessageId: userMessage.id,
             ...(attachments.length ? { attachments } : {}),
             ...(opts.retryFromMessageId ? { retryFromMessageId: opts.retryFromMessageId } : {}),
           },
@@ -398,6 +426,15 @@ export const useChat = create<ChatState>((set, get) => {
           await reattachLoop(sessionId, ctx, myController);
         }
       } finally {
+        // pedido rejeitado antes de o servidor aceitar (400/409/404 — nenhum
+        // meta chegou): desfaz a mensagem e o título otimistas, que não
+        // existem no servidor e ficariam fantasmas até o próximo reload
+        if (ctx.errorInfo && !ctx.serverAssistantId) {
+          sessions.mutateSession(sessionId, (s) => ({ ...s, messages: messagesBefore }));
+          if (appliedOptimisticTitle) {
+            sessions.applyLocalTitle(sessionId, session.projectId ?? undefined, 'Nova conversa');
+          }
+        }
         finishRun(sessionId, ctx, myController);
       }
     },
@@ -430,17 +467,34 @@ export const useChat = create<ChatState>((set, get) => {
       set((state) => ({ streams: { ...state.streams, [sessionId]: { parts: [] } } }));
       const myController = new AbortController();
       abortControllers.set(sessionId, myController);
-      const current = useSessions.getState().current;
+      // herda o modelo da própria sessão retomada (na tela ou em background) —
+      // sem isso o custo/credits da resposta é atribuído ao modelo errado
+      const st = useSessions.getState();
+      const modelId =
+        st.current?.id === sessionId
+          ? st.current.modelId
+          : [...st.standalone, ...Object.values(st.byProject).flat()].find(
+              (s) => s.id === sessionId,
+            )?.modelId;
       const ctx: StreamCtx = {
         done: false,
-        // só herda o modelo quando a sessão retomada é a que está na tela
-        ...(current?.id === sessionId && current.modelId ? { modelId: current.modelId } : {}),
+        ...(modelId ? { modelId } : {}),
       };
       try {
         await reattachLoop(sessionId, ctx, myController, true);
       } finally {
         finishRun(sessionId, ctx, myController);
       }
+    },
+
+    resumeAll: async () => {
+      let sessionIds: string[];
+      try {
+        ({ sessionIds } = await api.chatActiveAll());
+      } catch {
+        return; // servidor fora do ar ou antigo sem a rota — segue sem retomar
+      }
+      for (const id of sessionIds) void get().resume(id);
     },
 
     respondApproval: (sessionId, approved) => {
@@ -451,6 +505,15 @@ export const useChat = create<ChatState>((set, get) => {
       patchStream(sessionId, { pendingApproval: undefined });
       api.respondApproval(requestId, pendingApproval.callId, approved).catch((err) => {
         useUi.getState().toast((err as Error).message, 'error');
+        // falha transitória (rede/servidor): devolve o card para tentar de novo.
+        // 404 = expirou/já respondida em outra aba — aí não volta.
+        const current = get().streams[sessionId];
+        const resolved = current?.parts.some(
+          (p) => p.type === 'tool_result' && p.callId === pendingApproval.callId,
+        );
+        if ((err as ApiError).status !== 404 && current?.requestId === requestId && !resolved) {
+          patchStream(sessionId, { pendingApproval });
+        }
       });
     },
 
@@ -462,18 +525,49 @@ export const useChat = create<ChatState>((set, get) => {
       patchStream(sessionId, { pendingQuestion: undefined });
       api.respondQuestion(requestId, pendingQuestion.callId, answer.trim()).catch((err) => {
         useUi.getState().toast((err as Error).message, 'error');
+        const current = get().streams[sessionId];
+        const resolved = current?.parts.some(
+          (p) => p.type === 'tool_result' && p.callId === pendingQuestion.callId,
+        );
+        if ((err as ApiError).status !== 404 && current?.requestId === requestId && !resolved) {
+          patchStream(sessionId, { pendingQuestion });
+        }
       });
     },
 
     stop: (sessionId) => {
       const stream = get().streams[sessionId];
       if (!stream) return;
-      if (stream.requestId) {
-        void api.cancelChat(stream.requestId).catch(() => undefined);
-      } else {
-        // stop antes do meta chegar: cancela pela sessão
-        void api.cancelChatBySession(sessionId).catch(() => undefined);
-      }
+      // o cancel precisa CHEGAR ao servidor: sem confirmação a geração segue
+      // rodando (gastando créditos) e a conversa fica travada em 409 até o fim
+      // da graça de 120s. Reenvia com espera até confirmar (cobre o stop antes
+      // de o servidor registrar o stream e quedas transitórias de rede).
+      const requestId = stream.requestId;
+      void (async () => {
+        for (const delay of [0, 500, 1200, 2500, 5000]) {
+          if (delay) await sleep(delay);
+          try {
+            const { ok } = requestId
+              ? await api.cancelChat(requestId)
+              : await api.cancelChatBySession(sessionId);
+            if (ok) return;
+          } catch (err) {
+            // 404 com requestId = aquele request já acabou. Sem requestId,
+            // 404 pode ser só o stream que ainda não registrou — insiste.
+            if (requestId && (err as ApiError).status === 404) return;
+          }
+        }
+        try {
+          if (!(await api.chatActive(sessionId)).requestId) return; // nada rodando
+        } catch {
+          // servidor inacessível — cai no aviso abaixo
+        }
+        toastFor(
+          sessionId,
+          'Não consegui confirmar o cancelamento — a resposta pode seguir rodando no servidor.',
+          'error',
+        );
+      })();
       // preserva o parcial localmente (o servidor também persiste)
       if (stream.parts.length) {
         const partial: ChatMessage = {

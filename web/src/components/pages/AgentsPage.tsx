@@ -10,6 +10,8 @@ import {
   Pencil,
   Plus,
   Puzzle,
+  Search,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -145,6 +147,7 @@ export function AgentsPage() {
   // conversa rápida nasce no projeto aberto (se houver)
   const contextProjectId = session?.projectId ?? viewProjectId ?? null;
   const [draft, setDraft] = useState<Draft | undefined>();
+  const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [vsAgents, setVsAgents] = useState<VsCodeAgent[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -152,6 +155,16 @@ export function AgentsPage() {
   const [picker, setPicker] = useState<'skills' | 'bases' | null>(null);
   const [expandInstructions, setExpandInstructions] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  // busca por nome/descrição na lista de agentes
+  const needle = query.trim().toLowerCase();
+  const shownAgents = needle
+    ? visibleAgents.filter(
+        (a) =>
+          a.name.toLowerCase().includes(needle) ||
+          (a.description ?? '').toLowerCase().includes(needle),
+      )
+    : visibleAgents;
 
   useEffect(() => {
     void loadAgents();
@@ -401,7 +414,38 @@ export function AgentsPage() {
       }
     >
       <div className="page-cols">
-        <Panel title="Meus agentes" count={visibleAgents.length}>
+        <Panel
+          title="Meus agentes"
+          count={shownAgents.length}
+          actions={
+            visibleAgents.length > 0 ? (
+              <div className="panel-search">
+                <Search className="icon icon--sm" aria-hidden />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar…"
+                  aria-label="Buscar agente por nome ou descrição"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setQuery('');
+                  }}
+                />
+                {query && (
+                  <button title="Limpar busca" aria-label="Limpar busca" onClick={() => setQuery('')}>
+                    <X className="icon icon--sm" aria-hidden />
+                  </button>
+                )}
+              </div>
+            ) : undefined
+          }
+        >
+          {needle && visibleAgents.length > 0 && shownAgents.length === 0 && (
+            <EmptyState
+              icon={<Search className="icon icon--lg" aria-hidden />}
+              title="Nada encontrado"
+              hint="Nenhum agente com esse nome ou descrição."
+            />
+          )}
           {visibleAgents.length === 0 && !(draft && !draft.id) && (
             <EmptyState
               icon={<Bot className="icon icon--lg" aria-hidden />}
@@ -432,7 +476,7 @@ export function AgentsPage() {
               </span>
             </div>
           )}
-          {visibleAgents.map((agent) => (
+          {shownAgents.map((agent) => (
             <button
               className={`page-list-item${draft?.id === agent.id ? ' page-list-item--active' : ''}`}
               key={agent.id}

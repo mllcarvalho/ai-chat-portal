@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -20,6 +20,8 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
+import type { BmadArtifact, BmadArtifactKind } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -51,6 +53,12 @@ interface BmadAction {
   /** Pergunta e exemplo do campo (kind input). */
   inputLabel?: string;
   placeholder?: string;
+  /**
+   * Tipos de artefato em _bmad-output/ que provam que esta ação já rodou no
+   * projeto (ver KIND_PATTERNS em extension/src/storage/bmadArtifacts.ts).
+   * Ações sem artefato próprio (ex.: refinar resposta) ficam sem o campo.
+   */
+  artifacts?: BmadArtifactKind[];
 }
 
 /** Cor da etapa: pinta o título da linha e os ícones dos chips. */
@@ -68,6 +76,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Sobre o que vamos idear?',
         placeholder: 'ex: como reduzir o churn dos clientes PJ',
+        artifacts: ['brainstorming'],
       },
       {
         command: 'bmad-market-research',
@@ -78,6 +87,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Qual mercado ou concorrência pesquisar?',
         placeholder: 'ex: apps de gestão financeira PF no Brasil',
+        artifacts: ['market-research'],
       },
       {
         command: 'bmad-domain-research',
@@ -88,6 +98,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Qual domínio ou indústria pesquisar?',
         placeholder: 'ex: crédito consignado, open finance',
+        artifacts: ['domain-research'],
       },
       {
         command: 'bmad-technical-research',
@@ -98,6 +109,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Qual tecnologia ou questão técnica pesquisar?',
         placeholder: 'ex: opções de motor de regras para PJ',
+        artifacts: ['technical-research'],
       },
     ],
   },
@@ -114,6 +126,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Descreva a ideia ou o produto',
         placeholder: 'ex: portal de autoatendimento para renegociação de dívidas',
+        artifacts: ['product-brief'],
       },
       {
         command: 'bmad-prd',
@@ -124,6 +137,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'O que o PRD deve cobrir?',
         placeholder: 'ex: criar o PRD a partir do brief desta conversa',
+        artifacts: ['prd'],
       },
       {
         command: 'bmad-prfaq',
@@ -134,6 +148,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Qual conceito vamos desafiar?',
         placeholder: 'ex: cartão de crédito por assinatura',
+        artifacts: ['prfaq'],
       },
       {
         command: 'bmad-ux',
@@ -144,6 +159,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         kind: 'input',
         inputLabel: 'Qual produto ou fluxo vamos desenhar?',
         placeholder: 'ex: onboarding do app, fluxo de contratação',
+        artifacts: ['ux-design'],
       },
     ],
   },
@@ -159,6 +175,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         hint: 'Valida o PRD desta conversa ou dos arquivos do projeto',
         kind: 'run',
         args: 'Valide o PRD já produzido nesta conversa ou nos arquivos do projeto.',
+        artifacts: ['prd-validation'],
       },
       {
         command: 'bmad-review-adversarial-general',
@@ -166,6 +183,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         icon: Swords,
         hint: 'Revisão cética do que foi produzido, com relatório de achados',
         kind: 'run',
+        artifacts: ['adversarial-review'],
       },
       {
         command: 'bmad-advanced-elicitation',
@@ -187,6 +205,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         icon: Puzzle,
         hint: 'Quebra os requisitos do PRD em épicos e user stories',
         kind: 'run',
+        artifacts: ['epics'],
       },
       {
         command: 'bmad-check-implementation-readiness',
@@ -195,6 +214,7 @@ const GROUPS: { title: string; color: string; actions: BmadAction[] }[] = [
         icon: ListChecks,
         hint: 'Confere se PRD, UX, arquitetura e épicos estão completos',
         kind: 'run',
+        artifacts: ['implementation-readiness'],
       },
     ],
   },
@@ -245,7 +265,73 @@ export function BmadActions() {
     })).filter((g) => g.actions.length > 0);
   }, [skills]);
 
+  // artefatos já produzidos em _bmad-output/ do projeto — pintam o progresso
+  // do fluxo nos chips (sessões avulsas, sem projeto, ficam sem indicador)
+  const projectId = session?.projectId ?? undefined;
+  const [artifacts, setArtifacts] = useState<BmadArtifact[]>([]);
+  useEffect(() => {
+    if (!projectId) {
+      setArtifacts([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      api
+        .bmadArtifacts(projectId)
+        .then((r) => {
+          if (!cancelled) setArtifacts(r.artifacts);
+        })
+        .catch(() => {
+          if (!cancelled) setArtifacts([]);
+        });
+    };
+    load();
+    // sem websocket: refetch quando a janela volta ao foco cobre gerações
+    // feitas em outras conversas/janelas
+    window.addEventListener('focus', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', load);
+    };
+  }, [projectId]);
+
+  // quando ESTA conversa termina uma geração, os artefatos podem ter mudado
+  const wasStreaming = useRef(false);
+  useEffect(() => {
+    const ended = wasStreaming.current && !isStreaming;
+    wasStreaming.current = isStreaming;
+    if (!ended || !projectId) return;
+    api
+      .bmadArtifacts(projectId)
+      .then((r) => setArtifacts(r.artifacts))
+      .catch(() => {});
+  }, [isStreaming, projectId]);
+
   if (!session || available.length === 0) return null;
+
+  const byKind = new Map<BmadArtifactKind, BmadArtifact[]>();
+  for (const artifact of artifacts) {
+    const list = byKind.get(artifact.kind) ?? [];
+    list.push(artifact);
+    byKind.set(artifact.kind, list);
+  }
+  const artifactsFor = (action: BmadAction): BmadArtifact[] =>
+    (action.artifacts ?? []).flatMap((kind) => byKind.get(kind) ?? []);
+
+  // próximo passo sugerido: a primeira ação (que gera artefato) da primeira
+  // etapa do fluxo ainda sem nenhum artefato produzido
+  let suggested: BmadAction | undefined;
+  if (projectId) {
+    for (const group of available) {
+      if (group.title === 'Mais') continue;
+      const capable = group.actions.filter((a) => a.artifacts?.length);
+      if (capable.length === 0) continue;
+      if (!capable.some((a) => artifactsFor(a).length > 0)) {
+        suggested = capable[0];
+        break;
+      }
+    }
+  }
 
   const toggle = () => {
     localStorage.setItem(COLLAPSED_KEY, collapsed ? '0' : '1');
@@ -324,16 +410,40 @@ export function BmadActions() {
                 <span className="bmad-deck__chips">
                   {group.actions.map((action) => {
                     const preset = presetFor(action);
+                    const produced = artifactsFor(action);
+                    const isDone = produced.length > 0;
+                    const isSuggested = suggested === action;
+                    const doneNote = isDone
+                      ? `\nProduzido: ${produced
+                          .slice(0, 3)
+                          .map(
+                            (a) =>
+                              `${a.name} (${new Date(a.mtime).toLocaleDateString('pt-BR')})`,
+                          )
+                          .join(', ')}${
+                          produced.length > 3 ? ` e mais ${produced.length - 3}` : ''
+                        }`
+                      : '';
+                    const title =
+                      (preset ? `${action.hint} · com ${preset.name}` : action.hint) +
+                      doneNote +
+                      (isSuggested ? '\nSugerido como próximo passo do fluxo' : '');
                     return (
                       <button
                         key={`${action.command}-${action.label}`}
-                        className="bmad-chip"
-                        title={preset ? `${action.hint} · com ${preset.name}` : action.hint}
+                        className={`bmad-chip${isDone ? ' bmad-chip--done' : ''}${
+                          isSuggested ? ' bmad-chip--suggested' : ''
+                        }`}
+                        title={title}
                         disabled={isStreaming}
                         onClick={() => onChipClick(action)}
                       >
                         <action.icon className="icon" aria-hidden style={{ color: group.color }} />{' '}
                         {action.label}
+                        {isDone && (
+                          <Check className="icon bmad-chip__check" aria-hidden />
+                        )}
+                        {isSuggested && <span className="bmad-chip__badge">sugerido</span>}
                       </button>
                     );
                   })}

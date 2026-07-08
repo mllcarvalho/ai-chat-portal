@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ArrowDown, ArrowUp, Copy, Paperclip, Pencil, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Paperclip, Pencil, Play, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { ChatMessage, MessagePart } from '@aiportal/shared';
 import { useCatalog } from '../../stores/catalogStore';
 import { useChat } from '../../stores/chatStore';
@@ -152,7 +152,21 @@ export const MessageBubble = memo(function MessageBubble(props: {
           </span>
         )}
         {message.error && (
-          <div className="msg__error"><TriangleAlert className="icon" aria-hidden /> {message.error.message}</div>
+          <div className="msg__error">
+            <TriangleAlert className="icon" aria-hidden /> {message.error.message}
+            {isLastAssistant && !streaming && !actionsDisabled && (
+              <button
+                className="msg__action msg__error-retry"
+                title="Reenviar a última mensagem e gerar a resposta de novo"
+                onClick={() => {
+                  const sessionId = useSessions.getState().current?.id;
+                  if (sessionId) useChat.getState().regenerate(sessionId);
+                }}
+              >
+                <RefreshCw className="icon icon--sm" aria-hidden /> tentar novamente
+              </button>
+            )}
+          </div>
         )}
         {!streaming && !actionsDisabled && (
           <div className="msg__actions">
@@ -171,6 +185,15 @@ export const MessageBubble = memo(function MessageBubble(props: {
                 }}
               >
                 <RefreshCw className="icon icon--sm" aria-hidden /> regenerar
+              </button>
+            )}
+            {isLastAssistant && message.finishReason === 'max_rounds' && (
+              <button
+                className="msg__action msg__action--primary"
+                title="A resposta parou no limite de rodadas de ferramentas — pede para o assistente seguir de onde parou"
+                onClick={() => void useChat.getState().send('Continue de onde parou.')}
+              >
+                <Play className="icon icon--sm" aria-hidden /> continuar
               </button>
             )}
           </div>

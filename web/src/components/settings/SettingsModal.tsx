@@ -1,10 +1,56 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useUi } from '../../stores/uiStore';
 import { AgentIcon } from '../common/AgentIcon';
 import { Modal } from '../common/Modal';
+
+/** Troca a senha de URLs tipo http://usuario:senha@proxy:8080 por •••• na exibição. */
+const maskProxyPassword = (url: string) =>
+  url.replace(/^((?:[a-z][\w+.-]*:\/\/)?[^:@/\s]+:)[^@\s]+@/i, '$1••••••@');
+
+/**
+ * Input de proxy que não expõe a senha embutida na URL: mostra mascarado (e
+ * somente leitura) até o usuário clicar no olhinho para ver e editar.
+ */
+function ProxyInput(props: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  style?: CSSProperties;
+}) {
+  const [show, setShow] = useState(false);
+  const masked = maskProxyPassword(props.value);
+  const hasSecret = masked !== props.value;
+  const hidden = hasSecret && !show;
+  return (
+    <div className="secret-input" style={props.style}>
+      <input
+        value={hidden ? masked : props.value}
+        readOnly={hidden}
+        onChange={(e) => props.onChange(e.target.value)}
+        placeholder={props.placeholder}
+        title={hidden ? 'A senha está oculta — clique no olho para ver e editar' : undefined}
+      />
+      {hasSecret && (
+        <button
+          type="button"
+          className="secret-input__eye"
+          onClick={() => setShow(!show)}
+          title={show ? 'Ocultar a senha' : 'Mostrar a senha'}
+        >
+          {show ? (
+            <EyeOff className="icon icon--sm" aria-hidden />
+          ) : (
+            <Eye className="icon icon--sm" aria-hidden />
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function SettingsModal() {
   const health = useCatalog((s) => s.health);
@@ -145,15 +191,15 @@ export function SettingsModal() {
           arquivos do login: settings.json do VS Code, .bashrc/.zshrc e o cafile do ~/.npmrc.
           Também vale para as conexões dos servidores MCP.
         </span>
-        <input
+        <ProxyInput
           value={httpsProxy}
-          onChange={(e) => setHttpsProxy(e.target.value)}
+          onChange={setHttpsProxy}
           placeholder="HTTPS_PROXY — ex: http://usuario:senha@proxy.empresa:8080"
         />
-        <input
+        <ProxyInput
           style={{ marginTop: 6 }}
           value={httpProxy}
-          onChange={(e) => setHttpProxy(e.target.value)}
+          onChange={setHttpProxy}
           placeholder="HTTP_PROXY — vazio usa o mesmo valor do HTTPS_PROXY"
         />
         <input

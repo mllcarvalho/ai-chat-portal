@@ -711,6 +711,30 @@ select:focus {
   font-size: 13px;
 }
 
+/* "tentar novamente" dentro do banner de erro — sempre visível */
+.msg__error-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  color: var(--danger);
+  text-decoration: underline;
+}
+
+.msg__error-retry:hover {
+  color: var(--danger);
+  background: rgba(201, 58, 44, 0.12);
+}
+
+/* "continuar" após o limite de rodadas — em destaque e sem esperar o hover */
+.msg__actions:has(.msg__action--primary) {
+  opacity: 1;
+}
+
+.msg__action--primary {
+  color: var(--accent);
+}
+
 /* cursor pulsante durante streaming */
 .stream-caret::after {
   content: '▍';
@@ -859,6 +883,21 @@ select:focus {
 .tool-card__approval-actions {
   display: flex;
   gap: 8px;
+}
+
+/* botão "Reverter" das tools de escrita (checkpoint do workspace) */
+.tool-card__revert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px 8px;
+}
+.tool-card__revert-error {
+  font-size: 11px;
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spinner {
@@ -2651,6 +2690,33 @@ button .icon {
   border-style: dashed;
 }
 
+/* input de URL com senha embutida: mascara usuario:senha@ e olhinho para revelar */
+.secret-input {
+  position: relative;
+  display: flex;
+}
+.secret-input input {
+  flex: 1;
+  width: 100%;
+  padding-right: 34px;
+}
+.secret-input__eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  padding: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.secret-input__eye:hover {
+  color: var(--text);
+}
+
 /* ---------- ações BMAD no chat ---------- */
 
 .bmad-deck-wrap {
@@ -2689,6 +2755,16 @@ button .icon {
 }
 .bmad-deck__header:hover {
   color: var(--accent-strong);
+}
+/* marca em vermelho (herança do 🅱️ original): destaca a barra no meio do chat */
+.bmad-deck__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+}
+.bmad-deck__brand .icon {
+  fill: currentColor;
 }
 .bmad-deck__hint {
   font-weight: 500;
@@ -2745,6 +2821,29 @@ button .icon {
 .bmad-chip:disabled {
   opacity: 0.5;
   cursor: default;
+}
+/* progresso do fluxo: chip cuja ação já tem artefato em _bmad-output/ */
+.bmad-chip--done {
+  border-color: rgba(23, 130, 70, 0.38);
+}
+.bmad-chip__check {
+  color: var(--ok);
+  margin-left: 3px;
+}
+/* próximo passo sugerido do fluxo */
+.bmad-chip--suggested {
+  border-color: var(--accent-border);
+}
+.bmad-chip__badge {
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 @media (max-width: 640px) {
   .bmad-deck__row {
@@ -2822,6 +2921,16 @@ button .icon {
 .empty-state__action,
 .empty-state .btn {
   margin-top: 10px;
+}
+/* mais de um botão na ação (ex.: Instalar / Agora não) fica lado a lado */
+.empty-state__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.empty-state__action .btn {
+  margin-top: 0;
 }
 
 /* ---------- onboarding ---------- */
@@ -4038,3 +4147,82 @@ button.chip--action:disabled {
   }
 }
 
+
+/* ---------- busca/filtro nas telas de gestão (sidebar, arquivos, páginas) ---------- */
+
+/* Caixa de busca compacta: ícone + input + botão de limpar. */
+.panel-search,
+.sidebar__search,
+.files-panel__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  color: var(--text-faint);
+}
+.panel-search:focus-within,
+.sidebar__search:focus-within,
+.files-panel__search:focus-within {
+  border-color: var(--accent);
+}
+.panel-search input,
+.sidebar__search input,
+.files-panel__search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  padding: 6px 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.panel-search input:focus,
+.sidebar__search input:focus,
+.files-panel__search input:focus {
+  border: none;
+  box-shadow: none;
+}
+.panel-search > button,
+.sidebar__search > button,
+.files-panel__search > button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text-faint);
+}
+.panel-search > button:hover,
+.sidebar__search > button:hover,
+.files-panel__search > button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+/* no cabeçalho de um Panel, a busca não pode esmagar as outras ações */
+.panel-search {
+  max-width: 190px;
+}
+.panel-search--block {
+  max-width: none;
+  margin-bottom: 10px;
+}
+.sidebar__search {
+  margin: 0 14px 10px;
+}
+.files-panel__search {
+  margin: 10px 16px 0;
+}
+
+/* bolinha de "não salvo" na aba ativa do preview */
+.preview-tab__dirty {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}

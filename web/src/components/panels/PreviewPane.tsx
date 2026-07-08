@@ -50,6 +50,9 @@ export function PreviewPane() {
   const [loaded, setLoaded] = useState<Record<string, Loaded>>({});
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  /** Conteúdo no momento em que a edição começou — base para detectar
+      alterações não salvas e conflito com escrita concorrente (agente). */
+  const [editBase, setEditBase] = useState('');
   const [showSource, setShowSource] = useState(false);
   const [width, setWidth] = useState<number | undefined>(savedPaneWidth);
   const [resizing, setResizing] = useState(false);
@@ -102,19 +105,44 @@ export function PreviewPane() {
 
   const active = activePath ? tabs.find((t) => t.path === activePath) : undefined;
   const view = active ? loaded[active.path] : undefined;
+  /** Há alterações não salvas na edição atual? */
+  const dirty = editing && draft !== editBase;
 
   const startEdit = () => {
     if (!view) return;
     setDraft(view.content);
+    setEditBase(view.content);
     setEditing(true);
   };
 
   const saveEdit = async () => {
     if (!active) return;
     try {
+      // conflito de edição concorrente: o reload é ignorado durante a edição,
+      // então relê o arquivo antes de salvar — se mudou (ex.: o agente
+      // escreveu nele), pergunta antes de sobrescrever
+      try {
+        const server = projectId
+          ? await api.projectFileContent(projectId, active.path)
+          : await api.sessionFileContent(workspaceSessionId!, active.path);
+        if (server.content !== editBase) {
+          const ok = await confirm({
+            title: 'Arquivo alterado',
+            message:
+              'O arquivo mudou enquanto você editava (provavelmente o assistente escreveu nele). Sobrescrever mesmo assim?',
+            confirmLabel: 'Sobrescrever',
+            cancelLabel: 'Cancelar',
+            danger: true,
+          });
+          if (!ok) return;
+        }
+      } catch {
+        // não conseguiu reler (ex.: arquivo novo) — segue com o salvamento
+      }
       if (projectId) await api.writeProjectFile(projectId, active.path, draft);
       else if (workspaceSessionId) await api.writeSessionFile(workspaceSessionId, active.path, draft);
       setLoaded((prev) => ({ ...prev, [active.path]: { content: draft, truncated: false } }));
+      setEditBase(draft);
       setEditing(false);
       toast('Arquivo salvo.', 'ok');
       bumpFilesVersion();
@@ -124,7 +152,7 @@ export function PreviewPane() {
   };
 
   const requestCloseTab = async (path: string) => {
-    if (editing && active?.path === path && view && draft !== view.content) {
+    if (active?.path === path && dirty) {
       const ok = await confirm({
         title: 'Descartar alterações',
         message: 'O arquivo tem alterações não salvas. Descartar?',
@@ -186,6 +214,13 @@ export function PreviewPane() {
               }}
             >
               <span className="preview-tab__name">{tab.name}</span>
+              {dirty && tab.path === activePath && (
+                <span
+                  className="preview-tab__dirty"
+                  title="Alterações não salvas"
+                  aria-label="Alterações não salvas"
+                />
+              )}
               <button
                 className="preview-tab__close"
                 title="Fechar aba"
@@ -217,8 +252,12 @@ export function PreviewPane() {
             </span>
             {editing ? (
               <>
-                <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
-                  <Save className="icon" aria-hidden /> Salvar
+                <button
+                  className="btn btn--primary btn--sm"
+                  title={dirty ? 'Há alterações não salvas (Ctrl+S / Cmd+S salva)' : 'Salvar (Ctrl+S / Cmd+S)'}
+                  onClick={() => void saveEdit()}
+                >
+                  <Save className="icon" aria-hidden /> Salvar{dirty ? ' •' : ''}
                 </button>
                 <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
                   Cancelar
@@ -269,6 +308,13 @@ export function PreviewPane() {
                 className="page-card__editor preview-pane__editor"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  // Ctrl+S / Cmd+S salva (em vez do "salvar página" do navegador)
+                  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+                    e.preventDefault();
+                    void saveEdit();
+                  }
+                }}
               />
             ) : isBinaryFile(active.path) ? (
               <div className="empty-state">

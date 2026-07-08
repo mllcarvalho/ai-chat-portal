@@ -16,9 +16,11 @@ import {
   Plus,
   RefreshCw,
   RotateCw,
+  Search,
   SquarePen,
   TriangleAlert,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   DEFAULT_PORT,
@@ -37,6 +39,15 @@ import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
+/** Hostname de uma URL para exibição — URL inválida não pode quebrar a lista. */
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
 export function KnowledgePage() {
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
@@ -50,6 +61,7 @@ export function KnowledgePage() {
   const [bases, setBases] = useState<KnowledgeBase[]>([]);
   const [selected, setSelected] = useState<KnowledgeBase | undefined>();
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [docQuery, setDocQuery] = useState('');
   const [docName, setDocName] = useState('');
   const [docContent, setDocContent] = useState('');
   const [newBaseName, setNewBaseName] = useState('');
@@ -112,6 +124,12 @@ export function KnowledgePage() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
+  // busca por nome nos documentos da base aberta
+  const docNeedle = docQuery.trim().toLowerCase();
+  const shownDocs = docNeedle
+    ? docs.filter((d) => d.name.toLowerCase().includes(docNeedle))
+    : docs;
+
   const reload = async () => {
     const list = await api.listKnowledge(projectId).catch(() => [] as KnowledgeBase[]);
     setBases(list);
@@ -145,6 +163,7 @@ export function KnowledgePage() {
     setSelected(base);
     setDocName('');
     setDocContent('');
+    setDocQuery('');
     setUrlFormOpen(false);
     setDocs(await api.listKnowledgeDocs(base.id).catch(() => []));
   };
@@ -600,6 +619,29 @@ export function KnowledgePage() {
         >
           {selected ? (
             <>
+              {docs.length > 0 && (
+                <div className="panel-search panel-search--block">
+                  <Search className="icon icon--sm" aria-hidden />
+                  <input
+                    value={docQuery}
+                    onChange={(e) => setDocQuery(e.target.value)}
+                    placeholder="Buscar documento…"
+                    aria-label="Buscar documento por nome"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setDocQuery('');
+                    }}
+                  />
+                  {docQuery && (
+                    <button
+                      title="Limpar busca"
+                      aria-label="Limpar busca"
+                      onClick={() => setDocQuery('')}
+                    >
+                      <X className="icon icon--sm" aria-hidden />
+                    </button>
+                  )}
+                </div>
+              )}
               {urlFormOpen && (
                 <div className="panel__form-block">
                   <div className="field">
@@ -627,7 +669,7 @@ export function KnowledgePage() {
                   </button>
                 </div>
               )}
-              {docs.map((doc) => (
+              {shownDocs.map((doc) => (
                 <div
                   className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
                   key={doc.name}
@@ -645,7 +687,7 @@ export function KnowledgePage() {
                   </span>
                   <span className="item-card__desc">
                     {(doc.size / 1024).toFixed(1)} KB
-                    {doc.sourceUrl ? ` · ${new URL(doc.sourceUrl).hostname}` : ''}
+                    {doc.sourceUrl ? ` · ${hostnameOf(doc.sourceUrl)}` : ''}
                     {doc.syncError ? (
                       <>
                         {' · '}
@@ -697,6 +739,13 @@ export function KnowledgePage() {
                   icon={<FileText className="icon icon--lg" aria-hidden />}
                   title="Base vazia"
                   hint="Crie o primeiro documento acima."
+                />
+              )}
+              {docs.length > 0 && shownDocs.length === 0 && (
+                <EmptyState
+                  icon={<Search className="icon icon--lg" aria-hidden />}
+                  title="Nada encontrado"
+                  hint="Nenhum documento com esse nome nesta base."
                 />
               )}
             </>

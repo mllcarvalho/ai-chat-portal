@@ -19,10 +19,12 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
+import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import type { FileEntry } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
@@ -35,8 +37,9 @@ import { FilePreview, hasPreview, isBinaryFile, isMarkdown } from '../common/fil
 import { Markdown } from '../common/Markdown';
 import { Modal } from '../common/Modal';
 
-/** Limite por arquivo enviado (o servidor recusa acima de 2 MB). */
-const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
+/** Limite por arquivo enviado (o servidor recusa acima disso). */
+const MAX_UPLOAD_BYTES = UPLOAD_LIMITS.drawerFileBytes;
+const UPLOAD_LIMIT_LABEL = formatByteLimit(MAX_UPLOAD_BYTES);
 
 /** Tipo de dado do drag interno (mover arquivo/pasta na árvore). */
 const MOVE_MIME = 'application/x-aiportal-path';
@@ -132,6 +135,25 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** Filtra a árvore: mantém arquivos cujo nome/caminho casa (e as pastas
+    ancestrais); pasta cujo nome casa aparece com todo o conteúdo. */
+function filterTree(entries: FileEntry[], needle: string): FileEntry[] {
+  const out: FileEntry[] = [];
+  for (const entry of entries) {
+    const selfMatch =
+      entry.name.toLowerCase().includes(needle) || entry.path.toLowerCase().includes(needle);
+    if (entry.type === 'dir') {
+      const children = filterTree(entry.children ?? [], needle);
+      if (children.length || selfMatch) {
+        out.push({ ...entry, children: children.length ? children : entry.children });
+      }
+    } else if (selfMatch) {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
 /** Caminhos de todas as pastas da árvore (para recolher/expandir tudo). */
 function collectDirPaths(entries: FileEntry[], acc: string[] = []): string[] {
   for (const entry of entries) {
@@ -161,8 +183,8 @@ function TreeLevel(props: {
   return (
     <>
       {props.entries.map((entry) => {
-        const pinned = props.contextFiles.includes(entry.path);
         const isDir = entry.type === 'dir';
+        const pinned = props.contextFiles.includes(isDir ? `${entry.path}/` : entry.path);
         const isCollapsed = isDir && props.collapsed.has(entry.path);
         const isDropTarget = isDir && props.dragOverDir === entry.path;
         return (
@@ -230,14 +252,18 @@ function TreeLevel(props: {
                   <span className="file-tree__size">{formatSize(entry.size)}</span>
                 )}
               </button>
-              {entry.type === 'file' && props.canPin && (
+              {props.canPin && (
                 <span className="file-tree__actions">
                   <button
                     className={`file-tree__pin${pinned ? ' file-tree__pin--on' : ''}`}
                     title={
                       pinned
-                        ? 'Remover do contexto da conversa'
-                        : 'Fixar no contexto da conversa'
+                        ? isDir
+                          ? 'Remover a pasta do contexto da conversa'
+                          : 'Remover do contexto da conversa'
+                        : isDir
+                          ? 'Fixar a pasta toda (arquivos dela) no contexto da conversa'
+                          : 'Fixar no contexto da conversa'
                     }
                     onClick={() => props.onTogglePin(entry)}
                   >
@@ -305,6 +331,8 @@ export function ProjectFilesDrawer() {
   const [resizing, setResizing] = useState(false);
   /** Pastas recolhidas (expandidas por padrão). */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** Filtro por nome/caminho na árvore de arquivos. */
+  const [treeFilter, setTreeFilter] = useState('');
   /** Menu de contexto aberto (botão direito num arquivo/pasta). */
   const [menu, setMenu] = useState<{ entry: FileEntry; x: number; y: number }>();
   /** Renomeando arquivo/pasta (modal com input). */
@@ -330,6 +358,9 @@ export function ProjectFilesDrawer() {
 
   const allDirs = collectDirPaths(tree);
   const allCollapsed = allDirs.length > 0 && allDirs.every((p) => collapsed.has(p));
+
+  const treeNeedle = treeFilter.trim().toLowerCase();
+  const displayTree = treeNeedle ? filterTree(tree, treeNeedle) : tree;
 
   // pin só funciona com a conversa dona da pasta exibida (projeto ou workspace)
   const canPin = !!session && (!!workspaceSessionId || session.projectId === projectId);
@@ -409,10 +440,10 @@ export function ProjectFilesDrawer() {
 
   const togglePin = async (entry: FileEntry) => {
     if (!canPin || !session) return;
+    // pasta fixada é gravada com "/" no final — o servidor expande nos arquivos dela
+    const key = entry.type === 'dir' ? `${entry.path}/` : entry.path;
     const curr = session.contextFiles ?? [];
-    const next = curr.includes(entry.path)
-      ? curr.filter((p) => p !== entry.path)
-      : [...curr, entry.path];
+    const next = curr.includes(key) ? curr.filter((p) => p !== key) : [...curr, key];
     await patchCurrent({ contextFiles: next });
   };
 
@@ -564,22 +595,25 @@ export function ProjectFilesDrawer() {
           continue;
         }
         try {
+          // todo arquivo sobe preservado byte a byte (código, imagem, Office, PDF…)
+          const b64 = await fileToBase64(item.file);
+          if (projectId) await api.writeProjectFileBinary(projectId, item.relPath, b64);
+          else if (workspaceSessionId) {
+            await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
+          }
           if (isConvertibleDocument(item.file.name)) {
-            // Excel/Word/PDF viram .md com o texto extraído (o binário original
-            // não sobe) — é o que o assistente consegue ler/fixar no contexto
-            const text = await extractDocumentText(item.file);
-            const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
-            if (projectId) await api.writeProjectFile(projectId, mdPath, text);
-            else if (workspaceSessionId) {
-              await api.writeSessionFile(workspaceSessionId, mdPath, text);
-            }
-            converted++;
-          } else {
-            // demais arquivos sobem preservados byte a byte (código, imagem…)
-            const b64 = await fileToBase64(item.file);
-            if (projectId) await api.writeProjectFileBinary(projectId, item.relPath, b64);
-            else if (workspaceSessionId) {
-              await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
+            // Excel/Word/PDF ganham TAMBÉM um .md com o texto extraído — é o
+            // que o assistente consegue ler/fixar no contexto (o original fica)
+            try {
+              const text = await extractDocumentText(item.file);
+              const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
+              if (projectId) await api.writeProjectFile(projectId, mdPath, text);
+              else if (workspaceSessionId) {
+                await api.writeSessionFile(workspaceSessionId, mdPath, text);
+              }
+              converted++;
+            } catch {
+              // o original subiu; só a extração de texto falhou
             }
           }
           okCount++;
@@ -593,7 +627,7 @@ export function ProjectFilesDrawer() {
     }
     if (okCount) {
       const extra = converted
-        ? ` ${converted === 1 ? '1 documento convertido' : `${converted} documentos convertidos`} em .md (é o que o assistente lê).`
+        ? ` ${converted === 1 ? '1 documento também virou' : `${converted} documentos também viraram`} .md (é o que o assistente lê — o original foi mantido).`
         : '';
       toast(
         `${okCount} arquivo${okCount === 1 ? '' : 's'} adicionado${okCount === 1 ? '' : 's'}.${extra}`,
@@ -604,8 +638,8 @@ export function ProjectFilesDrawer() {
     if (tooBig) {
       toast(
         tooBig === 1
-          ? '1 arquivo passa de 2 MB e não foi enviado.'
-          : `${tooBig} arquivos passam de 2 MB e não foram enviados.`,
+          ? `1 arquivo passa do limite de ${UPLOAD_LIMIT_LABEL} e não foi enviado.`
+          : `${tooBig} arquivos passam do limite de ${UPLOAD_LIMIT_LABEL} e não foram enviados.`,
         'error',
       );
     }
@@ -791,7 +825,7 @@ export function ProjectFilesDrawer() {
             <button
               className="btn btn--sm"
               onClick={toggle}
-              title="Adicionar arquivos ou uma pasta inteira (ou arraste para o painel)"
+              title={`Adicionar arquivos ou uma pasta inteira (ou arraste para o painel) — até ${UPLOAD_LIMIT_LABEL} por arquivo`}
               aria-expanded={open}
             >
               <Plus className="icon icon--sm" aria-hidden /> Adicionar{' '}
@@ -853,6 +887,25 @@ export function ProjectFilesDrawer() {
           </button>
         )}
       </div>
+      {!viewing && tree.length > 0 && (
+        <div className="files-panel__search">
+          <Search className="icon icon--sm" aria-hidden />
+          <input
+            value={treeFilter}
+            onChange={(e) => setTreeFilter(e.target.value)}
+            placeholder="Filtrar por nome ou caminho…"
+            aria-label="Filtrar arquivos"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setTreeFilter('');
+            }}
+          />
+          {treeFilter && (
+            <button title="Limpar filtro" aria-label="Limpar filtro" onClick={() => setTreeFilter('')}>
+              <X className="icon icon--sm" aria-hidden />
+            </button>
+          )}
+        </div>
+      )}
       {uploading && (
         <div className="files-panel__hint">
           <Upload className="icon icon--sm" aria-hidden /> Enviando {uploading.done}/
@@ -999,12 +1052,16 @@ export function ProjectFilesDrawer() {
                 Pasta vazia. Adicione arquivos acima ou peça ao assistente para gerar (modo Agent).
               </div>
             )}
+            {tree.length > 0 && treeNeedle && displayTree.length === 0 && (
+              <div className="empty-state">Nenhum arquivo casa com o filtro.</div>
+            )}
             <TreeLevel
-              entries={tree}
+              entries={displayTree}
               depth={0}
               contextFiles={contextFiles}
               canPin={canPin}
-              collapsed={collapsed}
+              // filtro ativo expande tudo para revelar os arquivos encontrados
+              collapsed={treeNeedle ? new Set() : collapsed}
               dragOverDir={dragOverDir}
               onDragState={setDragOverDir}
               onMove={(src, dest) => void moveEntry(src, dest)}

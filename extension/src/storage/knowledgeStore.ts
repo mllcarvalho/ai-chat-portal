@@ -472,15 +472,161 @@ function docHeadings(content: string, max = 6): string[] {
 // ---------------------------------------------------------------------------
 // Busca lexical para as ferramentas do agente
 
+/**
+ * Sin\u00f4nimos/expans\u00f5es do dom\u00ednio banc\u00e1rio \u2014 EDITE AQUI para ensinar novas
+ * equival\u00eancias \u00e0 busca. Cada linha agrupa express\u00f5es equivalentes: quando a
+ * query cont\u00e9m uma delas, as outras entram na busca com peso menor (0.5).
+ * Use min\u00fasculas SEM acento (forma j\u00e1 normalizada); preposi\u00e7\u00f5es curtas
+ * ("de", "do"\u2026) s\u00e3o ignoradas automaticamente.
+ */
+const DOMAIN_SYNONYMS: string[][] = [
+  ['pj', 'pessoa juridica'],
+  ['pf', 'pessoa fisica'],
+  ['cc', 'conta corrente'],
+  ['cartao', 'credito'],
+  ['prd', 'documento de requisitos'],
+  ['pix', 'pagamento instantaneo'],
+  ['ir', 'imposto de renda'],
+  ['cdb', 'certificado de deposito bancario'],
+  ['ted', 'transferencia'],
+];
+
+/** Stopwords do portugu\u00eas ignoradas na query e nas expans\u00f5es de sin\u00f4nimo. */
+const QUERY_STOPWORDS = new Set([
+  'a', 'o', 'e', 'as', 'os', 'um', 'uma', 'de', 'da', 'do', 'das', 'dos',
+  'em', 'no', 'na', 'nos', 'nas', 'ao', 'aos', 'se', 'que', 'com', 'por',
+  'para', 'sobre', 'como', 'qual', 'quais', 'sao', 'ser', 'tem', 'seu', 'sua',
+]);
+
+/** Peso dos termos vindos de expans\u00e3o de sin\u00f4nimo (menor que os da query). */
+const SYNONYM_WEIGHT = 0.5;
+
 function normalizeText(text: string): string {
+  // Folding de acentos nos dois lados (query e conte\u00fado): NFD separa a letra
+  // do diacr\u00edtico e a faixa U+0300\u2013U+036F remove acentos e cedilha.
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 }
 
-function queryTerms(query: string): string[] {
-  return [...new Set(normalizeText(query).split(/[^a-z0-9]+/).filter((t) => t.length >= 3))];
+/** Radical m\u00ednimo que o stemmer preserva ao remover um sufixo. */
+const MIN_STEM = 3;
+
+function stripSuffix(word: string, suffixes: string[]): string {
+  for (const suffix of suffixes) {
+    if (word.length - suffix.length >= MIN_STEM && word.endsWith(suffix)) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
+}
+
+/**
+ * Stemmer leve de portugu\u00eas (RSLP simplificado, sem depend\u00eancias): reduz
+ * plural, feminino, diminutivo e sufixos verbais/nominais comuns para que
+ * varia\u00e7\u00f5es da mesma palavra convirjam no mesmo radical \u2014 "aprova\u00e7\u00e3o",
+ * "aprova\u00e7\u00f5es" e "aprovar" viram "aprov". Recebe palavra j\u00e1 normalizada
+ * (min\u00fasculas, sem acento); siglas, c\u00f3digos e palavras curtas ficam intactos.
+ */
+function stemPt(word: string): string {
+  if (word.length < 4 || /[0-9]/.test(word)) return word;
+  let w = word;
+
+  // plural
+  if (w.endsWith('s') && w.length >= 5) {
+    if (w.endsWith('oes') || w.endsWith('aes') || w.endsWith('aos')) w = `${w.slice(0, -3)}ao`;
+    else if (w.endsWith('ais') || w.endsWith('eis') || w.endsWith('ois') || w.endsWith('uis')) {
+      w = `${w.slice(0, -2)}l`; // canais\u2192canal, papeis\u2192papel
+    } else if (w.endsWith('res') && w.length >= 6) w = w.slice(0, -2); // valores\u2192valor
+    else if (w.endsWith('ns')) w = `${w.slice(0, -2)}m`; // margens\u2192margem
+    else w = w.slice(0, -1);
+  }
+
+  // feminino \u2192 forma base
+  if (w.endsWith('ona')) w = `${w.slice(0, -3)}ao`; // saldona\u2192saldao
+  else if (w.endsWith('ora') && w.length >= 6) w = w.slice(0, -1); // diretora\u2192diretor
+  else if (w.endsWith('eira') && w.length >= 6) w = `${w.slice(0, -1)}o`; // financeira\u2192financeiro
+
+  // diminutivo
+  w = stripSuffix(w, ['zinho', 'zinha', 'inho', 'inha']);
+
+  // sufixos nominais (do mais longo ao mais curto, um por palavra)
+  const beforeNominal = w;
+  w = stripSuffix(w, [
+    'izacao', 'amento', 'imento', 'adora', 'edora', 'acao', 'icao', 'ucao',
+    'encia', 'ancia', 'mente', 'idade', 'agem', 'ismo', 'ista', 'ivel', 'avel',
+    'ador', 'edor', 'ante', 'ente', 'eiro', 'oso', 'osa',
+  ]);
+
+  // sufixos verbais, s\u00f3 se nenhum nominal foi removido
+  if (w === beforeNominal) {
+    w = stripSuffix(w, [
+      'aria', 'eria', 'iria', 'asse', 'esse', 'isse', 'aram', 'eram', 'iram',
+      'avam', 'ando', 'endo', 'indo', 'ado', 'ada', 'ido', 'ida', 'ara', 'era',
+      'ira', 'ava', 'ia', 'ou', 'ei', 'ar', 'er', 'ir', 'am', 'em',
+    ]);
+  }
+
+  // vogal tem\u00e1tica residual (aprovado\u2192aprovad\u2192aprov); "ao" final \u00e9 preservado
+  // para "cart\u00e3o"/"cart\u00f5es" convergirem no mesmo radical
+  if (w.length > MIN_STEM && !w.endsWith('ao') && /[aeo]$/.test(w)) w = w.slice(0, -1);
+  return w;
+}
+
+/** Termo de busca j\u00e1 preparado (normalizado + radical + regras de match). */
+interface SearchTerm {
+  /** Palavra normalizada, como veio da query ou do sin\u00f4nimo. */
+  raw: string;
+  /** Radical ap\u00f3s o stemming, comparado com o radical das palavras do doc. */
+  stem: string;
+  /** Termos de 2 letras (siglas "PJ", "IR"\u2026) s\u00f3 casam palavra inteira. */
+  wholeWord: boolean;
+  /** 1 para termos da query, SYNONYM_WEIGHT para expans\u00f5es de sin\u00f4nimo. */
+  weight: number;
+  /** \u00cdndice do termo original da query \u2014 expans\u00f5es contam como o mesmo conceito. */
+  concept: number;
+}
+
+const synonymWords = (variant: string): string[] =>
+  variant.split(' ').filter((w) => w.length >= 2 && !QUERY_STOPWORDS.has(w));
+
+/** Tokeniza a query (termos de 2+ letras, sem stopwords) e expande com DOMAIN_SYNONYMS. */
+function buildSearchTerms(query: string): SearchTerm[] {
+  const tokens = [
+    ...new Set(
+      normalizeText(query)
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 2 && !QUERY_STOPWORDS.has(t)),
+    ),
+  ];
+  const terms: SearchTerm[] = tokens.map((raw, i) => ({
+    raw,
+    stem: stemPt(raw),
+    wholeWord: raw.length === 2,
+    weight: 1,
+    concept: i,
+  }));
+  const inQuery = new Set(tokens);
+  for (const group of DOMAIN_SYNONYMS) {
+    const hit = group.find((variant) => synonymWords(variant).every((w) => inQuery.has(w)));
+    if (!hit) continue;
+    const concept = terms.find((t) => synonymWords(hit).includes(t.raw))?.concept ?? 0;
+    for (const variant of group) {
+      if (variant === hit) continue;
+      for (const word of synonymWords(variant)) {
+        if (inQuery.has(word)) continue;
+        terms.push({
+          raw: word,
+          stem: stemPt(word),
+          wholeWord: word.length === 2,
+          weight: SYNONYM_WEIGHT,
+          concept,
+        });
+      }
+    }
+  }
+  return terms;
 }
 
 interface DocSection {
@@ -515,12 +661,28 @@ function splitSections(content: string): DocSection[] {
   return sections;
 }
 
-function countOccurrences(haystack: string, needle: string): number {
-  let count = 0;
-  for (let i = haystack.indexOf(needle); i >= 0; i = haystack.indexOf(needle, i + needle.length)) {
-    count++;
+/** Frequência das palavras e dos radicais de um texto, para lookup O(1) por termo. */
+interface TokenIndex {
+  words: Map<string, number>;
+  stems: Map<string, number>;
+}
+
+function indexTokens(text: string): TokenIndex {
+  const words = new Map<string, number>();
+  const stems = new Map<string, number>();
+  for (const token of normalizeText(text).split(/[^a-z0-9]+/)) {
+    if (!token) continue;
+    words.set(token, (words.get(token) ?? 0) + 1);
+    const stem = stemPt(token);
+    stems.set(stem, (stems.get(stem) ?? 0) + 1);
   }
-  return count;
+  return { words, stems };
+}
+
+/** Ocorrências do termo no índice: sigla de 2 letras exige palavra inteira. */
+function countTerm(index: TokenIndex, term: SearchTerm): number {
+  if (term.wholeWord) return index.words.get(term.raw) ?? 0;
+  return index.stems.get(term.stem) ?? 0;
 }
 
 export interface KnowledgeHit {
@@ -531,9 +693,11 @@ export interface KnowledgeHit {
 }
 
 /**
- * Busca por palavras-chave nas bases habilitadas da conversa. Ranqueia seções
- * priorizando quantos termos distintos casam (e presença no título) sobre
- * repetição do mesmo termo.
+ * Busca por palavras-chave nas bases habilitadas da conversa. Query e conteúdo
+ * passam por folding de acentos + stemming leve de pt-BR, siglas de 2 letras
+ * casam palavra inteira e sinônimos do domínio (DOMAIN_SYNONYMS) expandem a
+ * query. Ranqueia seções priorizando quantos termos distintos casam (e
+ * presença no nome do documento/título da seção) sobre repetição do mesmo termo.
  */
 export function searchKnowledge(
   query: string,
@@ -541,7 +705,7 @@ export function searchKnowledge(
   extraBaseIds?: string[],
   baseFilter?: string,
 ): KnowledgeHit[] {
-  const terms = queryTerms(query);
+  const terms = buildSearchTerms(query);
   if (!terms.length) return [];
   const wanted = baseFilter ? normalizeText(baseFilter) : undefined;
   const scored: Array<KnowledgeHit & { score: number }> = [];
@@ -551,19 +715,20 @@ export function searchKnowledge(
       const content = readDoc(base.id, doc.name);
       if (!content) continue;
       for (const section of splitSections(content)) {
-        const body = normalizeText(section.content);
-        const head = normalizeText(`${doc.name} ${section.heading}`);
-        let matched = 0;
+        const body = indexTokens(section.content);
+        // nome do documento + título da seção: match aqui vale um boost (×4)
+        const head = indexTokens(`${doc.name} ${section.heading}`);
+        const matchedConcepts = new Set<number>();
         let score = 0;
         for (const term of terms) {
-          const inBody = countOccurrences(body, term);
-          const inHead = countOccurrences(head, term);
+          const inBody = countTerm(body, term);
+          const inHead = countTerm(head, term);
           if (!inBody && !inHead) continue;
-          matched++;
-          score += Math.min(inBody, 5) + inHead * 4;
+          matchedConcepts.add(term.concept);
+          score += (Math.min(inBody, 5) + inHead * 4) * term.weight;
         }
-        if (!matched) continue;
-        score += matched * 20;
+        if (!matchedConcepts.size) continue;
+        score += matchedConcepts.size * 20;
         scored.push({
           baseName: base.name,
           docName: doc.name,

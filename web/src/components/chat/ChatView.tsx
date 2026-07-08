@@ -3,15 +3,18 @@ import { ArrowDown } from 'lucide-react';
 import { useSessions } from '../../stores/sessionsStore';
 import { useChat } from '../../stores/chatStore';
 import { usePreview } from '../../stores/previewStore';
+import { useUi } from '../../stores/uiStore';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
 import { BmadActions } from './BmadActions';
 import { PreviewPane } from '../panels/PreviewPane';
+import { ProjectFilesDrawer } from '../panels/ProjectFilesDrawer';
 
 export function ChatView() {
   const session = useSessions((s) => s.current);
   const previewEnabled = usePreview((s) => s.enabled);
+  const panel = useUi((s) => s.panel);
   // stream DESTA sessão — outras conversas podem estar gerando em paralelo
   const stream = useChat((s) => (session ? s.streams[session.id] : undefined));
   const resume = useChat((s) => s.resume);
@@ -104,6 +107,9 @@ export function ChatView() {
           </div>
         </div>
         {previewEnabled && <PreviewPane />}
+        {/* drawer de arquivos abaixo do header: só o corpo do chat encolhe,
+            os botões da barra superior ficam fixos no lugar */}
+        {panel.kind === 'files' && <ProjectFilesDrawer />}
       </div>
     </>
   );

@@ -225,7 +225,9 @@ export function createSkill(input: {
 
 export function updateSkill(
   id: string,
-  patch: Partial<Pick<SkillWithContent, 'name' | 'description' | 'command' | 'content'>>,
+  patch: Partial<
+    Pick<SkillWithContent, 'name' | 'description' | 'command' | 'content' | 'scope' | 'projectId'>
+  >,
 ): SkillWithContent | undefined {
   const folder = findSkillFolder(id);
   if (!folder) return undefined;
@@ -234,11 +236,22 @@ export function updateSkill(
   const { content, ...metaPatch } = patch;
   const updated: Skill = { ...existing, ...metaPatch, updatedAt: new Date().toISOString() };
   if (!updated.command) updated.command = slugifyCommand(updated.name);
+  if (updated.scope === 'global') updated.projectId = undefined;
+  // mudança de escopo (global↔projeto): a pasta inteira da skill (com anexos)
+  // é movida para a base do novo escopo
+  let targetFolder = folder;
+  const targetBase = skillsDirFor(updated.scope, updated.projectId);
+  if (!targetBase) return undefined; // projeto do novo escopo não existe
+  if (path.resolve(targetBase) !== path.resolve(path.dirname(folder))) {
+    ensureDir(targetBase);
+    targetFolder = uniqueFolderFor(targetBase, updated);
+    fs.renameSync(folder, targetFolder);
+  }
   // a pasta mantém o nome original mesmo se o comando mudar: renomear
   // quebraria referências externas e o nome da pasta é só cosmético
-  writeJsonAtomic(path.join(folder, META_FILE), updated);
+  writeJsonAtomic(path.join(targetFolder, META_FILE), updated);
   if (content !== undefined) {
-    writeFileAtomic(path.join(folder, CONTENT_FILE), content);
+    writeFileAtomic(path.join(targetFolder, CONTENT_FILE), content);
   }
   return getSkill(id);
 }

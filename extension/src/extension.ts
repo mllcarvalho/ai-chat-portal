@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { buildPortalUrl, clearRuntime, readRuntime, writeRuntime } from './authToken';
+import { cancelAllRequests } from './chat/activeRequests';
 import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
 import { registerBmadAssets, startBmadInstall } from './storage/bmadStore';
@@ -195,6 +196,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     shutdownRef.close = () => {
       shutdownRef.close = () => {};
+      // drena antes de fechar: gerações órfãs seguiriam gastando créditos e
+      // escreveriam sessões concorrendo com a janela que assumiu o portal
+      cancelAllRequests();
       result.server.closeAllConnections();
       result.server.close();
       clearRuntime();

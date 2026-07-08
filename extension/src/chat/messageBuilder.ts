@@ -252,7 +252,7 @@ export function buildMessages(opts: {
   envNote?: string;
   racfUser?: string;
   maxInputTokens: number;
-}): { messages: vscode.LanguageModelChatMessage[]; prunedCount: number } {
+}): { messages: vscode.LanguageModelChatMessage[]; prunedCount: number; summarized: boolean } {
   const { session, commandSkills } = opts;
   const rawPreamble = buildPreamble(opts);
   const windowChars = opts.maxInputTokens * BUDGET_RATIO * CHARS_PER_TOKEN;
@@ -287,14 +287,37 @@ export function buildMessages(opts: {
   const result: vscode.LanguageModelChatMessage[] = [
     vscode.LanguageModelChatMessage.User(`<instruções>\n${preamble}\n</instruções>`),
   ];
+  let summarized = false;
   if (startIdx > 0) {
-    result.push(
-      vscode.LanguageModelChatMessage.User(
-        `(As ${startIdx} mensagens mais antigas desta conversa foram omitidas por limite de ` +
-          'contexto. Se o usuário se referir a algo que você não vê aqui, diga que aquele trecho ' +
-          'saiu do contexto e peça para ele repetir a informação.)',
-      ),
-    );
+    // se existe um resumo automático cobrindo (parte do) trecho podado, ele
+    // entra no lugar da nota seca de omissão — decisões e requisitos antigos
+    // continuam disponíveis para o modelo
+    const summary = session.historySummary;
+    const coveredIdx = summary
+      ? session.messages.findIndex((m) => m.id === summary.throughMessageId)
+      : -1;
+    if (summary && coveredIdx >= 0 && coveredIdx < startIdx) {
+      summarized = true;
+      const uncovered = startIdx - coveredIdx - 1;
+      result.push(
+        vscode.LanguageModelChatMessage.User(
+          `(As ${startIdx} mensagens mais antigas desta conversa saíram do contexto por limite ` +
+            'da janela do modelo. Resumo automático do trecho omitido' +
+            (uncovered > 0
+              ? ` — as ${uncovered} mensagens omitidas mais recentes ainda não estão cobertas por ele`
+              : '') +
+            `:)\n\n${summary.summary}`,
+        ),
+      );
+    } else {
+      result.push(
+        vscode.LanguageModelChatMessage.User(
+          `(As ${startIdx} mensagens mais antigas desta conversa foram omitidas por limite de ` +
+            'contexto. Se o usuário se referir a algo que você não vê aqui, diga que aquele trecho ' +
+            'saiu do contexto e peça para ele repetir a informação.)',
+        ),
+      );
+    }
   }
 
   for (const message of session.messages.slice(startIdx)) {
@@ -347,5 +370,5 @@ export function buildMessages(opts: {
       result.push(vscode.LanguageModelChatMessage.User(resultParts));
     }
   }
-  return { messages: result, prunedCount: startIdx };
+  return { messages: result, prunedCount: startIdx, summarized };
 }

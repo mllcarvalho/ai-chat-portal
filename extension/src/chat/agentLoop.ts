@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type {
   AgentPreset,
   ChatAttachment,
@@ -16,7 +17,7 @@ import type {
 import type { ChatStream } from './streamHub';
 import { getAgent } from '../storage/agentStore';
 import { getConfig } from '../storage/configStore';
-import { ensureDir, sessionWorkspaceDir } from '../storage/paths';
+import { PROJECT_META_DIR, ensureDir, sessionWorkspaceDir } from '../storage/paths';
 import { getProject, projectDir } from '../storage/projectStore';
 import { toSummary, updateSession } from '../storage/sessionStore';
 import { getSkill, listSkills } from '../storage/skillStore';
@@ -38,6 +39,7 @@ import { waitForAnswer } from './questions';
 import {
   MODEL_RETRIES,
   MODEL_RETRY_DELAY_MS,
+  ModelIdleTimeoutError,
   isRateLimitError,
   isTransientModelError,
   raceCancellation,
@@ -64,15 +66,92 @@ const WORKSPACE_FS_TOOLS = [
   'portal_move_file',
 ];
 
-/** Lê os arquivos fixados no contexto da sessão; ignora os que sumiram do disco. */
+/** Limites da expansão de uma PASTA fixada no contexto (caminho com "/" no fim). */
+const CONTEXT_DIR_MAX_FILES = 20;
+const CONTEXT_DIR_MAX_BYTES = 256 * 1024;
+const CONTEXT_DIR_MAX_DEPTH = 8;
+
+/** Arquivos binários costumam ter NUL nos primeiros bytes. */
+function looksBinary(content: string): boolean {
+  return content.slice(0, 4096).includes('\0');
+}
+
+/** Lista recursiva dos arquivos de uma pasta fixada (mesmo filtro da árvore da UI). */
+function listDirFiles(dir: string, relBase: string, depth: number, out: string[]): void {
+  if (depth > CONTEXT_DIR_MAX_DEPTH) return;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules') continue;
+    const rel = `${relBase}/${entry.name}`;
+    if (entry.isDirectory()) listDirFiles(path.join(dir, entry.name), rel, depth + 1, out);
+    else if (entry.isFile()) out.push(rel);
+  }
+}
+
+/**
+ * Expande uma pasta fixada nos seus arquivos de texto, respeitando tetos de
+ * quantidade e de bytes. O que ficar de fora vira uma nota para o modelo
+ * buscar com portal_read_file quando precisar.
+ */
+function readContextDir(relDir: string, workRoot: string): ContextFile[] {
+  const paths: string[] = [];
+  listDirFiles(path.join(workRoot, relDir), relDir, 0, paths);
+  const result: ContextFile[] = [];
+  const leftOut: string[] = [];
+  let budget = CONTEXT_DIR_MAX_BYTES;
+  for (const rel of paths) {
+    if (result.length >= CONTEXT_DIR_MAX_FILES || budget <= 0) {
+      leftOut.push(rel);
+      continue;
+    }
+    try {
+      const content = fs.readFileSync(path.join(workRoot, rel), 'utf8');
+      if (looksBinary(content)) continue; // planilha/imagem etc. — sem valor como texto
+      const clamped = clamp(content, Math.min(CONTEXT_FILE_CLAMP, budget));
+      budget -= clamped.length;
+      result.push({ path: rel, content: clamped });
+    } catch {
+      // arquivo sumiu no meio do caminho — segue sem ele
+    }
+  }
+  if (leftOut.length) {
+    result.push({
+      path: `${relDir}/ (aviso do portal)`,
+      content:
+        `A pasta "${relDir}/" está fixada no contexto, mas passa do limite de injeção ` +
+        `(${CONTEXT_DIR_MAX_FILES} arquivos / ${CONTEXT_DIR_MAX_BYTES / 1024} KB). ` +
+        `Estes arquivos NÃO foram carregados — leia com portal_read_file quando precisar:\n` +
+        leftOut.map((p) => `- ${p}`).join('\n'),
+    });
+  }
+  return result;
+}
+
+/** Lê os arquivos (e pastas, caminhos com "/" no fim) fixados no contexto da
+    sessão; ignora os que sumiram do disco e deduplica pins sobrepostos. */
 function readContextFiles(session: Session, workRoot: string): ContextFile[] {
   if (!session.contextFiles?.length) return [];
   const result: ContextFile[] = [];
+  const seen = new Set<string>();
+  const push = (file: ContextFile) => {
+    if (seen.has(file.path)) return;
+    seen.add(file.path);
+    result.push(file);
+  };
   for (const rel of session.contextFiles) {
     try {
-      const file = resolveInProject(workRoot, rel);
-      const content = fs.readFileSync(file, 'utf8');
-      result.push({ path: rel, content: clamp(content, CONTEXT_FILE_CLAMP) });
+      const target = resolveInProject(workRoot, rel);
+      if (rel.endsWith('/') || fs.statSync(target).isDirectory()) {
+        readContextDir(rel.replace(/\/+$/, ''), workRoot).forEach(push);
+      } else {
+        const content = fs.readFileSync(target, 'utf8');
+        push({ path: rel, content: clamp(content, CONTEXT_FILE_CLAMP) });
+      }
     } catch {
       // arquivo removido/inacessível — segue sem ele
     }
@@ -96,6 +175,8 @@ export interface ChatRunArgs {
   attachments?: ChatAttachment[];
   /** Editar/regenerar: descarta o histórico a partir desta mensagem do usuário. */
   retryFromMessageId?: string;
+  /** Id (UUID) da mensagem do usuário gerado no cliente — UI e disco ficam com o mesmo id. */
+  userMessageId?: string;
   requestId: string;
   sse: ChatStream;
 }
@@ -172,6 +253,24 @@ function clamp(text: string, limit: number): string {
 /** Teto de parede para builtins (leituras de FS/knowledge não têm timeout próprio). */
 const BUILTIN_TOOL_TIMEOUT_MS = 120_000;
 
+/**
+ * O gateway do Copilot pode pendurar sem erro e sem tokens; como o heartbeat
+ * mantém o SSE "vivo", sem este teto de progresso a resposta ficaria em
+ * "digitando" para sempre. Vale entre um evento e o próximo, não para a
+ * resposta inteira.
+ */
+const MODEL_IDLE_TIMEOUT_MS = 120_000;
+
+function withIdleTimeout<T>(promise: PromiseLike<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new ModelIdleTimeoutError(MODEL_IDLE_TIMEOUT_MS)), MODEL_IDLE_TIMEOUT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
 export async function runChat(args: ChatRunArgs): Promise<void> {
   const { session, sse, requestId } = args;
 
@@ -182,7 +281,12 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     userParts.push({ type: 'attachment', name: att.name, content: att.content });
   }
   const userMessage: ChatMessage = {
-    id: crypto.randomUUID(),
+    // aceita o id gerado no cliente (UUID): se a conexão cair antes do meta,
+    // a UI e o disco ainda concordam sobre qual mensagem é qual
+    id:
+      args.userMessageId && /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(args.userMessageId)
+        ? args.userMessageId
+        : crypto.randomUUID(),
     role: 'user',
     parts: userParts,
     createdAt: new Date().toISOString(),
@@ -240,6 +344,9 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   let chatError: { code: ChatErrorCode; message: string } | undefined;
   /** Modelo que de fato respondeu — persistido na mensagem (fallback muda o pedido). */
   let respondedModelId: string | undefined;
+  /** Fronteira da poda desta resposta — dispara o resumo em background no fim. */
+  let prunedForSummary = 0;
+  let modelForSummary: vscode.LanguageModelChat | undefined;
 
   // registrado colado no try/finally: qualquer saída passa pelo releaseRequest
   const cts = registerRequest(requestId);
@@ -277,7 +384,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       toolDefs.some((t) => t.name === 'portal_search_knowledge'),
     );
 
-    const { messages, prunedCount } = buildMessages({
+    const { messages, prunedCount, summarized } = buildMessages({
       session,
       project,
       agent,
@@ -291,11 +398,15 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       racfUser: getConfig().racfUser,
       maxInputTokens: model.maxInputTokens,
     });
+    prunedForSummary = prunedCount;
+    modelForSummary = model;
     if (prunedCount > 0) {
       sse.send('notice', {
-        message:
-          `A conversa ficou longa: as ${prunedCount} mensagens mais antigas saíram do contexto ` +
-          `do modelo nesta resposta. Se algo importante ficou para trás, repita a informação.`,
+        message: summarized
+          ? `A conversa ficou longa: as ${prunedCount} mensagens mais antigas foram substituídas ` +
+            `por um resumo automático no contexto do modelo.`
+          : `A conversa ficou longa: as ${prunedCount} mensagens mais antigas saíram do contexto ` +
+            `do modelo nesta resposta. Se algo importante ficou para trás, repita a informação.`,
       });
     }
 
@@ -325,18 +436,26 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       for (let attempt = 0; ; attempt++) {
         usage.requests++;
         try {
-          const response = await model.sendRequest(
-            messages,
-            {
-              justification: 'BMAD Product Studio — chat do analista',
-              ...(toolDefs.length
-                ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
-                : {}),
-            },
-            cts.token,
+          const response = await withIdleTimeout(
+            model.sendRequest(
+              messages,
+              {
+                justification: 'BMAD Product Studio — chat do analista',
+                ...(toolDefs.length
+                  ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
+                  : {}),
+              },
+              cts.token,
+            ),
           );
-          for await (const part of response.stream) {
+          // iteração manual: cada avanço do stream tem teto de progresso —
+          // um for await penduraria junto com o gateway
+          const iterator = response.stream[Symbol.asyncIterator]();
+          while (true) {
+            const next = await withIdleTimeout(iterator.next());
+            if (next.done) break;
             if (cts.token.isCancellationRequested) break;
+            const part = next.value;
             if (part instanceof vscode.LanguageModelTextPart) {
               roundText += part.value;
               sse.send('text', { delta: part.value });
@@ -618,12 +737,24 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       modelId: respondedModelId ?? session.modelId,
       ...(usage.requests ? { usage } : {}),
       createdAt: new Date().toISOString(),
+      finishReason,
       ...(chatError ? { error: chatError } : {}),
     };
   }
   const updated = updateSession(session.id, (s) => {
     if (savedAssistant) s.messages.push(savedAssistant);
   });
+
+  // resumo do trecho podado em background (melhor esforço): a PRÓXIMA resposta
+  // injeta o resumo no lugar da nota de omissão. Só quando a fronteira da poda
+  // avançou — custa 1 requisição ao modelo por atualização.
+  if (prunedForSummary > 0 && modelForSummary && finishReason !== 'error') {
+    const pruned = session.messages.slice(0, prunedForSummary);
+    const boundary = pruned[pruned.length - 1];
+    if (boundary && session.historySummary?.throughMessageId !== boundary.id) {
+      void refreshHistorySummary(session.id, pruned, session.historySummary, modelForSummary);
+    }
+  }
 
   sse.send('done', {
     finishReason,
@@ -659,4 +790,77 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     }
   }
   sse.close();
+}
+
+/** Teto do material enviado para resumir (o resumo roda fora da janela da resposta). */
+const SUMMARY_SOURCE_CLAMP = 48 * 1024;
+const SUMMARY_PART_CLAMP = 2 * 1024;
+const SUMMARY_TIMEOUT_MS = 90_000;
+
+/** Digest textual das mensagens podadas — texto integral (clampado) + tools em uma linha. */
+function summarySource(messages: ChatMessage[]): string {
+  const lines: string[] = [];
+  for (const message of messages) {
+    const label = message.role === 'user' ? 'Usuário' : 'Assistente';
+    for (const part of message.parts) {
+      if (part.type === 'text' && part.text.trim()) {
+        lines.push(`${label}: ${clamp(part.text.trim(), SUMMARY_PART_CLAMP)}`);
+      } else if (part.type === 'attachment') {
+        lines.push(`${label} anexou: ${part.name}`);
+      } else if (part.type === 'tool_call') {
+        lines.push(`Assistente usou a ferramenta ${part.toolName}.`);
+      }
+    }
+  }
+  return clamp(lines.join('\n'), SUMMARY_SOURCE_CLAMP);
+}
+
+/**
+ * Reescreve o resumo automático do trecho podado da conversa (roda em
+ * background, melhor esforço). Rolling: aproveita o resumo anterior e
+ * acrescenta só as mensagens que saíram do contexto desde então.
+ */
+async function refreshHistorySummary(
+  sessionId: string,
+  pruned: ChatMessage[],
+  previous: Session['historySummary'],
+  model: vscode.LanguageModelChat,
+): Promise<void> {
+  const boundary = pruned[pruned.length - 1];
+  if (!boundary) return;
+  const prevIdx = previous ? pruned.findIndex((m) => m.id === previous.throughMessageId) : -1;
+  const fresh = prevIdx >= 0 ? pruned.slice(prevIdx + 1) : pruned;
+  if (!fresh.length) return;
+  const prompt =
+    'Você mantém o resumo da parte antiga de uma conversa entre um analista de produto e um ' +
+    'assistente de IA. Produza um resumo ÚNICO e atualizado, em português, com até 300 palavras, ' +
+    'preservando: decisões tomadas, requisitos e números citados, nomes de arquivos/documentos ' +
+    'criados e pendências em aberto. Responda SÓ com o resumo, sem preâmbulo.\n\n' +
+    (prevIdx >= 0 && previous
+      ? `Resumo anterior (já cobre o início da conversa):\n${previous.summary}\n\nMensagens novas a incorporar:\n`
+      : 'Conversa a resumir:\n') +
+    summarySource(fresh);
+  const cts = new vscode.CancellationTokenSource();
+  const timer = setTimeout(() => cts.cancel(), SUMMARY_TIMEOUT_MS);
+  try {
+    const response = await model.sendRequest(
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { justification: 'BMAD Product Studio — resumo do histórico da conversa' },
+      cts.token,
+    );
+    let summary = '';
+    for await (const part of response.stream) {
+      if (part instanceof vscode.LanguageModelTextPart) summary += part.value;
+    }
+    if (summary.trim()) {
+      updateSession(sessionId, (s) => {
+        s.historySummary = { throughMessageId: boundary.id, summary: summary.trim() };
+      });
+    }
+  } catch {
+    // melhor esforço: sem resumo, a próxima resposta usa a nota de omissão
+  } finally {
+    clearTimeout(timer);
+    cts.dispose();
+  }
 }

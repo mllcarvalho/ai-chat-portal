@@ -1,5 +1,6 @@
 import type {
   AgentPreset,
+  BmadArtifactsReport,
   BmadStatus,
   Config,
   ConsumerLabStatus,
@@ -167,6 +168,8 @@ export const api = {
     modelId?: string;
   }) => request<Session>('POST', '/api/sessions', init),
   getSession: (id: string) => request<Session>('GET', `/api/sessions/${id}`),
+  exportSessionMarkdown: (id: string, fileName: string) =>
+    downloadFromUrl(`/api/sessions/${id}/export?format=md`, fileName),
   patchSession: (id: string, patch: Partial<Session>) =>
     request<Session>('PATCH', `/api/sessions/${id}`, patch),
   deleteSession: (id: string) => request<{ ok: boolean }>('DELETE', `/api/sessions/${id}`),
@@ -179,11 +182,18 @@ export const api = {
       'GET',
       `/api/chat/active?sessionId=${encodeURIComponent(sessionId)}`,
     ),
+  chatActiveAll: () => request<{ sessionIds: string[] }>('GET', '/api/chat/active-all'),
   editorContext: () => request<EditorContext>('GET', '/api/editor/context'),
   respondApproval: (requestId: string, callId: string, approved: boolean) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/approval`, { callId, approved }),
   respondQuestion: (requestId: string, callId: string, answer: string) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/question`, { callId, answer }),
+  // desfaz uma mutação de ferramenta (botão "Reverter" do ToolCallCard)
+  revertCheckpoint: (id: string) =>
+    request<{ ok: boolean; message: string; files: string[] }>(
+      'POST',
+      `/api/checkpoints/${encodeURIComponent(id)}/revert`,
+    ),
 
   // pasta de trabalho da conversa (workspace da sessão avulsa, ou o projeto dela)
   sessionFiles: (id: string) => request<FileEntry[]>('GET', `/api/sessions/${id}/files`),
@@ -260,6 +270,11 @@ export const api = {
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
   bmadStatus: () => request<BmadStatus>('GET', '/api/bmad'),
   bmadInstall: () => request<BmadStatus>('POST', '/api/bmad/install'),
+  bmadArtifacts: (projectId: string) =>
+    request<BmadArtifactsReport>(
+      'GET',
+      `/api/bmad/artifacts?projectId=${encodeURIComponent(projectId)}`,
+    ),
 
   listSkills: (projectId?: string) =>
     request<Skill[]>(
@@ -392,7 +407,7 @@ export const api = {
       { username, password },
     ),
 
-  shareByEmail: (kind: 'agent' | 'skill' | 'knowledge', id: string) =>
+  shareByEmail: (kind: 'agent' | 'skill' | 'knowledge' | 'session', id: string) =>
     request<{ ok: boolean; mode: 'outlook' | 'mail' | 'xdg' | 'manual'; file: string }>(
       'POST',
       '/api/share/email',

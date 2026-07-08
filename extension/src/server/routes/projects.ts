@@ -37,8 +37,13 @@ export function registerProjectRoutes(router: Router): void {
   });
 
   router.delete('/api/projects/:id', ({ res, params }) => {
-    const ok = unregisterProject(params.id);
-    sendJson(res, ok ? 200 : 404, { ok, note: 'A pasta do projeto permanece no disco' });
+    const { ok, trashed } = unregisterProject(params.id);
+    sendJson(res, ok ? 200 : 404, {
+      ok,
+      note: trashed
+        ? 'A pasta do projeto foi movida para a lixeira interna (.trash)'
+        : 'A pasta do projeto permanece no disco',
+    });
   });
 
   registerFileRoutes(

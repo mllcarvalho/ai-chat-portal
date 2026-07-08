@@ -1,19 +1,20 @@
 import * as crypto from 'node:crypto';
+import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import type { ChatAttachment, ChatRequestBody } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { SseStream } from '../sse';
 import { runChat } from '../../chat/agentLoop';
 import { cancelRequest } from '../../chat/activeRequests';
-import { ChatStream, activeStream, registerStream } from '../../chat/streamHub';
+import { ChatStream, activeSessionIds, activeStream, registerStream } from '../../chat/streamHub';
 import { resolveApproval } from '../../chat/approvals';
 import { resolveQuestion } from '../../chat/questions';
 import { getSession } from '../../storage/sessionStore';
 
-const MAX_ATTACHMENT_CHARS = 512 * 1024;
+const MAX_ATTACHMENT_CHARS = UPLOAD_LIMITS.chatAttachmentChars;
 
 export function registerChatRoutes(router: Router): void {
   router.post('/api/chat', async ({ res, body }) => {
-    const { sessionId, text, attachments, retryFromMessageId } = (body ?? {}) as
+    const { sessionId, text, attachments, retryFromMessageId, userMessageId } = (body ?? {}) as
       Partial<ChatRequestBody>;
     const validAttachments = (Array.isArray(attachments) ? attachments : []).filter(
       (a): a is ChatAttachment =>
@@ -25,7 +26,11 @@ export function registerChatRoutes(router: Router): void {
       return;
     }
     if (validAttachments.some((a) => a.content.length > MAX_ATTACHMENT_CHARS)) {
-      sendError(res, 400, 'Anexo grande demais (limite de 512 KB por arquivo)');
+      sendError(
+        res,
+        400,
+        `Anexo grande demais (limite de ${formatByteLimit(MAX_ATTACHMENT_CHARS)} de texto por arquivo)`,
+      );
       return;
     }
     // uma resposta por conversa também do lado do servidor (o front já bloqueia)
@@ -49,6 +54,7 @@ export function registerChatRoutes(router: Router): void {
         ...(typeof retryFromMessageId === 'string' && retryFromMessageId
           ? { retryFromMessageId }
           : {}),
+        ...(typeof userMessageId === 'string' && userMessageId ? { userMessageId } : {}),
         requestId,
         sse: stream,
       });
@@ -62,6 +68,12 @@ export function registerChatRoutes(router: Router): void {
     const sessionId = query.get('sessionId') ?? '';
     const stream = sessionId ? activeStream(sessionId) : undefined;
     sendJson(res, 200, { requestId: stream?.requestId ?? null });
+  });
+
+  // todas as conversas com resposta em andamento (boot da SPA: retoma também
+  // as gerações que rodavam em background antes do reload)
+  router.get('/api/chat/active-all', ({ res }) => {
+    sendJson(res, 200, { sessionIds: activeSessionIds() });
   });
 
   // reconecta a uma resposta em andamento: replay completo + eventos ao vivo
@@ -96,7 +108,11 @@ export function registerChatRoutes(router: Router): void {
       return;
     }
     const ok = resolveQuestion(params.requestId, callId, answer.trim());
-    sendJson(res, ok ? 200 : 404, { ok });
+    if (!ok) {
+      sendError(res, 404, 'Esta pergunta expirou ou já foi respondida (talvez em outra aba)');
+      return;
+    }
+    sendJson(res, 200, { ok });
   });
 
   // resposta da UI a um approval_request (comando do portal_run_command)
@@ -107,6 +123,10 @@ export function registerChatRoutes(router: Router): void {
       return;
     }
     const ok = resolveApproval(params.requestId, callId, approved);
-    sendJson(res, ok ? 200 : 404, { ok });
+    if (!ok) {
+      sendError(res, 404, 'Esta aprovação expirou ou já foi respondida (talvez em outra aba)');
+      return;
+    }
+    sendJson(res, 200, { ok });
   });
 }

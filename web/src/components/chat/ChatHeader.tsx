@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Bot, Columns2, Diamond, FileText, RefreshCw, Zap } from 'lucide-react';
+import { Bot, Columns2, Diamond, Download, FileText, Mail, RefreshCw, Share2, Zap } from 'lucide-react';
 import { AgentIcon } from '../common/AgentIcon';
 import type { SessionMode, TokenUsage } from '@aiportal/shared';
+import { slugifyCommand } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
 import { usePreview } from '../../stores/previewStore';
@@ -42,6 +44,7 @@ export function ChatHeader() {
   const openPanel = useUi((s) => s.openPanel);
   const closePanel = useUi((s) => s.closePanel);
   const setView = useUi((s) => s.setView);
+  const toast = useUi((s) => s.toast);
   const previewEnabled = usePreview((s) => s.enabled);
   const togglePreview = usePreview((s) => s.toggle);
   const [title, setTitle] = useState(session?.title ?? '');
@@ -90,6 +93,32 @@ export function ChatHeader() {
     if (msgModel?.multiplier === undefined) return acc;
     return (acc ?? 0) + m.usage.requests * msgModel.multiplier;
   }, undefined);
+
+  // baixa a conversa inteira como .md legível (mesmo artefato do envio por email)
+  const exportConversation = async () => {
+    try {
+      await api.exportSessionMarkdown(
+        session.id,
+        `${slugifyCommand(session.title) || 'conversa'}.md`,
+      );
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const emailConversation = async () => {
+    try {
+      const result = await api.shareByEmail('session', session.id);
+      toast(
+        result.mode === 'manual'
+          ? 'Sem cliente de email com anexo automático — o arquivo foi salvo e a pasta aberta: anexe no rascunho que abriu.'
+          : 'Email aberto com o anexo — é só endereçar e enviar.',
+        result.mode === 'manual' ? 'info' : 'ok',
+      );
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
 
   return (
     <header className="chat-header">
@@ -140,7 +169,8 @@ export function ChatHeader() {
       <Dropdown
         trigger={(_, toggle) => (
           <button className="pill-btn" onClick={toggle} title="Modelo do Copilot">
-            <Diamond className="icon icon--sm" aria-hidden /> {model?.name ?? 'modelo'}
+            <Diamond className="icon icon--sm" aria-hidden style={{ color: '#2563eb' }} />{' '}
+            {model?.name ?? 'modelo'}
             {model?.multiplier !== undefined
               ? ` · ${formatMultiplier(model.multiplier)}`
               : model?.priceCategory
@@ -172,8 +202,8 @@ export function ChatHeader() {
                     className={`model-mult${m.multiplier === 0 ? ' model-mult--free' : ''}`}
                     title={
                       m.multiplier === 0
-                        ? 'Incluído no plano — não desconta AI credits'
-                        : `Desconta ${formatMultiplier(m.multiplier)} AI credits por requisição`
+                        ? 'Incluído no plano — usar este modelo não gasta AI credits'
+                        : `Cada chamada a este modelo gasta ${formatMultiplier(m.multiplier)} do saldo de AI credits (uma resposta pode fazer mais de uma chamada)`
                     }
                   >
                     {formatMultiplier(m.multiplier)}
@@ -181,7 +211,7 @@ export function ChatHeader() {
                 ) : m.priceCategory ? (
                   <span
                     className="model-mult"
-                    title="Faixa de preço do Copilot — o custo em AI credits varia pelos tokens usados"
+                    title="Faixa de preço do Copilot — o gasto de AI credits varia com o tamanho das mensagens e respostas"
                   >
                     {formatPriceCategory(m.priceCategory)}
                   </span>
@@ -263,9 +293,10 @@ export function ChatHeader() {
           <button
             className="pill-btn"
             onClick={toggle}
-            title="Uso de tokens da conversa e AI credits do Copilot"
+            title="Quanto esta conversa já consumiu e quanto ainda resta do seu pacote mensal de AI credits do Copilot"
           >
-            <Zap className="icon" aria-hidden /> {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
+            <Zap className="icon" aria-hidden style={{ color: '#dd9a00' }} fill="currentColor" />{' '}
+            {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
             {creditsUsed !== undefined && premium
               ? ` · ${formatCredits(creditsUsed)}/${premium.entitlement}`
               : ''}
@@ -277,20 +308,28 @@ export function ChatHeader() {
             <div className="usage-pop__section">
               <div className="dropdown__label">Esta conversa</div>
               <div className="usage-pop__row">
-                <span>Tokens de entrada</span>
+                <span title="Volume de texto que o modelo LEU nesta conversa (suas mensagens, arquivos e histórico) — tokens são os pedacinhos de texto que ele processa">
+                  Tokens de entrada
+                </span>
                 <strong>{formatTokens(totals.inputTokens)}</strong>
               </div>
               <div className="usage-pop__row">
-                <span>Tokens de saída</span>
+                <span title="Volume de texto que o modelo ESCREVEU nesta conversa (as respostas)">
+                  Tokens de saída
+                </span>
                 <strong>{formatTokens(totals.outputTokens)}</strong>
               </div>
               <div className="usage-pop__row">
-                <span>Requisições ao Copilot</span>
+                <span title="Quantas vezes o modelo foi acionado nesta conversa — uma resposta que usa ferramentas pode fazer várias chamadas">
+                  Chamadas ao modelo
+                </span>
                 <strong>{totals.requests}</strong>
               </div>
               {conversationCredits !== undefined && (
                 <div className="usage-pop__row">
-                  <span>AI credits da conversa</span>
+                  <span title="Quanto esta conversa já gastou do seu pacote mensal de AI credits">
+                    AI credits da conversa
+                  </span>
                   <strong>{formatCredits(conversationCredits)}</strong>
                 </div>
               )}
@@ -361,11 +400,48 @@ export function ChatHeader() {
               </button>
             </div>
             <div className="usage-pop__note">
-              Cada rodada de ferramentas é 1 requisição. Os AI credits por resposta são medidos
-              direto na licença (saldo antes − depois); o preço varia pelo modelo e pelos tokens
-              usados.
+              AI credits são a "moeda" do plano do Copilot: cada resposta gasta um pouco do pacote
+              mensal, e o gasto varia com o modelo escolhido e o tamanho da conversa. O valor
+              mostrado é medido direto na sua licença (saldo antes − depois de cada resposta).
             </div>
           </div>
+        )}
+      </Dropdown>
+
+      {/* Exportar / compartilhar a conversa */}
+      <Dropdown
+        trigger={(_, toggle) => (
+          <button
+            className="pill-btn"
+            onClick={toggle}
+            title="Exportar ou compartilhar esta conversa"
+            aria-label="Compartilhar"
+          >
+            <Share2 className="icon" aria-hidden style={{ color: '#0d9488' }} />
+          </button>
+        )}
+      >
+        {(close) => (
+          <>
+            <button
+              className="dropdown__item"
+              onClick={() => {
+                void exportConversation();
+                close();
+              }}
+            >
+              <Download className="icon" aria-hidden /> Exportar conversa (.md)
+            </button>
+            <button
+              className="dropdown__item"
+              onClick={() => {
+                void emailConversation();
+                close();
+              }}
+            >
+              <Mail className="icon" aria-hidden /> Enviar por e-mail
+            </button>
+          </>
         )}
       </Dropdown>
 
@@ -377,8 +453,9 @@ export function ChatHeader() {
           togglePreview();
         }}
         title="Modo preview: abas de arquivos ao lado do chat — clique num arquivo do painel Arquivos para abrir aqui"
+        aria-label="Preview"
       >
-        <Columns2 className="icon" aria-hidden /> Preview
+        <Columns2 className="icon" aria-hidden style={{ color: '#7c3aed' }} />
       </button>
 
       <button
@@ -389,8 +466,9 @@ export function ChatHeader() {
             ? 'Arquivos do projeto (painel lateral)'
             : 'Arquivos do workspace desta conversa (painel lateral)'
         }
+        aria-label="Arquivos"
       >
-        <FileText className="icon" aria-hidden /> Arquivos
+        <FileText className="icon" aria-hidden style={{ color: '#b45309' }} />
       </button>
     </header>
   );
