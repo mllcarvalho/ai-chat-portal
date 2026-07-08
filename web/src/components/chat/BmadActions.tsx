@@ -1,4 +1,25 @@
 import { useMemo, useState } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  ClipboardList,
+  Drama,
+  FileText,
+  FlaskConical,
+  Globe,
+  Lightbulb,
+  ListChecks,
+  Newspaper,
+  Palette,
+  Puzzle,
+  Search,
+  Sparkles,
+  Swords,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -19,7 +40,7 @@ interface BmadAction {
   /** Comando da skill (sem a barra). */
   command: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   /** Tooltip explicando o que a ação faz. */
   hint: string;
   kind: 'run' | 'input';
@@ -40,7 +61,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-brainstorming',
         persona: 'analyst',
         label: 'Brainstorming',
-        icon: '💡',
+        icon: Lightbulb,
         hint: 'Sessão de ideação facilitada, com técnicas criativas',
         kind: 'input',
         inputLabel: 'Sobre o que vamos idear?',
@@ -50,7 +71,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-market-research',
         persona: 'analyst',
         label: 'Pesquisa de mercado',
-        icon: '🔎',
+        icon: Search,
         hint: 'Pesquisa de concorrência e clientes',
         kind: 'input',
         inputLabel: 'Qual mercado ou concorrência pesquisar?',
@@ -60,7 +81,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-domain-research',
         persona: 'analyst',
         label: 'Pesquisa de domínio',
-        icon: '🌐',
+        icon: Globe,
         hint: 'Pesquisa de um domínio ou indústria',
         kind: 'input',
         inputLabel: 'Qual domínio ou indústria pesquisar?',
@@ -70,7 +91,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-technical-research',
         persona: 'architect',
         label: 'Pesquisa técnica',
-        icon: '🧪',
+        icon: FlaskConical,
         hint: 'Pesquisa de tecnologias e arquitetura',
         kind: 'input',
         inputLabel: 'Qual tecnologia ou questão técnica pesquisar?',
@@ -85,7 +106,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-product-brief',
         persona: 'analyst',
         label: 'Product Brief',
-        icon: '📋',
+        icon: ClipboardList,
         hint: 'Cria (ou atualiza) o brief do produto',
         kind: 'input',
         inputLabel: 'Descreva a ideia ou o produto',
@@ -95,7 +116,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-prd',
         persona: 'pm',
         label: 'PRD',
-        icon: '📄',
+        icon: FileText,
         hint: 'Cria ou atualiza o PRD (usa o brief/contexto se existir)',
         kind: 'input',
         inputLabel: 'O que o PRD deve cobrir?',
@@ -105,7 +126,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-prfaq',
         persona: 'pm',
         label: 'PRFAQ',
-        icon: '📰',
+        icon: Newspaper,
         hint: 'Working backwards: press release + FAQ do conceito',
         kind: 'input',
         inputLabel: 'Qual conceito vamos desafiar?',
@@ -115,7 +136,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-ux',
         persona: 'ux-designer',
         label: 'UX Design',
-        icon: '🎨',
+        icon: Palette,
         hint: 'Planeja padrões de UX e especificações de design',
         kind: 'input',
         inputLabel: 'Qual produto ou fluxo vamos desenhar?',
@@ -130,7 +151,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-prd',
         persona: 'pm',
         label: 'Validar PRD',
-        icon: '✅',
+        icon: Check,
         hint: 'Valida o PRD desta conversa ou dos arquivos do projeto',
         kind: 'run',
         args: 'Valide o PRD já produzido nesta conversa ou nos arquivos do projeto.',
@@ -138,14 +159,14 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       {
         command: 'bmad-review-adversarial-general',
         label: 'Revisão crítica',
-        icon: '😈',
+        icon: Swords,
         hint: 'Revisão cética do que foi produzido, com relatório de achados',
         kind: 'run',
       },
       {
         command: 'bmad-advanced-elicitation',
         label: 'Refinar resposta',
-        icon: '✨',
+        icon: Sparkles,
         hint: 'Força o assistente a reconsiderar e melhorar a última resposta',
         kind: 'run',
       },
@@ -158,7 +179,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-create-epics-and-stories',
         persona: 'pm',
         label: 'Épicos e histórias',
-        icon: '🧩',
+        icon: Puzzle,
         hint: 'Quebra os requisitos do PRD em épicos e user stories',
         kind: 'run',
       },
@@ -166,7 +187,7 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
         command: 'bmad-check-implementation-readiness',
         persona: 'pm',
         label: 'Pronto p/ implementar?',
-        icon: '🚦',
+        icon: ListChecks,
         hint: 'Confere se PRD, UX, arquitetura e épicos estão completos',
         kind: 'run',
       },
@@ -178,14 +199,14 @@ const GROUPS: { title: string; actions: BmadAction[] }[] = [
       {
         command: 'bmad-help',
         label: 'O que fazer agora?',
-        icon: '❓',
+        icon: CircleHelp,
         hint: 'Analisa onde a conversa está e recomenda o próximo passo BMAD',
         kind: 'run',
       },
       {
         command: 'bmad-party-mode',
         label: 'Mesa redonda',
-        icon: '🎭',
+        icon: Drama,
         hint: 'Discussão em grupo entre as personas BMAD',
         kind: 'run',
       },
@@ -275,11 +296,17 @@ export function BmadActions() {
           onClick={toggle}
           title={collapsed ? 'Mostrar ações BMAD' : 'Ocultar ações BMAD'}
         >
-          <span className="bmad-deck__brand">🅱️ Ações BMAD</span>
+          <span className="bmad-deck__brand"><Zap className="icon" aria-hidden /> Ações BMAD</span>
           <span className="bmad-deck__hint">
             {collapsed ? 'Descobrir · Definir · Validar · Planejar' : 'fluxo do time de produto'}
           </span>
-          <span className="bmad-deck__caret">{collapsed ? '▸' : '▾'}</span>
+          <span className="bmad-deck__caret">
+            {collapsed ? (
+              <ChevronRight className="icon icon--sm" aria-hidden />
+            ) : (
+              <ChevronDown className="icon icon--sm" aria-hidden />
+            )}
+          </span>
         </button>
         {!collapsed && (
           <div className="bmad-deck__rows">
@@ -297,7 +324,7 @@ export function BmadActions() {
                         disabled={isStreaming}
                         onClick={() => onChipClick(action)}
                       >
-                        {action.icon} {action.label}
+                        <action.icon className="icon" aria-hidden /> {action.label}
                       </button>
                     );
                   })}
@@ -310,7 +337,7 @@ export function BmadActions() {
 
       {pending && (
         <Modal
-          title={`${pending.icon} ${pending.label}`}
+          title={pending.label}
           onClose={() => setPending(undefined)}
           footer={
             <>

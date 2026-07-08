@@ -4,9 +4,23 @@
  * bmadStore, revisar este catálogo (skills novas/removidas/depreciadas).
  */
 
+import {
+  ChartColumn,
+  ClipboardList,
+  Landmark,
+  Laptop,
+  PenLine,
+  Palette,
+  Search,
+  SearchCheck,
+  TrendingUp,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react';
+
 export interface BmadAgentDoc {
   code: string;
-  icon: string;
+  icon: LucideIcon;
   persona: string;
   role: string;
   summary: string;
@@ -28,7 +42,7 @@ export interface BmadSkillDoc {
 
 export interface BmadCategoryDoc {
   id: string;
-  icon: string;
+  icon: LucideIcon;
   title: string;
   blurb: string;
   skills: BmadSkillDoc[];
@@ -37,7 +51,7 @@ export interface BmadCategoryDoc {
 export const BMAD_AGENTS: BmadAgentDoc[] = [
   {
     code: 'analyst',
-    icon: '📊',
+    icon: ChartColumn,
     persona: 'Mary',
     role: 'Business Analyst',
     summary:
@@ -45,7 +59,7 @@ export const BMAD_AGENTS: BmadAgentDoc[] = [
   },
   {
     code: 'pm',
-    icon: '📋',
+    icon: ClipboardList,
     persona: 'John',
     role: 'Product Manager',
     summary:
@@ -53,7 +67,7 @@ export const BMAD_AGENTS: BmadAgentDoc[] = [
   },
   {
     code: 'ux-designer',
-    icon: '🎨',
+    icon: Palette,
     persona: 'Sally',
     role: 'UX Designer',
     summary:
@@ -61,7 +75,7 @@ export const BMAD_AGENTS: BmadAgentDoc[] = [
   },
   {
     code: 'architect',
-    icon: '🏛️',
+    icon: Landmark,
     persona: 'Winston',
     role: 'System Architect',
     summary:
@@ -69,7 +83,7 @@ export const BMAD_AGENTS: BmadAgentDoc[] = [
   },
   {
     code: 'dev',
-    icon: '💻',
+    icon: Laptop,
     persona: 'Amelia',
     role: 'Senior Software Engineer',
     summary:
@@ -77,7 +91,7 @@ export const BMAD_AGENTS: BmadAgentDoc[] = [
   },
   {
     code: 'tech-writer',
-    icon: '✍️',
+    icon: PenLine,
     persona: 'Paige',
     role: 'Technical Writer',
     summary:
@@ -98,7 +112,7 @@ const AG = {
 export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   {
     id: 'discovery',
-    icon: '🔍',
+    icon: Search,
     title: 'Descoberta e pesquisa',
     blurb:
       'Entender o problema antes de decidir: ideação, pesquisa de mercado/domínio/técnica e investigação de evidências.',
@@ -175,7 +189,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'planning',
-    icon: '📋',
+    icon: ClipboardList,
     title: 'Planejamento de produto',
     blurb:
       'Do conceito ao backlog: brief, PRFAQ, PRD, spec canônica e a decomposição em epics, stories e sprint.',
@@ -260,7 +274,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'design',
-    icon: '🏛️',
+    icon: Landmark,
     title: 'Arquitetura e UX',
     blurb: 'Decisões de solução e experiência que guiam a implementação de forma consistente.',
     skills: [
@@ -301,7 +315,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'dev',
-    icon: '💻',
+    icon: Laptop,
     title: 'Desenvolvimento',
     blurb: 'Implementar com disciplina: da checagem de prontidão à execução das stories.',
     skills: [
@@ -342,7 +356,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'quality',
-    icon: '🔎',
+    icon: SearchCheck,
     title: 'Qualidade e revisão',
     blurb: 'Revisões adversariais, caça a edge cases, testes E2E e revisão editorial de textos.',
     skills: [
@@ -425,7 +439,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'tracking',
-    icon: '📈',
+    icon: TrendingUp,
     title: 'Acompanhamento do sprint',
     blurb: 'Visibilidade, mudanças de rumo e lições aprendidas durante a execução.',
     skills: [
@@ -465,7 +479,7 @@ export const BMAD_CATEGORIES: BmadCategoryDoc[] = [
   },
   {
     id: 'docs-utils',
-    icon: '🧰',
+    icon: Wrench,
     title: 'Documentação e utilidades',
     blurb: 'Documentar projetos existentes, organizar arquivos e operar o próprio BMAD.',
     skills: [

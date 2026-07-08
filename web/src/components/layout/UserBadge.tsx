@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useUi } from '../../stores/uiStore';
 
@@ -18,7 +19,7 @@ export function UserBadge() {
         aria-label="Refazer login"
         onClick={() => setLoggedIn(false)}
       >
-        ↻
+        <RefreshCw className="icon icon--sm" aria-hidden />
       </button>
     </div>
   );

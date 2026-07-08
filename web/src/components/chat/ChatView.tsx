@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
+import { ArrowDown } from 'lucide-react';
 import { useSessions } from '../../stores/sessionsStore';
 import { useChat } from '../../stores/chatStore';
+import { usePreview } from '../../stores/previewStore';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
 import { BmadActions } from './BmadActions';
+import { PreviewPane } from '../panels/PreviewPane';
 
 export function ChatView() {
   const session = useSessions((s) => s.current);
+  const previewEnabled = usePreview((s) => s.enabled);
   // stream DESTA sessão — outras conversas podem estar gerando em paralelo
   const stream = useChat((s) => (session ? s.streams[session.id] : undefined));
   const resume = useChat((s) => s.resume);
@@ -48,51 +52,58 @@ export function ChatView() {
   return (
     <>
       <ChatHeader />
-      <div className="message-list" ref={listRef} onScroll={onScroll}>
-        <div className="message-list__inner">
-          {session.messages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              isLastAssistant={message.id === lastAssistantId && !isStreaming}
-              actionsDisabled={isStreaming}
-            />
-          ))}
-          {stream && (
-            <MessageBubble
-              streaming
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                parts: stream.parts,
-                createdAt: '',
-              }}
-            />
-          )}
-          {session.messages.length === 0 && !isStreaming && (
-            <div className="empty-state" style={{ paddingTop: '12vh' }}>
-              Envie uma mensagem para começar — ou dispare uma ação BMAD pelos botões abaixo.
-              <br />
-              Dica: digite <strong>/</strong> para usar comandos das suas skills.
+      {/* split do modo preview: o header fica inteiro em cima; abaixo dele,
+          chat à esquerda e abas de arquivos à direita */}
+      <div className="chat-split">
+        <div className="chat-split__main">
+          <div className="message-list" ref={listRef} onScroll={onScroll}>
+            <div className="message-list__inner">
+              {session.messages.map((message) => (
+                <MessageBubble
+                  key={message.id}
+                  message={message}
+                  isLastAssistant={message.id === lastAssistantId && !isStreaming}
+                  actionsDisabled={isStreaming}
+                />
+              ))}
+              {stream && (
+                <MessageBubble
+                  streaming
+                  message={{
+                    id: 'streaming',
+                    role: 'assistant',
+                    parts: stream.parts,
+                    createdAt: '',
+                  }}
+                />
+              )}
+              {session.messages.length === 0 && !isStreaming && (
+                <div className="empty-state" style={{ paddingTop: '12vh' }}>
+                  Envie uma mensagem para começar — ou dispare uma ação BMAD pelos botões abaixo.
+                  <br />
+                  Dica: digite <strong>/</strong> para usar comandos das suas skills.
+                </div>
+              )}
             </div>
-          )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            {!pinnedToBottom && (
+              <button
+                className="scroll-pill"
+                onClick={() => {
+                  const el = listRef.current;
+                  if (el) el.scrollTop = el.scrollHeight;
+                  setPinnedToBottom(true);
+                }}
+              >
+                <ArrowDown className="icon icon--sm" aria-hidden /> ir para o fim
+              </button>
+            )}
+            <BmadActions />
+            <Composer />
+          </div>
         </div>
-      </div>
-      <div style={{ position: 'relative' }}>
-        {!pinnedToBottom && (
-          <button
-            className="scroll-pill"
-            onClick={() => {
-              const el = listRef.current;
-              if (el) el.scrollTop = el.scrollHeight;
-              setPinnedToBottom(true);
-            }}
-          >
-            ↓ ir para o fim
-          </button>
-        )}
-        <BmadActions />
-        <Composer />
+        {previewEnabled && <PreviewPane />}
       </div>
     </>
   );

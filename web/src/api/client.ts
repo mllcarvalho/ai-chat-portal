@@ -194,6 +194,11 @@ export const api = {
     ),
   writeSessionFile: (id: string, path: string, content: string) =>
     request<{ ok: boolean; path: string }>('PUT', `/api/sessions/${id}/files`, { path, content }),
+  writeSessionFileBinary: (id: string, path: string, contentBase64: string) =>
+    request<{ ok: boolean; path: string }>('PUT', `/api/sessions/${id}/files`, {
+      path,
+      contentBase64,
+    }),
   deleteSessionFile: (id: string, path: string) =>
     request<{ ok: boolean }>(
       'DELETE',
@@ -225,6 +230,11 @@ export const api = {
     ),
   writeProjectFile: (id: string, path: string, content: string) =>
     request<{ ok: boolean; path: string }>('PUT', `/api/projects/${id}/files`, { path, content }),
+  writeProjectFileBinary: (id: string, path: string, contentBase64: string) =>
+    request<{ ok: boolean; path: string }>('PUT', `/api/projects/${id}/files`, {
+      path,
+      contentBase64,
+    }),
   deleteProjectFile: (id: string, path: string) =>
     request<{ ok: boolean }>(
       'DELETE',

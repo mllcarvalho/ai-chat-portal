@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { OctagonAlert, TriangleAlert, X } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 
 /**
@@ -37,7 +38,13 @@ export function EnvBanner() {
   const critical = problems.some((p) => p.critical);
   return (
     <div className={`env-banner${critical ? ' env-banner--critical' : ''}`} role="status">
-      <span className="env-banner__icon">{critical ? '⛔' : '⚠️'}</span>
+      <span className="env-banner__icon">
+        {critical ? (
+          <OctagonAlert className="icon" aria-hidden />
+        ) : (
+          <TriangleAlert className="icon" aria-hidden />
+        )}
+      </span>
       <span className="env-banner__text">
         {problems.map((p) => p.text).join(' ')}
       </span>
@@ -46,7 +53,7 @@ export function EnvBanner() {
         onClick={() => setDismissed(true)}
         aria-label="Dispensar aviso"
       >
-        ×
+        <X className="icon" aria-hidden />
       </button>
     </div>
   );

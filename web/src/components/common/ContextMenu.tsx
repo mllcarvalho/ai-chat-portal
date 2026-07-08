@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 export type ContextMenuItem =
   | {
       label: string;
-      icon?: string;
+      icon?: ReactNode;
       danger?: boolean;
       disabled?: boolean;
       onClick: () => void;

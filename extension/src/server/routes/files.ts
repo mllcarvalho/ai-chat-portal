@@ -89,12 +89,19 @@ export function registerFileRoutes(
       sendError(res, 404, ownerNotFound);
       return;
     }
-    const input = (body ?? {}) as { path?: string; content?: string };
-    if (!input.path?.trim() || typeof input.content !== 'string') {
-      sendError(res, 400, 'path e content são obrigatórios');
+    // content (texto UTF-8) ou contentBase64 (binário preservado byte a byte —
+    // uploads de planilha/PDF/imagem chegam assim)
+    const input = (body ?? {}) as { path?: string; content?: string; contentBase64?: string };
+    const hasText = typeof input.content === 'string';
+    const hasBinary = typeof input.contentBase64 === 'string';
+    if (!input.path?.trim() || (!hasText && !hasBinary)) {
+      sendError(res, 400, 'path e content (ou contentBase64) são obrigatórios');
       return;
     }
-    if (Buffer.byteLength(input.content) > WRITE_LIMIT) {
+    const data = hasBinary
+      ? Buffer.from(input.contentBase64!, 'base64')
+      : Buffer.from(input.content!, 'utf8');
+    if (data.byteLength > WRITE_LIMIT) {
       sendError(res, 400, `Arquivo excede o limite de ${WRITE_LIMIT / 1024 / 1024} MB`);
       return;
     }
@@ -102,7 +109,7 @@ export function registerFileRoutes(
       fs.mkdirSync(root, { recursive: true });
       const file = resolveInProject(root, input.path.trim());
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, input.content, 'utf8');
+      fs.writeFileSync(file, data);
       sendJson(res, 200, { ok: true, path: input.path.trim() });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao gravar arquivo');

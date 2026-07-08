@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Check, RefreshCw, Stethoscope, X } from 'lucide-react';
 import type { DiagnosticCheck } from '@aiportal/shared';
 import { useDiagnostics } from '../../stores/diagnosticsStore';
 import { useUi } from '../../stores/uiStore';
@@ -43,12 +44,12 @@ export function DiagnosticsPage() {
 
   return (
     <PageShell
-      icon="🩺"
+      icon={<Stethoscope className="icon icon--lg" aria-hidden />}
       title="Diagnóstico do ambiente"
       subtitle="Verifica as ferramentas e a rede corporativa que o portal e os setups de MCP usam."
       actions={
         <button className="btn" onClick={() => void start()} disabled={running}>
-          {running ? 'Verificando…' : '↻ Verificar novamente'}
+          {running ? 'Verificando…' : <><RefreshCw className="icon" aria-hidden /> Verificar novamente</>}
         </button>
       }
     >
@@ -71,9 +72,9 @@ function CheckRow({ check }: { check: DiagnosticCheck }) {
 
   const mark =
     check.status === 'ok'
-      ? { cls: 'check-item__mark--ok', icon: '✓' }
+      ? { cls: 'check-item__mark--ok', icon: <Check className="icon icon--sm" aria-hidden /> }
       : check.status === 'fail'
-        ? { cls: 'check-item__mark--fail', icon: '✕' }
+        ? { cls: 'check-item__mark--fail', icon: <X className="icon icon--sm" aria-hidden /> }
         : check.status === 'warn'
           ? { cls: 'check-item__mark--warn', icon: '!' }
           : { cls: 'check-item__mark--run', icon: '…' };

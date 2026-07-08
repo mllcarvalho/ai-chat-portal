@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { useUi } from '../../stores/uiStore';
 
 /** Dialog de confirmação do portal (substitui o window.confirm nativo). */
@@ -29,7 +30,7 @@ export function ConfirmDialog() {
         <div className="modal__head">
           <span className="modal__title">{state.title ?? 'Confirmar'}</span>
           <button className="modal__close" onClick={() => resolveConfirm(false)} aria-label="Fechar">
-            ×
+            <X className="icon" aria-hidden />
           </button>
         </div>
         <div className="modal__body">

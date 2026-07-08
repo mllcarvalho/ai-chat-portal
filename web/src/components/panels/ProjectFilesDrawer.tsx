@@ -1,4 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Code,
+  Download,
+  Eye,
+  FileText,
+  Folder,
+  FolderOpen,
+  Maximize2,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import type { FileEntry } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
@@ -6,7 +29,8 @@ import { usePreview } from '../../stores/previewStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { ContextMenu, type ContextMenuItem } from '../common/ContextMenu';
-import { FilePreview, hasPreview, isMarkdown } from '../common/fileView';
+import { Dropdown } from '../common/Dropdown';
+import { FilePreview, hasPreview, isBinaryFile, isMarkdown } from '../common/fileView';
 import { Markdown } from '../common/Markdown';
 import { Modal } from '../common/Modal';
 
@@ -30,6 +54,17 @@ function isIgnoredPath(relPath: string): boolean {
 
 function entryFile(entry: FileSystemFileEntry): Promise<File> {
   return new Promise((resolve, reject) => entry.file(resolve, reject));
+}
+
+/** Base64 do arquivo (upload binário-seguro — o servidor grava os bytes originais). */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    // readAsDataURL: "data:<mime>;base64,<payload>" — só o payload interessa
+    reader.onload = () => resolve((reader.result as string).split(',', 2)[1] ?? '');
+    reader.onerror = () => reject(reader.error ?? new Error('Falha ao ler o arquivo'));
+    reader.readAsDataURL(file);
+  });
 }
 
 async function readAllEntries(dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
@@ -135,8 +170,21 @@ function TreeLevel(props: {
                 onClick={() => (isDir ? props.onToggleDir(entry.path) : props.onOpen(entry))}
                 title={isDir ? (isCollapsed ? 'Expandir pasta' : 'Recolher pasta') : undefined}
               >
-                <span className="file-tree__chevron">{isDir ? (isCollapsed ? '▶' : '▼') : ''}</span>
-                <span>{isDir ? '📁' : '📄'}</span>
+                <span className="file-tree__chevron">
+                  {isDir &&
+                    (isCollapsed ? (
+                      <ChevronRight className="icon icon--sm" aria-hidden />
+                    ) : (
+                      <ChevronDown className="icon icon--sm" aria-hidden />
+                    ))}
+                </span>
+                <span>
+                  {isDir ? (
+                    <Folder className="icon icon--sm" aria-hidden />
+                  ) : (
+                    <FileText className="icon icon--sm" aria-hidden />
+                  )}
+                </span>
                 <span className="file-tree__name">{entry.name}</span>
                 {entry.type === 'file' && (
                   <span className="file-tree__size">{formatSize(entry.size)}</span>
@@ -153,7 +201,7 @@ function TreeLevel(props: {
                     }
                     onClick={() => props.onTogglePin(entry)}
                   >
-                    📌
+                    <Pin className="icon icon--sm" aria-hidden />
                   </button>
                 </span>
               )}
@@ -254,13 +302,19 @@ export function ProjectFilesDrawer() {
   }, [reload, filesVersion]);
 
   const openFile = async (entry: FileEntry) => {
-    // modo preview ligado: abre como aba no painel central, não no drawer
-    if (previewEnabled) {
+    // modo preview ligado: abre como aba no painel do chat, não no drawer
+    // (o painel só existe com uma conversa aberta — sem sessão, cai no viewer)
+    if (previewEnabled && session) {
       openPreviewTab(previewScopeKey, { path: entry.path, name: entry.name });
       return;
     }
     setEditing(false);
     setShowSource(false);
+    // binário (planilha, PDF original, imagem…): não tem visualização em texto
+    if (isBinaryFile(entry.path)) {
+      setViewing({ path: entry.path, content: '', truncated: false });
+      return;
+    }
     try {
       const data = projectId
         ? await api.projectFileContent(projectId, entry.path)
@@ -416,29 +470,39 @@ export function ProjectFilesDrawer() {
     let okCount = 0;
     let tooBig = 0;
     let failed = 0;
+    let converted = 0;
     setUploading({ done: 0, total: valid.length });
     try {
       for (const item of valid) {
         if (item.file.size > MAX_UPLOAD_BYTES) {
           tooBig++;
+          setUploading((prev) => prev && { ...prev, done: prev.done + 1 });
           continue;
         }
         try {
-          // Excel/Word/PDF viram .md na pasta de trabalho — assim o arquivo pode
-          // ser fixado no contexto e lido pelas ferramentas (que só leem texto)
-          let relPath = item.relPath;
-          let content: string;
-          if (isConvertibleDocument(item.file.name)) {
-            content = await extractDocumentText(item.file);
-            relPath = relPath.replace(/\.[^.]+$/, '.md');
-          } else {
-            content = await item.file.text();
-          }
-          if (projectId) await api.writeProjectFile(projectId, relPath, content);
+          // o original sobe sempre, preservado byte a byte (código, planilha,
+          // PDF, imagem — nada é convertido nem descartado)
+          const b64 = await fileToBase64(item.file);
+          if (projectId) await api.writeProjectFileBinary(projectId, item.relPath, b64);
           else if (workspaceSessionId) {
-            await api.writeSessionFile(workspaceSessionId, relPath, content);
+            await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
           }
           okCount++;
+          // Excel/Word/PDF ganham um .md irmão com o texto extraído — é ele que
+          // o assistente consegue ler/fixar no contexto (as ferramentas só leem texto)
+          if (isConvertibleDocument(item.file.name)) {
+            try {
+              const text = await extractDocumentText(item.file);
+              const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
+              if (projectId) await api.writeProjectFile(projectId, mdPath, text);
+              else if (workspaceSessionId) {
+                await api.writeSessionFile(workspaceSessionId, mdPath, text);
+              }
+              converted++;
+            } catch {
+              // original subiu; só a extração de texto falhou
+            }
+          }
         } catch {
           failed++;
         }
@@ -448,7 +512,13 @@ export function ProjectFilesDrawer() {
       setUploading(undefined);
     }
     if (okCount) {
-      toast(`${okCount} arquivo${okCount === 1 ? '' : 's'} adicionado${okCount === 1 ? '' : 's'}.`, 'ok');
+      const extra = converted
+        ? ` ${converted === 1 ? '1 documento ganhou' : `${converted} documentos ganharam`} um .md com o texto extraído (é o que o assistente lê).`
+        : '';
+      toast(
+        `${okCount} arquivo${okCount === 1 ? '' : 's'} adicionado${okCount === 1 ? '' : 's'}.${extra}`,
+        'ok',
+      );
       await reload();
     }
     if (tooBig) {
@@ -481,38 +551,76 @@ export function ProjectFilesDrawer() {
       return [
         {
           label: collapsed.has(entry.path) ? 'Expandir' : 'Recolher',
-          icon: '📁',
+          icon: collapsed.has(entry.path) ? (
+            <ChevronDown className="icon icon--sm" aria-hidden />
+          ) : (
+            <ChevronRight className="icon icon--sm" aria-hidden />
+          ),
           onClick: () => toggleDir(entry.path),
         },
         'separator',
-        { label: 'Renomear', icon: '✏️', onClick: () => startRename(entry) },
-        { label: 'Mostrar na pasta local', icon: '📂', onClick: () => void revealFile(entry.path) },
+        {
+          label: 'Renomear',
+          icon: <Pencil className="icon icon--sm" aria-hidden />,
+          onClick: () => startRename(entry),
+        },
+        {
+          label: 'Mostrar na pasta local',
+          icon: <FolderOpen className="icon icon--sm" aria-hidden />,
+          onClick: () => void revealFile(entry.path),
+        },
         'separator',
-        { label: 'Excluir pasta', icon: '🗑', danger: true, onClick: () => void deleteEntry(entry) },
+        {
+          label: 'Excluir pasta',
+          icon: <Trash2 className="icon icon--sm" aria-hidden />,
+          danger: true,
+          onClick: () => void deleteEntry(entry),
+        },
       ];
     }
     const pinned = contextFiles.includes(entry.path);
     return [
       {
         label: previewEnabled ? 'Abrir no preview' : 'Abrir',
-        icon: '📄',
+        icon: <FileText className="icon icon--sm" aria-hidden />,
         onClick: () => void openFile(entry),
       },
       ...(canPin
         ? [
             {
               label: pinned ? 'Desfixar do contexto' : 'Fixar no contexto',
-              icon: '📌',
+              icon: pinned ? (
+                <PinOff className="icon icon--sm" aria-hidden />
+              ) : (
+                <Pin className="icon icon--sm" aria-hidden />
+              ),
               onClick: () => void togglePin(entry),
             } as ContextMenuItem,
           ]
         : []),
       'separator',
-      { label: 'Renomear', icon: '✏️', onClick: () => startRename(entry) },
-      { label: 'Baixar', icon: '⬇', onClick: () => void downloadFile(entry.path) },
-      { label: 'Mostrar na pasta local', icon: '📂', onClick: () => void revealFile(entry.path) },
+      {
+        label: 'Renomear',
+        icon: <Pencil className="icon icon--sm" aria-hidden />,
+        onClick: () => startRename(entry),
+      },
+      {
+        label: 'Baixar',
+        icon: <Download className="icon icon--sm" aria-hidden />,
+        onClick: () => void downloadFile(entry.path),
+      },
+      {
+        label: 'Mostrar na pasta local',
+        icon: <FolderOpen className="icon icon--sm" aria-hidden />,
+        onClick: () => void revealFile(entry.path),
+      },
       'separator',
-      { label: 'Excluir', icon: '🗑', danger: true, onClick: () => void deleteEntry(entry) },
+      {
+        label: 'Excluir',
+        icon: <Trash2 className="icon icon--sm" aria-hidden />,
+        danger: true,
+        onClick: () => void deleteEntry(entry),
+      },
     ];
   };
 
@@ -561,10 +669,11 @@ export function ProjectFilesDrawer() {
       />
       <div className="files-panel__head">
         <span className="files-panel__title">
-          📄 Arquivos · {project ? project.name : 'workspace da conversa'}
+          <FileText className="icon" aria-hidden /> Arquivos ·{' '}
+          {project ? project.name : 'workspace da conversa'}
         </span>
         <button className="modal__close" onClick={closePanel} aria-label="Fechar painel">
-          ×
+          <X className="icon" aria-hidden />
         </button>
       </div>
       <div className="files-panel__toolbar">
@@ -589,22 +698,44 @@ export function ProjectFilesDrawer() {
             e.target.value = '';
           }}
         />
-        <button
-          className="btn btn--sm"
-          onClick={() => uploadRef.current?.click()}
-          title="Adicionar arquivos de fora (ou arraste para o painel)"
+        <Dropdown
+          trigger={(open, toggle) => (
+            <button
+              className="btn btn--sm"
+              onClick={toggle}
+              title="Adicionar arquivos ou uma pasta inteira (ou arraste para o painel)"
+              aria-expanded={open}
+            >
+              <Plus className="icon icon--sm" aria-hidden /> Adicionar{' '}
+              <ChevronDown className="icon icon--sm" aria-hidden />
+            </button>
+          )}
         >
-          ⬆ Adicionar
-        </button>
-        <button
-          className="btn btn--sm"
-          onClick={() => folderRef.current?.click()}
-          title="Adicionar uma pasta inteira (com subpastas) — ou arraste a pasta para o painel"
-        >
-          📁 Pasta
-        </button>
+          {(close) => (
+            <>
+              <button
+                className="dropdown__item"
+                onClick={() => {
+                  close();
+                  uploadRef.current?.click();
+                }}
+              >
+                Arquivos…
+              </button>
+              <button
+                className="dropdown__item"
+                onClick={() => {
+                  close();
+                  folderRef.current?.click();
+                }}
+              >
+                Pasta (projeto)…
+              </button>
+            </>
+          )}
+        </Dropdown>
         <button className="btn btn--sm btn--ghost" onClick={() => void reload()}>
-          ↻ Atualizar
+          <RefreshCw className="icon icon--sm" aria-hidden /> Atualizar
         </button>
         {allDirs.length > 0 && (
           <button
@@ -612,18 +743,27 @@ export function ProjectFilesDrawer() {
             title={allCollapsed ? 'Expandir todas as pastas' : 'Recolher todas as pastas'}
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allDirs))}
           >
-            {allCollapsed ? '▶ Expandir tudo' : '▼ Recolher tudo'}
+            {allCollapsed ? (
+              <>
+                <ChevronsUpDown className="icon icon--sm" aria-hidden /> Expandir tudo
+              </>
+            ) : (
+              <>
+                <ChevronsDownUp className="icon icon--sm" aria-hidden /> Recolher tudo
+              </>
+            )}
           </button>
         )}
       </div>
       {uploading && (
         <div className="files-panel__hint">
-          ⬆ Enviando {uploading.done}/{uploading.total}…
+          <Upload className="icon icon--sm" aria-hidden /> Enviando {uploading.done}/
+          {uploading.total}…
         </div>
       )}
       {canPin && (
         <div className="files-panel__hint">
-          📌 fixa o arquivo no contexto da conversa atual
+          <Pin className="icon icon--sm" aria-hidden /> fixa o arquivo no contexto da conversa atual
           {contextFiles.length > 0 && ` · ${contextFiles.length} fixado${contextFiles.length === 1 ? '' : 's'}`}
         </div>
       )}
@@ -632,13 +772,13 @@ export function ProjectFilesDrawer() {
           <div className="file-viewer">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
               <button className="btn btn--ghost btn--sm" onClick={() => void closeViewer()}>
-                ← voltar
+                <ArrowLeft className="icon" aria-hidden /> voltar
               </button>
               <span style={{ flex: 1 }} />
               {editing ? (
                 <>
                   <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
-                    💾 Salvar
+                    <Save className="icon" aria-hidden /> Salvar
                   </button>
                   <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
                     Cancelar
@@ -653,39 +793,45 @@ export function ProjectFilesDrawer() {
                       aria-label={showSource ? 'Ver o preview' : 'Ver o código-fonte'}
                       onClick={() => setShowSource((v) => !v)}
                     >
-                      {showSource ? '👁' : '</>'}
+                      {showSource ? (
+                        <Eye className="icon" aria-hidden />
+                      ) : (
+                        <Code className="icon" aria-hidden />
+                      )}
                     </button>
                   )}
                   <button
                     className="btn btn--sm"
                     title={
-                      viewing.truncated
-                        ? 'Arquivo grande demais para editar aqui'
+                      viewing.truncated || isBinaryFile(viewing.path)
+                        ? 'Este arquivo não pode ser editado aqui'
                         : 'Editar o conteúdo do arquivo'
                     }
                     aria-label="Editar"
-                    disabled={viewing.truncated}
+                    disabled={viewing.truncated || isBinaryFile(viewing.path)}
                     onClick={startEdit}
                   >
-                    ✏️
+                    <Pencil className="icon" aria-hidden />
                   </button>
                 </>
               )}
-              <button
-                className="btn btn--sm"
-                title="Ampliar (visão maior)"
-                aria-label="Ampliar"
-                onClick={() => setReader(true)}
-              >
-                ⤢
-              </button>
+              {!isBinaryFile(viewing.path) && (
+                <button
+                  className="btn btn--sm"
+                  title="Ampliar (visão maior)"
+                  aria-label="Ampliar"
+                  onClick={() => setReader(true)}
+                >
+                  <Maximize2 className="icon" aria-hidden />
+                </button>
+              )}
               <button
                 className="btn btn--sm"
                 title="Baixar arquivo"
                 aria-label="Baixar"
                 onClick={() => void downloadFile(viewing.path)}
               >
-                ⬇
+                <Download className="icon" aria-hidden />
               </button>
               <button
                 className="btn btn--sm"
@@ -693,7 +839,7 @@ export function ProjectFilesDrawer() {
                 aria-label="Mostrar na pasta local"
                 onClick={() => void revealFile(viewing.path)}
               >
-                📂
+                <FolderOpen className="icon" aria-hidden />
               </button>
             </div>
             <div
@@ -716,6 +862,10 @@ export function ProjectFilesDrawer() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
+            ) : isBinaryFile(viewing.path) ? (
+              <div className="empty-state">
+                Arquivo binário — sem visualização em texto. Use Baixar ou Mostrar na pasta local.
+              </div>
             ) : hasPreview(viewing.path) && !showSource && !viewing.truncated ? (
               <FilePreview path={viewing.path} content={viewing.content} />
             ) : (
@@ -753,7 +903,7 @@ export function ProjectFilesDrawer() {
               {editing ? (
                 <>
                   <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
-                    💾 Salvar
+                    <Save className="icon" aria-hidden /> Salvar
                   </button>
                   <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
                     Cancelar
@@ -766,7 +916,15 @@ export function ProjectFilesDrawer() {
                       className="btn btn--sm"
                       onClick={() => setShowSource((v) => !v)}
                     >
-                      {showSource ? '👁 Preview' : '</> Código'}
+                      {showSource ? (
+                        <>
+                          <Eye className="icon" aria-hidden /> Preview
+                        </>
+                      ) : (
+                        <>
+                          <Code className="icon" aria-hidden /> Código
+                        </>
+                      )}
                     </button>
                   )}
                   <button
@@ -779,7 +937,7 @@ export function ProjectFilesDrawer() {
                     disabled={viewing.truncated}
                     onClick={startEdit}
                   >
-                    ✏️ Editar
+                    <Pencil className="icon" aria-hidden /> Editar
                   </button>
                 </>
               )}
@@ -799,7 +957,7 @@ export function ProjectFilesDrawer() {
               <pre>{viewing.content}</pre>
             )}
             {viewing.truncated && (
-              <div className="empty-state">Arquivo grande — exibindo só o início. Use ⬇ Baixar para o conteúdo completo.</div>
+              <div className="empty-state">Arquivo grande — exibindo só o início. Use Baixar para o conteúdo completo.</div>
             )}
           </div>
         </Modal>

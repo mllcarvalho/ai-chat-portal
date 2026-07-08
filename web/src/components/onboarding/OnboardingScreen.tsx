@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Check as CheckIcon, TriangleAlert, X } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { getToken } from '../../api/client';
@@ -11,7 +12,13 @@ function Check(props: { ok: boolean | undefined; label: string; hint?: string })
           props.ok === true ? ' check-item__mark--ok' : props.ok === false ? ' check-item__mark--fail' : ''
         }`}
       >
-        {props.ok === true ? '✓' : props.ok === false ? '✕' : '…'}
+        {props.ok === true ? (
+          <CheckIcon className="icon icon--sm" aria-hidden />
+        ) : props.ok === false ? (
+          <X className="icon icon--sm" aria-hidden />
+        ) : (
+          '…'
+        )}
       </span>
       <div>
         <div className="check-item__label">{props.label}</div>
@@ -96,7 +103,8 @@ export function OnboardingScreen() {
         />
         {!hasToken && serverUp && (
           <p style={{ marginTop: 16 }}>
-            ⚠️ Sem token de acesso: abra o portal pelo comando{' '}
+            <TriangleAlert className="icon" aria-hidden /> Sem token de acesso: abra o portal pelo
+            comando{' '}
             <strong>"BMAD Product Studio: Abrir no Navegador"</strong> no VS Code (Cmd/Ctrl+Shift+P) para
             entrar autenticado.
           </p>

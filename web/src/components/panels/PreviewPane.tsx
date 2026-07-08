@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Code, Download, Eye, FileText, Pencil, Save, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
 import { usePreview } from '../../stores/previewStore';
 import { useUi } from '../../stores/uiStore';
 import { Markdown } from '../common/Markdown';
-import { FilePreview, hasPreview, isMarkdown } from '../common/fileView';
+import { FilePreview, hasPreview, isBinaryFile, isMarkdown } from '../common/fileView';
 
 const PANE_WIDTH_KEY = 'aiportal.previewPaneWidth';
 const PANE_MIN_WIDTH = 320;
@@ -76,6 +77,11 @@ export function PreviewPane() {
   useEffect(() => {
     if (!activePath || (!projectId && !workspaceSessionId)) return;
     if (editing) return;
+    // binário (planilha, PDF original, imagem…): nada de conteúdo em texto
+    if (isBinaryFile(activePath)) {
+      setLoaded((prev) => ({ ...prev, [activePath]: { content: '', truncated: false } }));
+      return;
+    }
     let stale = false;
     void fetchContent(activePath).then((data) => {
       if (!stale) setLoaded((prev) => ({ ...prev, [activePath]: data }));
@@ -189,7 +195,7 @@ export function PreviewPane() {
                   void requestCloseTab(tab.path);
                 }}
               >
-                ×
+                <X className="icon icon--sm" aria-hidden />
               </button>
             </div>
           ))}
@@ -200,7 +206,7 @@ export function PreviewPane() {
           aria-label="Desligar o modo preview"
           onClick={togglePreview}
         >
-          ×
+          <X className="icon icon--sm" aria-hidden />
         </button>
       </div>
       {active && view ? (
@@ -212,7 +218,7 @@ export function PreviewPane() {
             {editing ? (
               <>
                 <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()}>
-                  💾 Salvar
+                  <Save className="icon" aria-hidden /> Salvar
                 </button>
                 <button className="btn btn--ghost btn--sm" onClick={() => setEditing(false)}>
                   Cancelar
@@ -226,21 +232,25 @@ export function PreviewPane() {
                     title={showSource ? 'Ver renderizado' : 'Ver o código-fonte'}
                     onClick={() => setShowSource((v) => !v)}
                   >
-                    {showSource ? '👁' : '</>'}
+                    {showSource ? (
+                      <Eye className="icon" aria-hidden />
+                    ) : (
+                      <Code className="icon" aria-hidden />
+                    )}
                   </button>
                 )}
                 <button
                   className="btn btn--sm"
                   title={
-                    view.truncated
-                      ? 'Arquivo grande demais para editar aqui'
+                    view.truncated || isBinaryFile(active.path)
+                      ? 'Este arquivo não pode ser editado aqui'
                       : 'Editar o conteúdo do arquivo'
                   }
                   aria-label="Editar"
-                  disabled={view.truncated}
+                  disabled={view.truncated || isBinaryFile(active.path)}
                   onClick={startEdit}
                 >
-                  ✏️
+                  <Pencil className="icon" aria-hidden />
                 </button>
                 <button
                   className="btn btn--sm"
@@ -248,7 +258,7 @@ export function PreviewPane() {
                   aria-label="Baixar"
                   onClick={() => void downloadFile(active.path)}
                 >
-                  ⬇
+                  <Download className="icon" aria-hidden />
                 </button>
               </>
             )}
@@ -260,6 +270,10 @@ export function PreviewPane() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
+            ) : isBinaryFile(active.path) ? (
+              <div className="empty-state">
+                Arquivo binário — sem visualização em texto. Use Baixar ou abra na pasta local.
+              </div>
             ) : isMarkdown(active.path) && !showSource ? (
               <Markdown text={view.content} />
             ) : hasPreview(active.path) && !showSource && !view.truncated ? (
@@ -269,7 +283,7 @@ export function PreviewPane() {
             )}
             {view.truncated && (
               <div className="empty-state">
-                Arquivo grande — exibindo só o início. Use ⬇ Baixar para o conteúdo completo.
+                Arquivo grande — exibindo só o início. Use Baixar para o conteúdo completo.
               </div>
             )}
           </div>
@@ -279,7 +293,8 @@ export function PreviewPane() {
           <div className="empty-state">
             Modo preview ligado.
             <br />
-            Clique num arquivo no painel 📄 Arquivos para abrir aqui.
+            Clique num arquivo no painel <FileText className="icon icon--sm" aria-hidden /> Arquivos
+            para abrir aqui.
           </div>
         </div>
       )}

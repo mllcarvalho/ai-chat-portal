@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
 import { useUi } from '../../stores/uiStore';
 
 export function Modal(props: {
@@ -17,7 +18,7 @@ export function Modal(props: {
         <div className="modal__head">
           <span className="modal__title">{props.title}</span>
           <button className="modal__close" onClick={close} aria-label="Fechar">
-            ×
+            <X className="icon" aria-hidden />
           </button>
         </div>
         <div className="modal__body">{props.children}</div>
@@ -37,7 +38,7 @@ export function Drawer(props: { title: string; children: ReactNode; onClose?: ()
         <div className="modal__head">
           <span className="modal__title">{props.title}</span>
           <button className="modal__close" onClick={close} aria-label="Fechar">
-            ×
+            <X className="icon" aria-hidden />
           </button>
         </div>
         <div className="modal__body">{props.children}</div>

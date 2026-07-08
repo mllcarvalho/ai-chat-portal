@@ -1,4 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Download,
+  Folder,
+  FolderOpen,
+  Globe,
+  Mail,
+  Maximize2,
+  Pencil,
+  Plus,
+  Upload,
+  Zap,
+} from 'lucide-react';
 import type { Skill } from '@aiportal/shared';
 import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
@@ -292,7 +304,7 @@ export function SkillsPage() {
 
   return (
     <PageShell
-      icon="⚡"
+      icon={<Zap className="icon icon--lg" aria-hidden />}
       title="Skills"
       subtitle="Instruções reutilizáveis em markdown. Toda skill pode ser ativada no contexto da conversa ou invocada por /comando."
       actions={
@@ -309,10 +321,10 @@ export function SkillsPage() {
             }}
           />
           <button className="btn" onClick={() => fileInput.current?.click()}>
-            ⬆ Importar (.md ou .zip)
+            <Upload className="icon" aria-hidden /> Importar (.md ou .zip)
           </button>
           <button className="btn btn--primary" onClick={newDraft}>
-            ＋ Nova skill
+            <Plus className="icon" aria-hidden /> Nova skill
           </button>
         </>
       }
@@ -329,16 +341,19 @@ export function SkillsPage() {
               onChange={setFilter}
               options={[
                 { value: 'all', label: hasBmad ? 'Todos (sem BMAD)' : 'Todos os escopos' },
-                { value: 'global', label: '🌐 Globais' },
-                ...(hasBmad ? [{ value: 'bmad', label: '🅱️ BMAD' }] : []),
-                ...projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` })),
+                { value: 'global', label: <><Globe className="icon" aria-hidden /> Globais</> },
+                ...(hasBmad ? [{ value: 'bmad', label: 'BMAD' }] : []),
+                ...projects.map((p) => ({
+                  value: p.id,
+                  label: <><Folder className="icon" aria-hidden /> {p.name}</>,
+                })),
               ]}
             />
           }
         >
           {filtered.length === 0 && (
             <EmptyState
-              icon="⚡"
+              icon={<Zap className="icon icon--lg" aria-hidden />}
               title={filter === 'all' ? 'Nenhuma skill ainda' : 'Nada neste escopo'}
               hint={
                 <>
@@ -349,7 +364,7 @@ export function SkillsPage() {
               }
               action={
                 <button className="btn btn--primary" onClick={newDraft}>
-                  ＋ Criar primeira skill
+                  <Plus className="icon" aria-hidden /> Criar primeira skill
                 </button>
               }
             />
@@ -367,11 +382,18 @@ export function SkillsPage() {
                 <span
                   className={`scope-badge${skill.scope === 'project' ? ' scope-badge--project' : ''}`}
                 >
-                  {isBmadAsset(skill.id)
-                    ? '🅱️ BMAD'
-                    : skill.scope === 'project'
-                      ? `📁 ${projectName(skill.projectId)}`
-                      : '🌐 Global'}
+                  {isBmadAsset(skill.id) ? (
+                    'BMAD'
+                  ) : skill.scope === 'project' ? (
+                    <>
+                      <Folder className="icon icon--sm" aria-hidden />{' '}
+                      {projectName(skill.projectId)}
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="icon icon--sm" aria-hidden /> Global
+                    </>
+                  )}
                 </span>
               </span>
               <span className="item-card__name">{skill.name}</span>
@@ -385,7 +407,7 @@ export function SkillsPage() {
                     void download(skill);
                   }}
                 >
-                  ⬇ Baixar
+                  <Download className="icon icon--sm" aria-hidden /> Baixar
                 </span>
                 {!isBmadAsset(skill.id) && (
                   <span
@@ -397,7 +419,7 @@ export function SkillsPage() {
                       void emailShare(skill.id);
                     }}
                   >
-                    ✉️
+                    <Mail className="icon" aria-hidden />
                   </span>
                 )}
                 <span
@@ -453,10 +475,14 @@ export function SkillsPage() {
                     });
                   }}
                   options={[
-                    { value: 'global', label: '🌐 Global', hint: 'Vale em todas as conversas' },
+                    {
+                      value: 'global',
+                      label: <><Globe className="icon" aria-hidden /> Global</>,
+                      hint: 'Vale em todas as conversas',
+                    },
                     {
                       value: 'project',
-                      label: '📁 Projeto',
+                      label: <><Folder className="icon" aria-hidden /> Projeto</>,
                       hint: 'Só nas conversas do projeto',
                       disabled: projects.length === 0,
                     },
@@ -470,7 +496,10 @@ export function SkillsPage() {
                     value={draft.projectId ?? ''}
                     disabled={!!draft.id}
                     onChange={(value) => setDraft({ ...draft, projectId: value })}
-                    options={projects.map((p) => ({ value: p.id, label: `📁 ${p.name}` }))}
+                    options={projects.map((p) => ({
+                      value: p.id,
+                      label: <><Folder className="icon" aria-hidden /> {p.name}</>,
+                    }))}
                   />
                 </div>
               )}
@@ -491,7 +520,7 @@ export function SkillsPage() {
                   onClick={() => setExpandContent(true)}
                   title="Editar em tela cheia (com visualização do markdown)"
                 >
-                  ⤢ Expandir
+                  <Maximize2 className="icon" aria-hidden /> Expandir
                 </button>
               </div>
               <textarea
@@ -516,14 +545,14 @@ export function SkillsPage() {
                       title="Abrir a pasta da skill no gerenciador de arquivos — os anexos ficam lá"
                       onClick={() => void openFolder()}
                     >
-                      📂 Abrir pasta
+                      <FolderOpen className="icon" aria-hidden /> Abrir pasta
                     </button>
                     <button
                       className="btn btn--sm btn--ghost"
                       disabled={busy}
                       onClick={() => assetInput.current?.click()}
                     >
-                      ⬆ Anexar arquivo
+                      <Upload className="icon" aria-hidden /> Anexar arquivo
                     </button>
                   </span>
                 )}
@@ -541,10 +570,10 @@ export function SkillsPage() {
               <p className="page-hint" style={{ margin: 0 }} title={[...(draft.files ?? []), ...(draft.pendingFiles ?? []).map((f) => f.path)].join('\n') || undefined}>
                 {draft.id
                   ? (draft.files?.length ?? 0) > 0
-                    ? `📎 Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
+                    ? `Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
                     : 'Nenhum anexo — esta skill é só o markdown acima.'
                   : (draft.pendingFiles?.length ?? 0) > 0
-                    ? `📎 ${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
+                    ? `${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
                     : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}
               </p>
             </div>
@@ -566,7 +595,7 @@ export function SkillsPage() {
         ) : (
           <Panel className="panel--placeholder">
             <EmptyState
-              icon="✏️"
+              icon={<Pencil className="icon icon--lg" aria-hidden />}
               title="Nenhuma skill selecionada"
               hint="Selecione uma skill ao lado para editar, ou crie uma nova."
             />

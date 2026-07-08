@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Folder,
+  Hourglass,
+  MessagesSquare,
+  Package,
+  Plus,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react';
 import type { BmadStatus } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -86,7 +95,7 @@ function BmadPanel() {
     <Panel title="BMAD — time de produto">
       {apiError && !status && (
         <EmptyState
-          icon="⚠️"
+          icon={<TriangleAlert className="icon icon--lg" aria-hidden />}
           title="Não foi possível consultar o BMAD"
           hint={
             <>
@@ -97,14 +106,14 @@ function BmadPanel() {
           }
           action={
             <button className="btn" onClick={() => void refresh()}>
-              ↻ Tentar de novo
+              <RefreshCw className="icon" aria-hidden /> Tentar de novo
             </button>
           }
         />
       )}
       {status && !status.installed && !status.installing && (
         <EmptyState
-          icon="🅱️"
+          icon={<Package className="icon icon--lg" aria-hidden />}
           title={status.error ? 'BMAD não instalado' : 'Preparando o BMAD…'}
           hint={
             <>
@@ -116,7 +125,7 @@ function BmadPanel() {
           action={
             status.error ? (
               <button className="btn btn--primary" onClick={() => void install()}>
-                ↻ Tentar instalar de novo
+                <RefreshCw className="icon" aria-hidden /> Tentar instalar de novo
               </button>
             ) : undefined
           }
@@ -124,7 +133,7 @@ function BmadPanel() {
       )}
       {status?.installing && (
         <EmptyState
-          icon="⏳"
+          icon={<Hourglass className="icon icon--lg" aria-hidden />}
           title="Instalando BMAD…"
           hint="Rodando npx bmad-method install (instalação global do portal). Isso pode levar alguns minutos."
         />
@@ -183,7 +192,9 @@ export function ProjectHome() {
   return (
     <div className="page">
       <div className="page__head">
-        <span className="page__icon">📁</span>
+        <span className="page__icon">
+          <Folder className="icon icon--lg" aria-hidden />
+        </span>
         <div className="page__head-text">
           <h1 className="page__title">{project.name}</h1>
           <p className="page__subtitle">
@@ -192,7 +203,7 @@ export function ProjectHome() {
         </div>
         <div className="page__actions">
           <button className="btn btn--primary" onClick={() => void newSession(project.id)}>
-            ＋ Nova conversa
+            <Plus className="icon" aria-hidden /> Nova conversa
           </button>
           <button className="btn btn--danger" onClick={() => void removeProject()} title="Remover projeto do portal">
             Remover
@@ -205,11 +216,11 @@ export function ProjectHome() {
           <Panel title="Conversas" count={sessions.length}>
             {sessions.length === 0 && (
               <EmptyState
-                icon="💬"
+                icon={<MessagesSquare className="icon icon--lg" aria-hidden />}
                 title="Nenhuma conversa neste projeto"
                 action={
                   <button className="btn btn--primary" onClick={() => void newSession(project.id)}>
-                    ＋ Começar a primeira
+                    <Plus className="icon" aria-hidden /> Começar a primeira
                   </button>
                 }
               />
@@ -223,7 +234,9 @@ export function ProjectHome() {
                   void selectSession(session.id);
                 }}
               >
-                <span className="item-card__name">💬 {session.title}</span>
+                <span className="item-card__name">
+                  <MessagesSquare className="icon" aria-hidden /> {session.title}
+                </span>
                 <span className="item-card__desc">
                   {session.messageCount} mensagen{session.messageCount === 1 ? '' : 's'}
                 </span>

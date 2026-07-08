@@ -1,4 +1,15 @@
 import { useState } from 'react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Drama,
+  MessagesSquare,
+  Play,
+  Settings,
+  Terminal,
+  X,
+} from 'lucide-react';
 import type { MessagePart } from '@aiportal/shared';
 import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -68,7 +79,7 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
   return (
     <div className={`subagent-bubble${result && !result.ok ? ' subagent-bubble--error' : ''}`}>
       <div className="subagent-bubble__head">
-        <span className="subagent-bubble__avatar">🎭</span>
+        <span className="subagent-bubble__avatar"><Drama className="icon" aria-hidden /></span>
         <span className="subagent-bubble__name">{label}</span>
         {running ? (
           <span className="tool-card__status tool-card__status--running">
@@ -76,9 +87,13 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
           </span>
         ) : result ? (
           result.ok ? (
-            <span className="tool-card__status">✓ {(result.durationMs / 1000).toFixed(1)}s</span>
+            <span className="tool-card__status">
+              <Check className="icon icon--sm" aria-hidden /> {(result.durationMs / 1000).toFixed(1)}s
+            </span>
           ) : (
-            <span className="tool-card__status tool-card__status--error">✕ falhou</span>
+            <span className="tool-card__status tool-card__status--error">
+              <X className="icon icon--sm" aria-hidden /> falhou
+            </span>
           )
         ) : null}
         {task && (
@@ -87,7 +102,12 @@ function SubagentBubble(props: { call: ToolCallPart; result?: ToolResultPart; ru
             onClick={() => setTaskOpen((v) => !v)}
             title={taskOpen ? 'Ocultar a tarefa enviada' : 'Ver a tarefa enviada'}
           >
-            {taskOpen ? '▾ tarefa' : '▸ tarefa'}
+            {taskOpen ? (
+              <ChevronDown className="icon icon--sm" aria-hidden />
+            ) : (
+              <ChevronRight className="icon icon--sm" aria-hidden />
+            )}{' '}
+            tarefa
           </button>
         )}
       </div>
@@ -154,23 +174,39 @@ export function ToolCallCard(props: {
     </span>
   ) : result ? (
     result.ok ? (
-      <span className="tool-card__status">✓ {(result.durationMs / 1000).toFixed(1)}s</span>
+      <span className="tool-card__status">
+        <Check className="icon icon--sm" aria-hidden /> {(result.durationMs / 1000).toFixed(1)}s
+      </span>
     ) : (
-      <span className="tool-card__status tool-card__status--error">✕ falhou</span>
+      <span className="tool-card__status tool-card__status--error">
+        <X className="icon icon--sm" aria-hidden /> falhou
+      </span>
     )
   ) : (
     <span className="tool-card__status">—</span>
   );
 
   const icon =
-    call.toolName === 'portal_run_command' ? '＞_' : call.toolName === 'portal_ask_user' ? '💬' : '⚙';
+    call.toolName === 'portal_run_command' ? (
+      <Terminal className="icon" aria-hidden />
+    ) : call.toolName === 'portal_ask_user' ? (
+      <MessagesSquare className="icon" aria-hidden />
+    ) : (
+      <Settings className="icon" aria-hidden />
+    );
 
   const path = inputPath(call);
 
   return (
     <div className="tool-card">
       <button className="tool-card__head" onClick={() => setOpen((v) => !v)}>
-        <span className="tool-card__icon">{open ? '▾' : '▸'}</span>
+        <span className="tool-card__icon">
+          {open ? (
+            <ChevronDown className="icon icon--sm" aria-hidden />
+          ) : (
+            <ChevronRight className="icon icon--sm" aria-hidden />
+          )}
+        </span>
         <span className="tool-card__icon">{icon}</span>
         <span className="tool-card__name">{call.toolName}</span>
         {path && (
@@ -188,7 +224,7 @@ export function ToolCallCard(props: {
           </div>
           <div className="tool-card__approval-actions">
             <button className="btn btn--sm btn--primary" onClick={() => respondApproval(true)}>
-              ▶ Executar
+              <Play className="icon" aria-hidden /> Executar
             </button>
             <button className="btn btn--sm btn--ghost" onClick={() => respondApproval(false)}>
               Negar

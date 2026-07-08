@@ -2272,7 +2272,41 @@ select:focus {
   padding: 8px;
 }
 
+/* ---------- ícones (lucide) ---------- */
+
+/* uso: <IconName className="icon" aria-hidden /> — traço fino, alinhado ao texto */
+.icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  vertical-align: -0.18em;
+}
+.icon--sm {
+  width: 12px;
+  height: 12px;
+}
+.icon--lg {
+  width: 18px;
+  height: 18px;
+}
+button .icon {
+  pointer-events: none;
+}
+
 /* ---------- modo preview (split view com abas, estilo VS Code) ---------- */
+
+/* o header do chat segue inteiro no topo; o split fica abaixo dele */
+.chat-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.chat-split__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 
 .preview-pane {
   position: relative;
@@ -2282,6 +2316,7 @@ select:focus {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--bg-1);
   border-left: 1px solid var(--border-strong);
 }
@@ -2322,6 +2357,7 @@ select:focus {
   align-items: center;
   gap: 6px;
   padding: 0 8px 0 12px;
+  min-width: 120px;
   max-width: 180px;
   font-size: 12.5px;
   font-family: var(--font-mono);

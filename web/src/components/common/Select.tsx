@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown } from 'lucide-react';
 
 export interface SelectOption {
   value: string;
@@ -54,7 +55,9 @@ export function Select(props: {
         <span className="select__value">
           {selected?.label ?? <span className="select__placeholder">{props.placeholder ?? '—'}</span>}
         </span>
-        <span className={`select__chevron${open ? ' select__chevron--open' : ''}`}>▾</span>
+        <span className={`select__chevron${open ? ' select__chevron--open' : ''}`}>
+          <ChevronDown className="icon icon--sm" aria-hidden />
+        </span>
       </button>
       {open && (
         <div className={`select__menu${props.align === 'right' ? ' select__menu--right' : ''}`} role="listbox">
@@ -71,7 +74,9 @@ export function Select(props: {
                 setOpen(false);
               }}
             >
-              <span className="select__check">{option.value === props.value ? '✓' : ''}</span>
+              <span className="select__check">
+                {option.value === props.value && <Check className="icon icon--sm" aria-hidden />}
+              </span>
               <span className="select__item-label">
                 {option.label}
                 {option.hint && <span className="select__item-hint">{option.hint}</span>}

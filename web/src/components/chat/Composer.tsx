@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Code, FileText, Paperclip, Pencil, Pin, SendHorizontal, Square, X } from 'lucide-react';
 import type { ChatAttachment, FileEntry } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
@@ -340,7 +341,7 @@ export function Composer() {
               onClick={() => pickHash(path)}
               title={`Fixar ${path} no contexto da conversa`}
             >
-              <span className="slash-menu__cmd">📄 {path.split('/').pop()}</span>
+              <span className="slash-menu__cmd"><FileText className="icon" aria-hidden /> {path.split('/').pop()}</span>
               <span className="slash-menu__desc">{path}</span>
             </button>
           ))}
@@ -352,13 +353,13 @@ export function Composer() {
             className="attachment-chip attachment-chip--editing"
             title="Ao enviar, a conversa é reescrita a partir da mensagem editada — as respostas seguintes são descartadas"
           >
-            ✏️ editando mensagem — Esc cancela
+            <Pencil className="icon icon--sm" aria-hidden /> editando mensagem — Esc cancela
             <button
               className="attachment-chip__remove"
               title="Cancelar edição"
               onClick={() => setEditingId(undefined)}
             >
-              ✕
+              <X className="icon icon--sm" aria-hidden />
             </button>
           </span>
         </div>
@@ -379,7 +380,7 @@ export function Composer() {
               role="button"
               onClick={() => openPanel({ kind: 'files' })}
             >
-              📌 {path.split('/').pop()}
+              <Pin className="icon icon--sm" aria-hidden /> {path.split('/').pop()}
               <button
                 className="attachment-chip__remove"
                 title="Remover do contexto"
@@ -390,7 +391,7 @@ export function Composer() {
                   });
                 }}
               >
-                ✕
+                <X className="icon icon--sm" aria-hidden />
               </button>
             </span>
           ))}
@@ -400,13 +401,13 @@ export function Composer() {
         <div className="composer__attachments">
           {attachments.map((att) => (
             <span className="attachment-chip" key={att.name} title={att.name}>
-              📎 {att.name}
+              <Paperclip className="icon icon--sm" aria-hidden /> {att.name}
               <button
                 className="attachment-chip__remove"
                 title="Remover anexo"
                 onClick={() => setAttachments((curr) => curr.filter((a) => a.name !== att.name))}
               >
-                ✕
+                <X className="icon icon--sm" aria-hidden />
               </button>
             </span>
           ))}
@@ -428,14 +429,14 @@ export function Composer() {
           title="Anexar arquivos ao contexto: texto, Excel, Word ou PDF (ou arraste para cá)"
           onClick={() => fileInputRef.current?.click()}
         >
-          📎
+          <Paperclip className="icon" aria-hidden />
         </button>
         <button
           className="composer__attach"
           title="Anexar a seleção (ou o arquivo) ativa no editor do VS Code"
           onClick={() => void addEditorContext()}
         >
-          {'</>'}
+          <Code className="icon" aria-hidden />
         </button>
         <textarea
           ref={textareaRef}
@@ -461,7 +462,7 @@ export function Composer() {
             onClick={() => session && stop(session.id)}
             title="Parar geração"
           >
-            ■
+            <Square className="icon" aria-hidden />
           </button>
         ) : (
           <button
@@ -470,12 +471,13 @@ export function Composer() {
             disabled={!text.trim() && !attachments.length}
             title="Enviar"
           >
-            ➤
+            <SendHorizontal className="icon" aria-hidden />
           </button>
         )}
       </div>
       <div className="composer__hint">
-        Enter envia · Shift+Enter quebra linha · "/" comandos · "#" referencia arquivo · 📎 anexa
+        Enter envia · Shift+Enter quebra linha · "/" comandos · "#" referencia arquivo ·{' '}
+        <Paperclip className="icon icon--sm" aria-hidden /> anexa
       </div>
     </div>
   );

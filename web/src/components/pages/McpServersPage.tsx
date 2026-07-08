@@ -1,4 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BrushCleaning,
+  Check,
+  Cloud,
+  GitBranch,
+  Hourglass,
+  KeyRound,
+  Link,
+  Lock,
+  Package,
+  Plug,
+  Plus,
+  Receipt,
+  RefreshCw,
+  Rocket,
+  RotateCcw,
+  Save,
+  WandSparkles,
+  Wrench,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import type {
   ConsumerLabConnection,
   ConsumerLabStatus,
@@ -51,7 +73,11 @@ function McpToolsModal({
       {tools === undefined ? (
         <div className="mcp-tool__desc">Carregando…</div>
       ) : tools.length === 0 ? (
-        <EmptyState icon="🧰" title="Sem ferramentas" hint="Este servidor não expôs ferramentas." />
+        <EmptyState
+          icon={<Wrench className="icon icon--lg" aria-hidden />}
+          title="Sem ferramentas"
+          hint="Este servidor não expôs ferramentas."
+        />
       ) : (
         <>
           <input
@@ -81,11 +107,11 @@ function McpToolsModal({
 type DraftKind = 'gateway' | 'consumerlab' | 'iuclick' | 'github';
 
 /** Tipos disponíveis — mostrados no modal de escolha ao criar um servidor. */
-const KIND_OPTIONS: { value: DraftKind; icon: string; label: string; hint: string }[] = [
-  { value: 'gateway', icon: '🔐', label: 'Gateway OAuth2', hint: 'Proxy pronto: token + gateway remoto' },
-  { value: 'consumerlab', icon: '☁️', label: 'ConsumerLab (Itaú)', hint: 'Setup automático: repo + AWS SSO' },
-  { value: 'iuclick', icon: '🧾', label: 'IUClick (Itaú)', hint: 'Setup automático: ServiceNow via npx' },
-  { value: 'github', icon: '🐙', label: 'GitHub', hint: 'MCP oficial, com a conta GitHub do VS Code' },
+const KIND_OPTIONS: { value: DraftKind; icon: LucideIcon; label: string; hint: string }[] = [
+  { value: 'gateway', icon: Lock, label: 'Gateway OAuth2', hint: 'Proxy pronto: token + gateway remoto' },
+  { value: 'consumerlab', icon: Cloud, label: 'ConsumerLab (Itaú)', hint: 'Setup automático: repo + AWS SSO' },
+  { value: 'iuclick', icon: Receipt, label: 'IUClick (Itaú)', hint: 'Setup automático: ServiceNow via npx' },
+  { value: 'github', icon: GitBranch, label: 'GitHub', hint: 'MCP oficial, com a conta GitHub do VS Code' },
 ];
 
 const kindLabel = (kind: DraftKind) => KIND_OPTIONS.find((o) => o.value === kind)?.label ?? kind;
@@ -231,20 +257,26 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
         <div className="mcp-setup">
           {failed && (
             <div className="mcp-test mcp-test--err">
-              <div className="mcp-test__title">✗ {status?.phaseLabel}</div>
+              <div className="mcp-test__title">
+                <X className="icon" aria-hidden /> {status?.phaseLabel}
+              </div>
               {status?.error}
             </div>
           )}
           {status?.connection && (
             <div className="mcp-test mcp-test--ok">
-              <div className="mcp-test__title">☁️ Conta conectada</div>
+              <div className="mcp-test__title">
+                <Cloud className="icon" aria-hidden /> Conta conectada
+              </div>
               {status.connection.accountName} ({status.connection.accountId}) ·{' '}
               {status.connection.role} · {status.connection.ssoPortal}
             </div>
           )}
           <section className="mcp-block">
             <div className="mcp-block__head">
-              <span className="mcp-block__title">☁️ Setup do Consumer Lab</span>
+              <span className="mcp-block__title">
+                <Cloud className="icon" aria-hidden /> Setup do Consumer Lab
+              </span>
             </div>
             <p className="mcp-block__hint">
               Verifica git/python/uv/AWS CLI, baixa o repositório, instala as dependências e abre o
@@ -253,7 +285,13 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
             </p>
             <div className="mcp-block__actions">
               <button className="btn btn--primary" disabled={busy} onClick={() => void call(api.startConsumerLab)}>
-                {failed ? '🔁 Tentar de novo' : doneBefore ? '🔁 Refazer setup' : '🚀 Iniciar setup'}
+                {failed ? (
+                  <><RotateCcw className="icon" aria-hidden /> Tentar de novo</>
+                ) : doneBefore ? (
+                  <><RotateCcw className="icon" aria-hidden /> Refazer setup</>
+                ) : (
+                  <><Rocket className="icon" aria-hidden /> Iniciar setup</>
+                )}
               </button>
             </div>
           </section>
@@ -264,7 +302,12 @@ function ConsumerLabSetup({ onDone }: { onDone: () => void }) {
         <div className="mcp-setup">
           <div className={`mcp-test ${status.phase === 'done' ? 'mcp-test--ok' : ''}`}>
             <div className="mcp-test__title">
-              {status.phase === 'done' ? '✓' : '⏳'} {status.phaseLabel}
+              {status.phase === 'done' ? (
+                <Check className="icon" aria-hidden />
+              ) : (
+                <Hourglass className="icon" aria-hidden />
+              )}{' '}
+              {status.phaseLabel}
             </div>
             {status.phase === 'done' &&
               (status.connection ? (
@@ -491,7 +534,9 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
         <div className="mcp-setup">
           {failed && (
             <div className="mcp-test mcp-test--err">
-              <div className="mcp-test__title">✗ {status?.phaseLabel}</div>
+              <div className="mcp-test__title">
+                <X className="icon" aria-hidden /> {status?.phaseLabel}
+              </div>
               {status?.error}
             </div>
           )}
@@ -501,7 +546,11 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
           <section className="mcp-block">
             <div className="mcp-block__head">
               <span className="mcp-block__title">
-                {status?.installed ? '🔐 Credenciais do ServiceNow' : '🪄 Configurar automaticamente'}
+                {status?.installed ? (
+                  <><Lock className="icon" aria-hidden /> Credenciais do ServiceNow</>
+                ) : (
+                  <><WandSparkles className="icon" aria-hidden /> Configurar automaticamente</>
+                )}
               </span>
               {status?.hasCredentials && <span className="mcp-block__pill">guardadas</span>}
             </div>
@@ -514,15 +563,17 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
             </p>
             <div className="mcp-block__actions">
               <button className="btn btn--primary" disabled={busy} onClick={() => void autodetect()}>
-                {busy
-                  ? 'Detectando…'
-                  : status?.installed
-                    ? '🪄 Detectar credenciais'
-                    : '🪄 Detectar e configurar'}
+                {busy ? (
+                  'Detectando…'
+                ) : status?.installed ? (
+                  <><WandSparkles className="icon" aria-hidden /> Detectar credenciais</>
+                ) : (
+                  <><WandSparkles className="icon" aria-hidden /> Detectar e configurar</>
+                )}
               </button>
               {status?.installed && (
                 <button className="btn btn--danger" disabled={busy} onClick={() => void purge()}>
-                  🧹 Remover e limpar tudo
+                  <BrushCleaning className="icon" aria-hidden /> Remover e limpar tudo
                 </button>
               )}
             </div>
@@ -587,9 +638,11 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                         : call(() => api.startIuclick({ cookies: cookies.trim(), token: token.trim() })))
                     }
                   >
-                    {doneBefore || status?.hasCredentials
-                      ? '🔑 Salvar e religar'
-                      : '💾 Salvar credenciais'}
+                    {doneBefore || status?.hasCredentials ? (
+                      <><KeyRound className="icon" aria-hidden /> Salvar e religar</>
+                    ) : (
+                      <><Save className="icon" aria-hidden /> Salvar credenciais</>
+                    )}
                   </button>
                 </div>
               </div>
@@ -600,7 +653,9 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
               não rola, ex: não está logado no navegador) */}
           <section className="mcp-block">
             <div className="mcp-block__head">
-              <span className="mcp-block__title">📦 Servidor MCP</span>
+              <span className="mcp-block__title">
+                <Package className="icon" aria-hidden /> Servidor MCP
+              </span>
               {status?.installed && <span className="mcp-block__pill">instalado</span>}
             </div>
             <p className="mcp-block__hint">
@@ -617,7 +672,13 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                   void call(() => api.startIuclick({ cookies: cookies.trim(), token: token.trim() }))
                 }
               >
-                {failed ? '🔁 Tentar setup de novo' : status?.installed ? '🔁 Refazer setup do zero' : '🚀 Instalar sem credenciais'}
+                {failed ? (
+                  <><RotateCcw className="icon" aria-hidden /> Tentar setup de novo</>
+                ) : status?.installed ? (
+                  <><RotateCcw className="icon" aria-hidden /> Refazer setup do zero</>
+                ) : (
+                  <><Rocket className="icon" aria-hidden /> Instalar sem credenciais</>
+                )}
               </button>
             </div>
           </section>
@@ -628,7 +689,12 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
         <div className="mcp-setup">
           <div className={`mcp-test ${status.phase === 'done' ? 'mcp-test--ok' : ''}`}>
             <div className="mcp-test__title">
-              {status.phase === 'done' ? '✓' : '⏳'} {status.phaseLabel}
+              {status.phase === 'done' ? (
+                <Check className="icon" aria-hidden />
+              ) : (
+                <Hourglass className="icon" aria-hidden />
+              )}{' '}
+              {status.phaseLabel}
             </div>
             {status.phase === 'done' &&
               (status.hasCredentials
@@ -812,7 +878,8 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
           {test && 'tools' in test && (
             <div className="mcp-test mcp-test--ok">
               <div className="mcp-test__title">
-                ✓ Conectou · {test.tools.length} ferramenta{test.tools.length === 1 ? '' : 's'}
+                <Check className="icon" aria-hidden /> Conectou · {test.tools.length} ferramenta
+                {test.tools.length === 1 ? '' : 's'}
               </div>
               {test.tools.length > 0 && (
                 <div className="chips">
@@ -827,7 +894,9 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
           )}
           {test && 'error' in test && (
             <div className="mcp-test mcp-test--err">
-              <div className="mcp-test__title">✗ Falhou</div>
+              <div className="mcp-test__title">
+                <X className="icon" aria-hidden /> Falhou
+              </div>
               {test.error}
             </div>
           )}
@@ -840,7 +909,7 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
         </button>
         {draft.kind === 'gateway' && (
           <button className="btn" disabled={testing || !gatewayReady} onClick={() => void runTest()}>
-            {testing ? 'Testando…' : '🔌 Testar conexão'}
+            {testing ? 'Testando…' : <><Plug className="icon" aria-hidden /> Testar conexão</>}
           </button>
         )}
         {draft.kind !== 'consumerlab' && draft.kind !== 'iuclick' && (
@@ -850,7 +919,7 @@ function ServerForm({ draft, onChange, onClose, onSaved }: {
                 ? 'Conectando…'
                 : 'Salvando…'
               : draft.kind === 'github'
-                ? '🔗 Conectar'
+                ? <><Link className="icon" aria-hidden /> Conectar</>
                 : draft.kind === 'gateway' && draft.editing
                   ? 'Salvar'
                   : 'Criar servidor'}
@@ -970,12 +1039,12 @@ export function McpServersPage() {
 
   return (
     <PageShell
-      icon="🔧"
+      icon={<Wrench className="icon icon--lg" aria-hidden />}
       title="Servidores MCP"
       subtitle="Ligue e desligue por aqui — as ferramentas dos servidores ligados ficam disponíveis no modo Agent."
       actions={
         <button className="btn btn--primary" onClick={() => setPickingKind(true)}>
-          ＋ Novo servidor
+          <Plus className="icon" aria-hidden /> Novo servidor
         </button>
       }
     >
@@ -983,12 +1052,12 @@ export function McpServersPage() {
         <Panel title="Servidores" count={servers.length}>
           {servers.length === 0 && !draft && (
             <EmptyState
-              icon="🔧"
+              icon={<Wrench className="icon icon--lg" aria-hidden />}
               title="Nenhum servidor MCP ainda"
               hint="Crie um servidor pelo botão “Novo servidor” no topo."
               action={
                 <button className="btn btn--primary" onClick={() => setPickingKind(true)}>
-                  ＋ Novo servidor
+                  <Plus className="icon" aria-hidden /> Novo servidor
                 </button>
               }
             />
@@ -1045,7 +1114,8 @@ export function McpServersPage() {
                   </div>
                   {isConsumerLab && clConnection && (
                     <div className="mcp-row__tools">
-                      ☁️ Conta: {clConnection.accountName} ({clConnection.accountId}) ·{' '}
+                      <Cloud className="icon icon--sm" aria-hidden /> Conta:{' '}
+                      {clConnection.accountName} ({clConnection.accountId}) ·{' '}
                       {clConnection.role}
                     </div>
                   )}
@@ -1069,7 +1139,7 @@ export function McpServersPage() {
                         void openTools(server);
                       }}
                     >
-                      🧰
+                      <Wrench className="icon" aria-hidden />
                     </button>
                   )}
                   {server.enabled && (
@@ -1078,11 +1148,11 @@ export function McpServersPage() {
                       title="Reiniciar servidor"
                       onClick={() => void api.restartMcpServer(server.name).then(reload)}
                     >
-                      ↻
+                      <RefreshCw className="icon" aria-hidden />
                     </button>
                   )}
                   <button className="icon-btn icon-btn--danger" title="Remover" onClick={() => void remove(server)}>
-                    ✕
+                    <X className="icon" aria-hidden />
                   </button>
                 </div>
               </div>
@@ -1099,7 +1169,7 @@ export function McpServersPage() {
               </div>
               <div className="mcp-row__actions">
                 <button className="icon-btn" title="Descartar rascunho" onClick={() => setDraft(undefined)}>
-                  ✕
+                  <X className="icon" aria-hidden />
                 </button>
               </div>
             </div>
@@ -1118,7 +1188,7 @@ export function McpServersPage() {
         ) : (
           <Panel className="panel--placeholder">
             <EmptyState
-              icon="🔧"
+              icon={<Wrench className="icon icon--lg" aria-hidden />}
               title="Nenhum servidor selecionado"
               hint="Crie um servidor novo no topo, ou clique num proxy OAuth2 da lista para editar."
             />
@@ -1130,7 +1200,9 @@ export function McpServersPage() {
           <div className="kind-picker">
             {KIND_OPTIONS.map((opt) => (
               <button key={opt.value} className="kind-option" onClick={() => startDraft(opt.value)}>
-                <span className="kind-option__icon">{opt.icon}</span>
+                <span className="kind-option__icon">
+                  <opt.icon className="icon icon--lg" aria-hidden />
+                </span>
                 <span className="kind-option__text">
                   <span className="kind-option__label">{opt.label}</span>
                   <span className="kind-option__hint">{opt.hint}</span>

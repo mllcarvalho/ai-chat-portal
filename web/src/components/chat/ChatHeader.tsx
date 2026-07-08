@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Bot, Columns2, Diamond, FileText, RefreshCw, Zap } from 'lucide-react';
 import type { SessionMode, TokenUsage } from '@aiportal/shared';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
@@ -138,7 +139,7 @@ export function ChatHeader() {
       <Dropdown
         trigger={(_, toggle) => (
           <button className="pill-btn" onClick={toggle} title="Modelo do Copilot">
-            ◆ {model?.name ?? 'modelo'}
+            <Diamond className="icon icon--sm" aria-hidden /> {model?.name ?? 'modelo'}
             {model?.multiplier !== undefined
               ? ` · ${formatMultiplier(model.multiplier)}`
               : model?.priceCategory
@@ -197,7 +198,15 @@ export function ChatHeader() {
       <Dropdown
         trigger={(_, toggle) => (
           <button className="pill-btn" onClick={toggle} title="Agente (preset de instruções)">
-            {agent ? `${agent.icon ?? '🤖'} ${agent.name}` : '🤖 Sem agente'}
+            {agent ? (
+              <>
+                {agent.icon ?? <Bot className="icon" aria-hidden />} {agent.name}
+              </>
+            ) : (
+              <>
+                <Bot className="icon" aria-hidden /> Sem agente
+              </>
+            )}
           </button>
         )}
       >
@@ -228,7 +237,7 @@ export function ChatHeader() {
                 }}
               >
                 <span>
-                  {a.icon ?? '🤖'} {a.name}
+                  {a.icon ?? <Bot className="icon" aria-hidden />} {a.name}
                   {a.description && <span className="dropdown__item-sub">{a.description}</span>}
                 </span>
               </button>
@@ -255,7 +264,7 @@ export function ChatHeader() {
             onClick={toggle}
             title="Uso de tokens da conversa e AI credits do Copilot"
           >
-            ⚡ {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
+            <Zap className="icon" aria-hidden /> {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
             {creditsUsed !== undefined && premium
               ? ` · ${formatCredits(creditsUsed)}/${premium.entitlement}`
               : ''}
@@ -347,7 +356,7 @@ export function ChatHeader() {
                   void loadAll();
                 }}
               >
-                ↻ Atualizar credits
+                <RefreshCw className="icon" aria-hidden /> Atualizar credits
               </button>
             </div>
             <div className="usage-pop__note">
@@ -368,7 +377,7 @@ export function ChatHeader() {
         }}
         title="Modo preview: abas de arquivos ao lado do chat — clique num arquivo do painel Arquivos para abrir aqui"
       >
-        ⧉ Preview
+        <Columns2 className="icon" aria-hidden /> Preview
       </button>
 
       <button
@@ -380,7 +389,7 @@ export function ChatHeader() {
             : 'Arquivos do workspace desta conversa (painel lateral)'
         }
       >
-        📄 Arquivos
+        <FileText className="icon" aria-hidden /> Arquivos
       </button>
     </header>
   );

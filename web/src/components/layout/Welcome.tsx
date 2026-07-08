@@ -1,3 +1,4 @@
+import { Folder, Plus } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -18,10 +19,10 @@ export function Welcome() {
       </p>
       <div className="welcome__actions">
         <button className="btn btn--primary" onClick={() => void newSession(null)}>
-          ＋ Nova conversa
+          <Plus className="icon" aria-hidden /> Nova conversa
         </button>
         <button className="btn" onClick={() => openPanel({ kind: 'newProject' })}>
-          📁 Novo projeto
+          <Folder className="icon" aria-hidden /> Novo projeto
         </button>
       </div>
     </div>
