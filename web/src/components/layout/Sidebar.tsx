@@ -186,7 +186,6 @@ export function Sidebar() {
           <span className="sidebar__logo">
             bmad<em>·</em>studio
           </span>
-          <span className="sidebar__byline">by Matheus Llobregat</span>
         </div>
         <button className="sidebar__collapse" title="Recolher menu" onClick={toggleSidebar}>
           <ChevronsLeft className="icon" aria-hidden />
