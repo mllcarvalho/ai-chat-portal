@@ -7,6 +7,7 @@ import { Agent, ProxyAgent, type Dispatcher } from 'undici';
 import type { NetworkConfig } from '@aiportal/shared';
 import { getConfig } from '../storage/configStore';
 import { GLOBAL_ROOT } from '../storage/paths';
+import { powerShellCandidates, spawnCwd } from './winPowerShell';
 
 /**
  * Rede corporativa para as chamadas dos proxies MCP.
@@ -102,32 +103,43 @@ async function resolveWindowsEnv(): Promise<void> {
         `Write-Output ('M:${n}=' + [Environment]::GetEnvironmentVariable('${n}','Machine'))`,
     )
     .join(';');
-  const out = await new Promise<Record<string, string>>((resolve) => {
-    execFile(
-      'powershell',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      { timeout: 6000, maxBuffer: 1 << 20, windowsHide: true },
-      (err, stdout) => {
-        if (err || !stdout) return resolve({});
-        const user: Record<string, string> = {};
-        const machine: Record<string, string> = {};
-        for (const line of stdout.split(/\r?\n/)) {
-          const m = /^([UM]):([^=]+)=(.*)$/.exec(line);
-          if (!m) continue;
-          (m[1] === 'U' ? user : machine)[m[2]] = m[3];
-        }
-        // devolve já resolvido: PATH unido, net vars com User na frente
-        const merged: Record<string, string> = {};
-        const persistedPath = [machine.PATH, user.PATH].filter(Boolean).join(path.delimiter);
-        if (persistedPath) merged.PATH = persistedPath;
-        for (const v of NET_VARS) {
-          const val = user[v] || machine[v];
-          if (val) merged[v] = val;
-        }
-        resolve(merged);
-      },
-    );
-  });
+  const parse = (stdout: string): Record<string, string> => {
+    const user: Record<string, string> = {};
+    const machine: Record<string, string> = {};
+    for (const line of stdout.split(/\r?\n/)) {
+      const m = /^([UM]):([^=]+)=(.*)$/.exec(line);
+      if (!m) continue;
+      (m[1] === 'U' ? user : machine)[m[2]] = m[3];
+    }
+    // devolve já resolvido: PATH unido, net vars com User na frente
+    const merged: Record<string, string> = {};
+    const persistedPath = [machine.PATH, user.PATH].filter(Boolean).join(path.delimiter);
+    if (persistedPath) merged.PATH = persistedPath;
+    for (const v of NET_VARS) {
+      const val = user[v] || machine[v];
+      if (val) merged[v] = val;
+    }
+    return merged;
+  };
+  const tryExe = (exe: string) =>
+    new Promise<Record<string, string> | undefined>((resolve) => {
+      execFile(
+        exe,
+        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script],
+        { timeout: 6000, maxBuffer: 1 << 20, windowsHide: true, cwd: spawnCwd() },
+        (err, stdout) => resolve(err || !stdout ? undefined : parse(stdout)),
+      );
+    });
+  // o nome nu `powershell` dá ENOENT quando o VS Code abre pela GUI com um PATH
+  // mínimo — justamente o caso em que este resolvedor mais importa
+  let out: Record<string, string> = {};
+  for (const exe of powerShellCandidates()) {
+    const result = await tryExe(exe);
+    if (result) {
+      out = result;
+      break;
+    }
+  }
   if (out.PATH) process.env.PATH = mergePaths(process.env.PATH ?? '', out.PATH);
   for (const v of NET_VARS) {
     if (out[v] && !process.env[v]) process.env[v] = out[v];
