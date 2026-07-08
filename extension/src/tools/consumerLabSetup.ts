@@ -254,9 +254,13 @@ function uvBin(): string {
 
 /** Diretório de scripts do Python — onde `pip install uv` põe o uv/uv.exe. */
 async function pythonScriptsDirs(): Promise<string[]> {
+  // o scheme "user" do sysconfig dá o caminho REAL do pip --user (no Windows é
+  // versionado: ...\AppData\Roaming\Python\Python314\Scripts — montar na mão
+  // com site.getuserbase() erra a pasta e o uv instalado nunca era encontrado)
   const code =
-    "import sysconfig,site,os;print(sysconfig.get_path('scripts'));" +
-    "print(os.path.join(site.getuserbase(),'Scripts' if os.name=='nt' else 'bin'))";
+    "import sysconfig,os;print(sysconfig.get_path('scripts'));" +
+    "s=getattr(sysconfig,'get_preferred_scheme',None);" +
+    "print(sysconfig.get_path('scripts',s('user') if s else os.name+'_user'))";
   for (const py of ['python3', 'python', 'py']) {
     const r = await run(py, ['-c', code], { quiet: true, timeoutMs: 15_000, logAs: `${py} -c (scripts dir)` });
     if (r.code === 0) {
