@@ -59,7 +59,7 @@
           </tr>
           <tr>
             <td>Setup guiado do portal</td>
-            <td>ConsumerLab e IUClick têm assistentes de instalação passo a passo dentro do portal (detalhes abaixo).</td>
+            <td>GitHub, ConsumerLab e IUClick têm configuração assistida dentro do portal (detalhes abaixo).</td>
           </tr>
           <tr>
             <td>Proxy OAuth2</td>
@@ -68,6 +68,18 @@
         </tbody>
       </table>
       </div>
+
+      <h2>GitHub — repositórios, issues e PRs</h2>
+      <p>
+        O <strong>MCP oficial do GitHub</strong> (o mesmo servidor remoto que o Copilot usa no
+        VS Code) conecta o assistente aos seus repositórios: consultar código, issues, pull
+        requests e informações da organização, direto na conversa.
+      </p>
+      <ul>
+        <li><strong>Um clique:</strong> na página Servidores MCP, o botão do GitHub registra o servidor — sem instalar nada, é o serviço remoto <code>api.githubcopilot.com/mcp/</code>.</li>
+        <li><strong>Sem token para gerenciar:</strong> a autenticação usa a <strong>conta GitHub já conectada no VS Code</strong>. O token é obtido a cada subida do servidor e entra só no header da conexão — nunca é gravado em arquivo.</li>
+        <li><strong>Primeira vez:</strong> o VS Code mostra uma notificação pedindo autorização de acesso à conta (escopos <code>repo</code> e <code>read:org</code>) — aceite e ligue o servidor de novo.</li>
+      </ul>
 
       <h2>ConsumerLab — dados de consumo na AWS</h2>
       <p>
