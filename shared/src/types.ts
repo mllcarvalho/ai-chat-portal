@@ -562,5 +562,10 @@ export interface FileEntry {
   type: 'file' | 'dir';
   size: number;
   mtime: string;
+  /**
+   * Pasta referenciada (symlink para fora da pasta de trabalho): os arquivos
+   * vivem no local original da máquina; toda alteração acontece lá.
+   */
+  linked?: boolean;
   children?: FileEntry[];
 }

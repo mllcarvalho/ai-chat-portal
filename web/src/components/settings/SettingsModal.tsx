@@ -234,6 +234,7 @@ export function SettingsModal() {
         <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
           Portal v{health?.version ?? '?'} · {health?.modelCount ?? 0} modelos do Copilot
           {health?.needsConsent ? ' · aguardando autorização no VS Code' : ''}
+          {' · desenvolvido por Matheus Llobregat'}
         </span>
         {health?.needsConsent && (
           <button

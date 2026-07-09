@@ -6,6 +6,7 @@ import type { FileEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { resolveInProject, READ_LIMIT, LIST_LIMIT, WRITE_LIMIT } from '../../tools/builtinTools';
 import { PROJECT_META_DIR } from '../../storage/paths';
+import { addLink, removeLinkEntry, renameLinkEntry } from '../../storage/linkStore';
 
 function buildTree(dir: string, base: string, depth: number, count: { n: number }): FileEntry[] {
   if (depth > 8 || count.n >= LIST_LIMIT) return [];
@@ -17,24 +18,29 @@ function buildTree(dir: string, base: string, depth: number, count: { n: number 
   }
   const result: FileEntry[] = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules') continue;
+    if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules' || entry.name === '.git') {
+      continue;
+    }
     if (count.n >= LIST_LIMIT) break;
     count.n++;
     const full = path.join(dir, entry.name);
     const rel = base ? `${base}/${entry.name}` : entry.name;
     let stat: fs.Stats;
     try {
+      // statSync segue symlinks — pasta referenciada aparece com o conteúdo real
       stat = fs.statSync(full);
     } catch {
       continue;
     }
-    if (entry.isDirectory()) {
+    const linked = entry.isSymbolicLink() || undefined;
+    if (stat.isDirectory()) {
       result.push({
         name: entry.name,
         path: rel,
         type: 'dir',
         size: 0,
         mtime: stat.mtime.toISOString(),
+        ...(linked && { linked }),
         children: buildTree(full, rel, depth + 1, count),
       });
     } else {
@@ -44,6 +50,7 @@ function buildTree(dir: string, base: string, depth: number, count: { n: number 
         type: 'file',
         size: stat.size,
         mtime: stat.mtime.toISOString(),
+        ...(linked && { linked }),
       });
     }
   }
@@ -137,12 +144,24 @@ export function registerFileRoutes(
         sendError(res, 400, 'Não é possível excluir a raiz da pasta de trabalho');
         return;
       }
-      if (!fs.existsSync(file)) {
+      // lstat: excluir uma pasta referenciada remove só o symlink (a pasta
+      // original e os arquivos dela continuam intactos no lugar) — e não
+      // segue o link, então funciona até com referência quebrada
+      let stat: fs.Stats;
+      try {
+        stat = fs.lstatSync(file);
+      } catch {
         sendError(res, 404, 'Arquivo não encontrado');
         return;
       }
-      if (fs.statSync(file).isDirectory()) fs.rmSync(file, { recursive: true, force: true });
-      else fs.unlinkSync(file);
+      if (stat.isSymbolicLink()) {
+        fs.unlinkSync(file);
+        if (!rel.includes('/')) removeLinkEntry(root, path.basename(file));
+      } else if (stat.isDirectory()) {
+        fs.rmSync(file, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(file);
+      }
       sendJson(res, 200, { ok: true });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao excluir arquivo');
@@ -178,9 +197,47 @@ export function registerFileRoutes(
       }
       fs.mkdirSync(path.dirname(to), { recursive: true });
       fs.renameSync(from, to);
+      // renomear o symlink de uma pasta referenciada na raiz acompanha o registro
+      const fromRel = input.path.trim();
+      const toRel = input.newPath.trim();
+      if (!fromRel.includes('/') && !toRel.includes('/')) {
+        renameLinkEntry(root, fromRel, toRel);
+      }
       sendJson(res, 200, { ok: true, path: input.newPath.trim() });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao renomear');
+    }
+  });
+
+  // referencia uma pasta externa da máquina (symlink na raiz + registro):
+  // os arquivos ficam no local original; sem body.target, abre o seletor
+  // nativo de pastas na janela do VS Code
+  router.post(`${base}/links`, async ({ res, params, body }) => {
+    const root = rootFor(params.id);
+    if (!root) {
+      sendError(res, 404, ownerNotFound);
+      return;
+    }
+    let target = ((body ?? {}) as { target?: string }).target?.trim();
+    if (!target) {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        openLabel: 'Referenciar pasta',
+        title: 'Escolha a pasta a referenciar no portal',
+      });
+      if (!picked?.length) {
+        sendJson(res, 200, { ok: false, cancelled: true });
+        return;
+      }
+      target = picked[0].fsPath;
+    }
+    try {
+      const link = addLink(root, target);
+      sendJson(res, 200, { ok: true, name: link.name, target: link.target });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao referenciar a pasta');
     }
   });
 
@@ -229,7 +286,8 @@ export function registerFileRoutes(
         sendError(res, 404, 'Arquivo não encontrado');
         return;
       }
-      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(file));
+      // realpath: numa pasta referenciada, mostra o local ORIGINAL do arquivo
+      await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(fs.realpathSync(file)));
       sendJson(res, 200, { ok: true });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : 'Erro ao abrir a pasta');

@@ -228,6 +228,12 @@ export const api = {
     }),
   createSessionFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/sessions/${id}/files/mkdir`, { path }),
+  linkSessionFolder: (id: string) =>
+    request<{ ok: boolean; name?: string; cancelled?: boolean }>(
+      'POST',
+      `/api/sessions/${id}/files/links`,
+      {},
+    ),
 
   listProjects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (name: string) => request<Project>('POST', '/api/projects', { name }),
@@ -266,6 +272,12 @@ export const api = {
     }),
   createProjectFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/projects/${id}/files/mkdir`, { path }),
+  linkProjectFolder: (id: string) =>
+    request<{ ok: boolean; name?: string; cancelled?: boolean }>(
+      'POST',
+      `/api/projects/${id}/files/links`,
+      {},
+    ),
   copilotQuota: (fresh = false) =>
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
   bmadStatus: () => request<BmadStatus>('GET', '/api/bmad'),

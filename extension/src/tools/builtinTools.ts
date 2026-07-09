@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionMode } from '@aiportal/shared';
 import { PROJECT_META_DIR, bmadRootDir } from '../storage/paths';
+import { linkedRealTargets } from '../storage/linkStore';
 import { createCheckpoint, type CheckpointOperation } from '../storage/checkpointStore';
 import { createAgent } from '../storage/agentStore';
 import {
@@ -553,7 +554,9 @@ export function isBuiltinTool(name: string): boolean {
 /**
  * Resolve um caminho relativo dentro da pasta de trabalho (projeto ou
  * workspace da conversa), rejeitando qualquer escape: caminhos absolutos,
- * "..", symlinks que saem da raiz e a pasta de metadados.
+ * "..", symlinks que saem da raiz e a pasta de metadados. Exceção: symlinks
+ * de pasta referenciada (registrados em .aiportal/links.json) são seguidos —
+ * o conteúdo deles vive fora da raiz por definição.
  */
 export function resolveInProject(workRoot: string, relPath: string): string {
   const resolved = path.resolve(workRoot, relPath);
@@ -573,7 +576,13 @@ export function resolveInProject(workRoot: string, relPath: string): string {
   const realAncestor = fs.realpathSync(ancestor);
   const relReal = path.relative(realRoot, realAncestor);
   if (relReal.startsWith('..') || path.isAbsolute(relReal)) {
-    throw new Error(`Caminho fora da pasta de trabalho: ${relPath}`);
+    const authorized = linkedRealTargets(workRoot).some((target) => {
+      const relTarget = path.relative(target, realAncestor);
+      return relTarget === '' || (!relTarget.startsWith('..') && !path.isAbsolute(relTarget));
+    });
+    if (!authorized) {
+      throw new Error(`Caminho fora da pasta de trabalho: ${relPath}`);
+    }
   }
   return resolved;
 }
@@ -703,12 +712,19 @@ function listEntries(
     }
     if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules') continue;
     const rel = path.join(base, entry.name);
-    if (entry.isDirectory()) {
+    const full = path.join(dir, entry.name);
+    let stat: fs.Stats;
+    try {
+      // statSync segue symlinks — pasta referenciada entra como pasta normal
+      stat = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
       acc.push(`${rel}/`);
-      if (recursive) listEntries(path.join(dir, entry.name), rel, true, acc);
+      if (recursive) listEntries(full, rel, true, acc);
     } else {
-      const size = fs.statSync(path.join(dir, entry.name)).size;
-      acc.push(`${rel} (${size} bytes)`);
+      acc.push(`${rel} (${stat.size} bytes)`);
     }
   }
 }
@@ -727,8 +743,9 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 /** Arquivos de texto da pasta, em caminhos relativos (pula meta/node_modules/binários). */
-function walkTextFiles(dir: string, base: string, acc: string[]): void {
-  if (acc.length >= SEARCH_MAX_FILES) return;
+function walkTextFiles(dir: string, base: string, acc: string[], depth = 0): void {
+  // teto de profundidade evita loop por symlink cíclico numa pasta referenciada
+  if (acc.length >= SEARCH_MAX_FILES || depth > 12) return;
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -741,9 +758,21 @@ function walkTextFiles(dir: string, base: string, acc: string[]): void {
       continue;
     }
     const rel = base ? path.join(base, entry.name) : entry.name;
-    if (entry.isDirectory()) {
-      walkTextFiles(path.join(dir, entry.name), rel, acc);
-    } else if (entry.isFile() && !BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+    const full = path.join(dir, entry.name);
+    let isDir = entry.isDirectory();
+    let isFile = entry.isFile();
+    if (entry.isSymbolicLink()) {
+      try {
+        const stat = fs.statSync(full);
+        isDir = stat.isDirectory();
+        isFile = stat.isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (isDir) {
+      walkTextFiles(full, rel, acc, depth + 1);
+    } else if (isFile && !BINARY_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
       acc.push(rel);
     }
   }

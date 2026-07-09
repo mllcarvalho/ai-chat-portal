@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderSymlink,
   Maximize2,
   Pencil,
   Pin,
@@ -21,6 +22,7 @@ import {
   Save,
   Search,
   Trash2,
+  Unlink,
   Upload,
   X,
 } from 'lucide-react';
@@ -119,6 +121,22 @@ async function collectDropped(dt: DataTransfer): Promise<UploadItem[]> {
 
 const PANEL_WIDTH_KEY = 'aiportal.filesPanelWidth';
 const PANEL_MIN_WIDTH = 280;
+
+/** Estado de pastas recolhidas por projeto/conversa (sobrevive a fechar o drawer). */
+const COLLAPSED_KEY_PREFIX = 'aiportal.filesCollapsed:';
+/** Conjunto vazio estável usado antes de o estado ser inicializado. */
+const NO_COLLAPSED = new Set<string>();
+
+/** undefined = nunca aberto para esta pasta (aplica o padrão de 1º nível). */
+function loadCollapsed(scope: string): Set<string> | undefined {
+  if (!scope) return undefined;
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY_PREFIX + scope);
+    return raw === null ? undefined : new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return undefined;
+  }
+}
 
 function savedPanelWidth(): number | undefined {
   const value = Number(localStorage.getItem(PANEL_WIDTH_KEY));
@@ -224,8 +242,17 @@ function TreeLevel(props: {
               <button
                 className={`file-tree__item${isDir ? ' file-tree__item--dir' : ''}`}
                 onClick={() => (isDir ? props.onToggleDir(entry.path) : props.onOpen(entry))}
-                title={isDir ? (isCollapsed ? 'Expandir pasta' : 'Recolher pasta') : undefined}
-                draggable
+                title={
+                  entry.linked
+                    ? 'Pasta referenciada — os arquivos ficam no local original da máquina'
+                    : isDir
+                      ? isCollapsed
+                        ? 'Expandir pasta'
+                        : 'Recolher pasta'
+                      : undefined
+                }
+                // mover uma referência de lugar quebraria o vínculo registrado
+                draggable={!entry.linked}
                 onDragStart={(e) => {
                   e.dataTransfer.setData(MOVE_MIME, entry.path);
                   e.dataTransfer.effectAllowed = 'move';
@@ -241,7 +268,9 @@ function TreeLevel(props: {
                     ))}
                 </span>
                 <span>
-                  {isDir ? (
+                  {isDir && entry.linked ? (
+                    <FolderSymlink className="icon icon--sm file-tree__linkicon" aria-hidden />
+                  ) : isDir ? (
                     <Folder className="icon icon--sm" aria-hidden />
                   ) : (
                     <FileText className="icon icon--sm" aria-hidden />
@@ -329,8 +358,13 @@ export function ProjectFilesDrawer() {
   const [dragOver, setDragOver] = useState(false);
   const [width, setWidth] = useState<number | undefined>(savedPanelWidth);
   const [resizing, setResizing] = useState(false);
-  /** Pastas recolhidas (expandidas por padrão). */
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /** Pastas recolhidas — persistido por projeto/conversa; undefined = primeira
+      abertura desta pasta (o padrão "só o 1º nível expandido" é aplicado
+      quando a árvore carregar). */
+  const [collapsedState, setCollapsedState] = useState<Set<string> | undefined>(() =>
+    loadCollapsed(previewScopeKey),
+  );
+  const collapsed = collapsedState ?? NO_COLLAPSED;
   /** Filtro por nome/caminho na árvore de arquivos. */
   const [treeFilter, setTreeFilter] = useState('');
   /** Menu de contexto aberto (botão direito num arquivo/pasta). */
@@ -348,13 +382,30 @@ export function ProjectFilesDrawer() {
   const uploadRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
 
-  const toggleDir = (path: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+  const persistCollapsed = useCallback(
+    (next: Set<string>) => {
+      setCollapsedState(next);
+      if (previewScopeKey) {
+        localStorage.setItem(COLLAPSED_KEY_PREFIX + previewScopeKey, JSON.stringify([...next]));
+      }
+    },
+    [previewScopeKey],
+  );
+
+  // troca de projeto/conversa com o drawer aberto: carrega o estado salvo
+  // dela e zera a árvore — senão o padrão de 1ª abertura seria calculado em
+  // cima da árvore da pasta anterior
+  useEffect(() => {
+    setTree([]);
+    setCollapsedState(loadCollapsed(previewScopeKey));
+  }, [previewScopeKey]);
+
+  const toggleDir = (path: string) => {
+    const next = new Set(collapsed);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    persistCollapsed(next);
+  };
 
   const allDirs = collectDirPaths(tree);
   const allCollapsed = allDirs.length > 0 && allDirs.every((p) => collapsed.has(p));
@@ -379,6 +430,12 @@ export function ProjectFilesDrawer() {
   useEffect(() => {
     void reload();
   }, [reload, filesVersion]);
+
+  // primeira abertura desta pasta: só o 1º nível de pastas vem expandido
+  useEffect(() => {
+    if (collapsedState !== undefined || tree.length === 0) return;
+    persistCollapsed(new Set(collectDirPaths(tree).filter((p) => p.includes('/'))));
+  }, [tree, collapsedState, persistCollapsed]);
 
   const openFile = async (entry: FileEntry) => {
     // modo preview ligado: abre como aba no painel do chat, não no drawer
@@ -465,15 +522,41 @@ export function ProjectFilesDrawer() {
     }
   };
 
+  /** Referencia uma pasta externa (o seletor nativo abre na janela do VS Code). */
+  const linkFolder = async () => {
+    toast('Escolha a pasta na janela do VS Code…', 'ok');
+    try {
+      const result = projectId
+        ? await api.linkProjectFolder(projectId)
+        : workspaceSessionId
+          ? await api.linkSessionFolder(workspaceSessionId)
+          : undefined;
+      if (result?.ok && result.name) {
+        toast(
+          `Pasta "${result.name}" referenciada — os arquivos continuam no local original.`,
+          'ok',
+        );
+        await reload();
+      }
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
   const deleteEntry = async (entry: FileEntry) => {
     const isDir = entry.type === 'dir';
+    // pasta referenciada: excluir remove só a referência (o servidor apaga o
+    // symlink); os arquivos originais ficam intactos
+    const isLink = !!entry.linked;
     const ok = await confirm({
-      title: isDir ? 'Excluir pasta' : 'Excluir arquivo',
-      message: isDir
-        ? `Excluir a pasta "${entry.path}" e todo o conteúdo dela?`
-        : `Excluir o arquivo "${entry.path}"?`,
-      confirmLabel: 'Excluir',
-      danger: true,
+      title: isLink ? 'Remover referência' : isDir ? 'Excluir pasta' : 'Excluir arquivo',
+      message: isLink
+        ? `Remover a referência a "${entry.path}"? Os arquivos originais continuam intactos no local deles.`
+        : isDir
+          ? `Excluir a pasta "${entry.path}" e todo o conteúdo dela?`
+          : `Excluir o arquivo "${entry.path}"?`,
+      confirmLabel: isLink ? 'Remover referência' : 'Excluir',
+      danger: !isLink,
     });
     if (!ok) return;
     try {
@@ -662,6 +745,7 @@ export function ProjectFilesDrawer() {
 
   const menuItems = (entry: FileEntry): ContextMenuItem[] => {
     if (entry.type === 'dir') {
+      const isLink = !!entry.linked;
       return [
         {
           label: collapsed.has(entry.path) ? 'Expandir' : 'Recolher',
@@ -681,23 +765,35 @@ export function ProjectFilesDrawer() {
             setNewFolder({ parent: entry.path });
           },
         },
-        {
-          label: 'Renomear',
-          icon: <Pencil className="icon icon--sm" aria-hidden />,
-          onClick: () => startRename(entry),
-        },
+        // renomear a referência mudaria só o apelido aqui e confundiria com a
+        // pasta original — melhor remover e referenciar de novo
+        ...(!isLink
+          ? [
+              {
+                label: 'Renomear',
+                icon: <Pencil className="icon icon--sm" aria-hidden />,
+                onClick: () => startRename(entry),
+              } as ContextMenuItem,
+            ]
+          : []),
         {
           label: 'Mostrar na pasta local',
           icon: <FolderOpen className="icon icon--sm" aria-hidden />,
           onClick: () => void revealFile(entry.path),
         },
         'separator',
-        {
-          label: 'Excluir pasta',
-          icon: <Trash2 className="icon icon--sm" aria-hidden />,
-          danger: true,
-          onClick: () => void deleteEntry(entry),
-        },
+        isLink
+          ? {
+              label: 'Remover referência',
+              icon: <Unlink className="icon icon--sm" aria-hidden />,
+              onClick: () => void deleteEntry(entry),
+            }
+          : {
+              label: 'Excluir pasta',
+              icon: <Trash2 className="icon icon--sm" aria-hidden />,
+              danger: true,
+              onClick: () => void deleteEntry(entry),
+            },
       ];
     }
     const pinned = contextFiles.includes(entry.path);
@@ -851,7 +947,18 @@ export function ProjectFilesDrawer() {
                   folderRef.current?.click();
                 }}
               >
-                <Folder className="icon icon--sm" aria-hidden /> Pasta (projeto)…
+                <Folder className="icon icon--sm" aria-hidden /> Pasta (copiar para cá)…
+              </button>
+              <button
+                className="dropdown__item"
+                title="A pasta continua no lugar original — o portal só passa a enxergá-la; alterações acontecem direto nos arquivos originais"
+                onClick={() => {
+                  close();
+                  void linkFolder();
+                }}
+              >
+                <FolderSymlink className="icon icon--sm" aria-hidden /> Referenciar pasta do
+                computador…
               </button>
               <button
                 className="dropdown__item"
@@ -866,23 +973,25 @@ export function ProjectFilesDrawer() {
             </>
           )}
         </Dropdown>
-        <button className="btn btn--sm btn--ghost" onClick={() => void reload()}>
-          <RefreshCw className="icon icon--sm" aria-hidden /> Atualizar
+        <button
+          className="btn btn--sm btn--ghost"
+          title="Atualizar"
+          aria-label="Atualizar"
+          onClick={() => void reload()}
+        >
+          <RefreshCw className="icon icon--sm" aria-hidden />
         </button>
         {allDirs.length > 0 && (
           <button
             className="btn btn--sm btn--ghost"
             title={allCollapsed ? 'Expandir todas as pastas' : 'Recolher todas as pastas'}
-            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(allDirs))}
+            aria-label={allCollapsed ? 'Expandir todas as pastas' : 'Recolher todas as pastas'}
+            onClick={() => persistCollapsed(allCollapsed ? new Set() : new Set(allDirs))}
           >
             {allCollapsed ? (
-              <>
-                <ChevronsUpDown className="icon icon--sm" aria-hidden /> Expandir tudo
-              </>
+              <ChevronsUpDown className="icon icon--sm" aria-hidden />
             ) : (
-              <>
-                <ChevronsDownUp className="icon icon--sm" aria-hidden /> Recolher tudo
-              </>
+              <ChevronsDownUp className="icon icon--sm" aria-hidden />
             )}
           </button>
         )}
