@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BMAD Method — BMAD Studio</title>
+<meta name="description" content="Como o BMAD Method (v6, módulo BMM) funciona dentro do portal: personas, workflows por fase e artefatos em _bmad-output.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">O portal instala e atualiza o BMAD por você — nada de setup manual.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">Método</p>
+    <h1>BMAD Method, integrado à conversa.</h1>
+    <p class="lede">
+      O <strong>BMAD Method</strong> (Breakthrough Method for Agile AI-Driven Development) é um
+      conjunto de <strong>personas</strong> e <strong>workflows</strong> que guiam o trabalho de produto
+      com IA — da pesquisa inicial ao PRD, arquitetura, stories e revisão. O portal traz o
+      BMAD v6 (módulo BMM) embutido: cada persona vira um agente, cada workflow vira um
+      comando <code>/bmad-*</code>, e os artefatos ficam na pasta do seu projeto.
+    </p>
+
+    <div class="prose">
+      <h2>Como funciona no portal</h2>
+      <ul>
+        <li><strong>Instalação em um clique.</strong> Na tela de um projeto, o painel BMAD instala a versão global do método (compartilhada por todos os projetos) e registra personas e workflows automaticamente.</li>
+        <li><strong>Personas como agentes.</strong> Analista, PM, arquiteto, dev, revisor — cada persona BMAD aparece como um agente selecionável na conversa. As <strong>ações BMAD</strong> na barra do chat já escolhem a persona certa para cada workflow.</li>
+        <li><strong>Workflows como comandos.</strong> Todo workflow é um comando slash (<code>/bmad-brainstorm</code>, <code>/bmad-prd</code>, <code>/bmad-epics</code>…) que conduz a sessão passo a passo.</li>
+        <li><strong>Artefatos no projeto.</strong> Os documentos gerados ficam em <code>_bmad-output/</code> dentro da pasta do projeto — o portal detecta cada artefato (brief, PRD, épicos, pesquisa…) e mostra o estágio do trabalho.</li>
+        <li><strong>Doc BMAD embutida.</strong> A página "Doc BMAD" dentro do portal descreve cada workflow, o que ele produz e quando usar — é a referência rápida durante o trabalho.</li>
+      </ul>
+
+      <h2>Os workflows, por fase</h2>
+      <p>O método cobre o ciclo inteiro. Estes são os grupos e alguns exemplos de cada um:</p>
+
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Fase</th><th>Para quê</th><th>Exemplos de workflow</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Descoberta e pesquisa</td>
+            <td>Explorar o problema antes de decidir o que construir.</td>
+            <td>Brainstorm guiado, pesquisa de mercado, pesquisa de domínio, pesquisa técnica — com citações, em <code>_bmad-output/planning-artifacts/</code>.</td>
+          </tr>
+          <tr>
+            <td>Planejamento de produto</td>
+            <td>Transformar descoberta em direção: brief, PRD, épicos.</td>
+            <td>Product brief, PRFAQ, PRD completo, épicos e stories com critérios de aceitação, story dedicado para o dev.</td>
+          </tr>
+          <tr>
+            <td>Arquitetura e UX</td>
+            <td>Decidir o como antes do código.</td>
+            <td>Documento de arquitetura, DESIGN.md/EXPERIENCE.md de UX, project-context.md.</td>
+          </tr>
+          <tr>
+            <td>Desenvolvimento</td>
+            <td>Implementar com o contexto certo.</td>
+            <td>Checagem de prontidão, dev-story (código + story file atualizado), especificação enxuta "Ready for Development".</td>
+          </tr>
+          <tr>
+            <td>Qualidade e revisão</td>
+            <td>Encontrar problemas antes dos usuários.</td>
+            <td>Revisão triada por severidade, revisão adversarial, testes automatizados, walkthrough interativo da mudança.</td>
+          </tr>
+          <tr>
+            <td>Acompanhamento do sprint</td>
+            <td>Manter o time alinhado com o que mudou.</td>
+            <td>Status do sprint com riscos, Sprint Change Proposal, retrospectiva com action items.</td>
+          </tr>
+          <tr>
+            <td>Documentação e utilidades</td>
+            <td>Registrar e organizar o que existe.</td>
+            <td>Documentar o projeto, indexar pastas, dividir documentos por seção, party mode com várias personas.</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h2>Fluxo típico de um produto novo</h2>
+      <div class="term" role="img" aria-label="Sequência: brainstorm, pesquisa, brief, PRD, épicos, arquitetura, dev-story, revisão">
+        <div class="term-bar"><span class="term-title">do problema ao código — cada seta é um workflow</span></div>
+        <pre class="term-body">/bmad-brainstorm ──► /bmad-research ──► /bmad-brief ──► /bmad-prd
+                                                            │
+        /bmad-review ◄── /bmad-dev-story ◄── /bmad-epics ◄──┘
+                                │
+                          <span class="cmt">_bmad-output/  (todos os artefatos, versionáveis no seu repo)</span></pre>
+      </div>
+
+      <div class="callout">
+        <span>Não precisa decorar comando: as <strong>ações BMAD</strong> na barra da conversa
+        mostram os workflows da fase em que o projeto está — é clicar e seguir.</span>
+      </div>
+
+      <h2>Para saber mais</h2>
+      <p>
+        O BMAD Method é um projeto open source. A doc oficial vive em
+        <a href="https://github.com/bmad-code-org/BMAD-METHOD" rel="noopener">github.com/bmad-code-org/BMAD-METHOD</a> —
+        o portal acompanha as versões e atualiza a instalação global quando você pedir.
+      </p>
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="mcps.html">Próximo: MCPs →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

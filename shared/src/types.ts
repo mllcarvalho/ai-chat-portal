@@ -382,6 +382,8 @@ export interface ConsumerLabStatus {
   ssoPortal?: string;
   /** Outro portal SSO disponível para tentar quando a conta não aparece na lista. */
   altSsoPortal?: string;
+  /** Portais SSO disponíveis — a UI oferece a escolha antes de iniciar o setup. */
+  ssoPortals?: { id: string; label: string }[];
   /** Preenchido na fase awaiting-account (já filtrado por "consumer" quando possível). */
   accounts?: ConsumerLabAccount[];
   /** Preenchido na fase awaiting-role. */
@@ -560,5 +562,10 @@ export interface FileEntry {
   type: 'file' | 'dir';
   size: number;
   mtime: string;
+  /**
+   * Pasta referenciada (symlink para fora da pasta de trabalho): os arquivos
+   * vivem no local original da máquina; toda alteração acontece lá.
+   */
+  linked?: boolean;
   children?: FileEntry[];
 }

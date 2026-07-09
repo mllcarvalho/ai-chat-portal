@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projetos — Como usar — BMAD Studio</title>
+<meta name="description" content="Projetos no BMAD Studio: criar, escrever instruções permanentes, organizar conversas e onde os arquivos ficam no disco.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 03</p>
+    <h1>Projetos</h1>
+    <p class="lede">
+      Um projeto agrupa três coisas: <strong>conversas</strong>, <strong>arquivos</strong> (numa
+      pasta real do seu disco) e <strong>instruções permanentes</strong> que entram no contexto de
+      todas as conversas dele. É o jeito de trabalhar num assunto por semanas sem repetir contexto.
+    </p>
+
+    <div class="prose">
+      <h2>Criar um projeto</h2>
+      <ol>
+        <li>Na sidebar, clique no <strong>+</strong> ao lado do título <strong>Projetos</strong> (ou escolha PROJETO na tela inicial).</li>
+        <li>Dê um nome — ele vira também o nome da pasta no disco (ex.: "Pix Parcelado — Discovery" → <code>pix-parcelado-discovery/</code>).</li>
+        <li>Pronto: o projeto aparece na sidebar; o <strong>+</strong> ao lado dele cria conversas dentro.</li>
+      </ol>
+
+      <h2>A tela do projeto</h2>
+      <p>Clicar no <strong>nome</strong> do projeto na sidebar abre a visão geral:</p>
+      <figure class="shot">
+        <img src="assets/screenshots/project-home.webp" alt="Tela do projeto com a lista de conversas e o campo de instruções do projeto" loading="lazy">
+        <figcaption>conversas do projeto + instruções permanentes (e o painel BMAD, quando instalado)</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Conversas</strong> — todas as conversas do projeto; clique para abrir.</li>
+        <li><strong>Instruções do projeto</strong> — texto livre que entra no contexto de <em>todas</em> as conversas dele.</li>
+        <li><strong>Painel BMAD</strong> — instala o BMAD Method e mostra os artefatos do projeto (<a href="bmad-method.html">detalhes</a>).</li>
+        <li><strong>Remover</strong> — a pasta inteira vai para a lixeira interna (<code>.trash</code> na raiz dos projetos), de onde dá para recuperar manualmente.</li>
+      </ul>
+
+      <h2>O que escrever nas instruções</h2>
+      <p>A regra prática: <strong>tudo que você se pega repetindo em cada conversa</strong>. Exemplos que funcionam bem:</p>
+      <ul>
+        <li><strong>Contexto do produto:</strong> "Você apoia o time do Pix Parcelado. Público: PF 25–45, correntistas digitais."</li>
+        <li><strong>Glossário:</strong> siglas e nomes internos que o modelo não conhece.</li>
+        <li><strong>Padrões de entrega:</strong> "Documentos em português, com sumário executivo no topo, no formato dos templates em <code>templates/</code>."</li>
+        <li><strong>Limites:</strong> "Nunca invente números; quando não houver dado, diga que não há."</li>
+      </ul>
+      <div class="callout">
+        <span>Instruções valem para o <strong>projeto</strong>; para um <em>papel</em> reutilizável
+        entre projetos (ex.: "PM de Pagamentos"), prefira um <a href="uso-agentes.html">agente</a>.</span>
+      </div>
+
+      <h2>Onde ficam no disco</h2>
+      <div class="term">
+        <div class="term-bar"><span class="term-title">pasta raiz dos projetos (configurável)</span></div>
+        <pre class="term-body">projects/
+  pix-parcelado-discovery/
+    brief.md  pesquisa/  dados/     <span class="cmt"># seus arquivos — o assistente trabalha aqui</span>
+    _bmad-output/                   <span class="cmt"># artefatos gerados pelos workflows BMAD</span>
+    .aiportal/                      <span class="cmt"># metadados do portal (sessões, skills do projeto)</span></pre>
+      </div>
+      <p>
+        A pasta é sua: dá para abrir no Finder/Explorer ("Mostrar na pasta local" no painel de
+        arquivos), versionar com git, fazer backup copiando. A raiz é configurável em
+        <a href="uso-ambiente.html">Configurações</a>.
+      </p>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-conversas.html">← Anterior: Conversas</a>
+      <a href="uso-arquivos.html">Próximo: Arquivos do projeto →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diagnóstico e configurações — Como usar — BMAD Studio</title>
+<meta name="description" content="A tela de Diagnóstico do BMAD Studio (verificações e correções em um clique) e as Configurações: pasta de projetos, chat, agentes BMAD e rede corporativa.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 08</p>
+    <h1>Diagnóstico e configurações</h1>
+    <p class="lede">
+      Quando algo não funciona — instalação, MCP, rede — a resposta quase sempre está na tela de
+      <strong>Diagnóstico</strong>. E as <strong>Configurações</strong> concentram o que é ajustável
+      no portal.
+    </p>
+
+    <div class="prose">
+      <h2>Diagnóstico</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/diagnostics.webp" alt="Tela de diagnóstico do ambiente com verificações de programas, configuração de rede e conectividade, cada uma com status" loading="lazy">
+        <figcaption>Diagnóstico — programas, rede e conectividade, com correção em um clique quando possível</figcaption>
+      </figure>
+      <ul>
+        <li><strong>O que confere:</strong> programas (Node, git, Python, AWS CLI, uv), configuração de rede (certificado corporativo, proxy, registry npm) e <strong>conectividade real</strong> (consegue falar com os serviços?).</li>
+        <li><strong>Quando roda:</strong> sozinho, em segundo plano, a cada abertura do portal. Só interrompe com um banner quando algo <em>falha</em>; avisos leves ficam só na página.</li>
+        <li><strong>Corrigir</strong> — várias verificações têm botão de correção automática (ex.: regravar uma configuração). Para as demais, o item mostra <em>o que fazer</em>.</li>
+        <li><strong>Verificar novamente</strong> — rode após instalar algo ou mexer na rede.</li>
+      </ul>
+      <div class="callout">
+        <span><strong>MCP não conecta?</strong> Diagnóstico primeiro. Proxy vencido (senha RACF),
+        CA ausente e registry sem auth são as causas de sempre — e os três aparecem lá.</span>
+      </div>
+
+      <h2>Configurações</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/settings.webp" alt="Modal de configurações com pasta raiz dos projetos, opções de chat, seleção de agentes BMAD visíveis e campos de proxy da rede corporativa" loading="lazy">
+        <figcaption>Configurações — menu da sidebar, no rodapé</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Pasta raiz dos projetos</strong> — onde as pastas dos projetos são criadas no disco. Mude se quiser os projetos em outro lugar (ex.: uma pasta sincronizada).</li>
+        <li><strong>Chat</strong> — "Ocultar detalhes técnicos das respostas" esconde os cards de ferramenta (portal_write_file etc.) para uma leitura mais limpa; pedidos de aprovação continuam aparecendo sempre.</li>
+        <li><strong>Agentes BMAD</strong> — quais personas aparecem nos seletores do chat. Desmarcadas somem dos menus, mas continuam gerenciáveis aqui.</li>
+        <li><strong>Rede corporativa (proxy)</strong> — os valores preenchidos pelo login (RACF), editáveis: HTTPS_PROXY, HTTP_PROXY, NO_PROXY e a CA interna. Alterar aqui regrava os mesmos arquivos do login e vale também para as conexões dos MCPs.</li>
+        <li><strong>Microsoft (SharePoint)</strong> — o app do Entra ID usado para ler SharePoint nas bases de conhecimento.</li>
+        <li><strong>Conta e status</strong> — a conta GitHub conectada via VS Code, a versão do portal e os modelos disponíveis.</li>
+      </ul>
+
+      <h2>Onde pedir ajuda</h2>
+      <p>
+        A <a href="faq.html">FAQ</a> cobre os erros mais comuns com solução direta. Não resolveu?
+        Fale com o time — os canais estão em <a href="quem-somos.html">Quem somos</a>.
+      </p>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-conhecimento.html">← Anterior: Bases de conhecimento</a>
+      <a href="como-usar.html">Voltar ao guia de uso →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

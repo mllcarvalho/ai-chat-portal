@@ -33,14 +33,17 @@ const LEGACY_TMP_PROFILE = '_itau_sso_tmp';
 const LOG_LIMIT = 8000;
 
 /**
- * Portais SSO onde a conta pode morar. O setup começa pela Landing Zone; se a
- * conta não aparecer na lista, o usuário troca para o próximo portal pela UI
- * (cada portal exige um login próprio no browser, então não dá para "validar
- * nos dois" de uma vez sem forçar duas autenticações em todo mundo).
+ * Portais SSO onde a conta pode morar. O usuário escolhe por qual começar ao
+ * iniciar o setup (há quem só tenha acesso no CTPRO — começar sempre pela
+ * Landing Zone travava essas pessoas no primeiro login); se a conta não
+ * aparecer na lista, ainda dá para trocar para o outro portal pela UI (cada
+ * portal exige um login próprio no browser, então não dá para "validar nos
+ * dois" de uma vez sem forçar duas autenticações em todo mundo).
  * Cada portal tem a PRÓPRIA região de SSO — a Landing Zone vive em us-east-1,
  * o CTPRO em sa-east-1; registrar/listar na região errada falha o login.
  */
 interface SsoPortal {
+  id: string;
   label: string;
   session: string;
   startUrl: string;
@@ -48,12 +51,14 @@ interface SsoPortal {
 }
 const SSO_PORTALS: SsoPortal[] = [
   {
+    id: 'itaulzprod',
     label: 'Landing Zone (itaulzprod)',
     session: 'itau-sso',
     startUrl: 'https://itaulzprod.awsapps.com/start',
     ssoRegion: 'us-east-1',
   },
   {
+    id: 'ctpro',
     label: 'CTPRO (itau-pro-ctpro-01)',
     session: 'itau-sso-ctpro',
     startUrl: 'https://itau-pro-ctpro-01.awsapps.com/start',
@@ -928,6 +933,8 @@ function toError(err: unknown): void {
 
 export function getConsumerLabStatus(): ConsumerLabStatus {
   const status = { ...state.status, accounts: state.status.accounts, roles: state.status.roles };
+  // portais disponíveis, para a UI oferecer a escolha antes de iniciar
+  status.ssoPortals = SSO_PORTALS.map(({ id, label }) => ({ id, label }));
   // fora de um setup em andamento, resgata do disco a conta do último setup
   // concluído (o estado em memória zera a cada restart da extensão)
   if (!status.connection && !status.running) {
@@ -937,9 +944,12 @@ export function getConsumerLabStatus(): ConsumerLabStatus {
 }
 
 /** Dispara o setup do zero (idempotente enquanto estiver rodando). */
-export function startConsumerLabSetup(): ConsumerLabStatus {
+export function startConsumerLabSetup(portalId?: string): ConsumerLabStatus {
   if (state.status.running) return getConsumerLabStatus();
-  state = { status: { ...emptyStatus(), running: true }, portalIndex: 0 };
+  // há quem só tenha conta no CTPRO — respeita a escolha feita na UI
+  const portalIndex = Math.max(0, SSO_PORTALS.findIndex((p) => p.id === portalId));
+  state = { status: { ...emptyStatus(), running: true }, portalIndex };
+  appendLog(`Portal SSO escolhido: ${currentPortal().label}\n`);
   void (async () => {
     try {
       // GUI-launch deixa o PATH mínimo (sem nvm/homebrew no Mac, sem o PATH

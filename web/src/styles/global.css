@@ -264,12 +264,6 @@ select:focus {
   min-width: 0;
 }
 
-.sidebar__byline {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
-}
-
 .sidebar__logo {
   font-family: var(--font-display);
   font-weight: 700;
@@ -2236,6 +2230,10 @@ select:focus {
   color: var(--text-faint);
   white-space: nowrap;
   flex-shrink: 0;
+}
+/* pasta referenciada (symlink): o conteúdo vive fora da pasta de trabalho */
+.file-tree__linkicon {
+  color: var(--accent);
 }
 .file-tree__actions {
   display: flex;

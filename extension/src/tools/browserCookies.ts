@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readTable } from './sqliteRead';
+import { powerShellCandidates, spawnCwd } from './winPowerShell';
 
 const execFileP = promisify(execFile);
 
@@ -45,9 +46,8 @@ interface ChromiumTarget {
   decrypt: Decryptor;
 }
 
-/** Processos filhos rodam a partir de um cwd garantido — um cwd apagado é uma
- *  das causas do "spawn UNKNOWN" no host da extensão. */
-const SPAWN_CWD = os.homedir();
+/** Processos filhos rodam a partir de um cwd garantido — ver spawnCwd(). */
+const SPAWN_CWD = spawnCwd();
 
 // --- decifradores por algoritmo -----------------------------------------------
 
@@ -85,6 +85,13 @@ function decryptCbc(value: Buffer, key: Buffer): string | undefined {
   }
 }
 
+/** Prefixo de versão do valor cifrado ("v10", "v11", "v20"…) ou "" se não houver. */
+function cookiePrefix(value: Buffer): string {
+  if (value.length <= 3) return '';
+  const prefix = value.subarray(0, 3).toString('latin1');
+  return /^v\d\d$/.test(prefix) ? prefix : '';
+}
+
 /** Windows: v10 + AES-256-GCM (nonce 12B + ciphertext + tag 16B). */
 function decryptGcm(value: Buffer, key: Buffer): string | undefined {
   if (value.length <= 3) return undefined;
@@ -120,18 +127,14 @@ async function macKey(service: string, account: string): Promise<Buffer> {
 }
 
 /**
- * Roda um script PowerShell tentando, em ordem: o powershell.exe do System32
- * (caminho absoluto, imune ao PATH mínimo da GUI), o `powershell` do PATH e o
- * `pwsh` (PowerShell 7). Assim um PATH capado ou um cwd inválido não derruba
- * o DPAPI. Se TODOS falharem (ex.: antivírus corporativo bloqueando a criação
- * do processo → "spawn UNKNOWN"), lança sugerindo o caminho do Firefox.
+ * Roda um script no PowerShell, tentando cada candidato até um responder. Se
+ * TODOS falharem (ex.: antivírus corporativo bloqueando a criação do processo
+ * → "spawn UNKNOWN"), lança com o erro de CADA tentativa — só o do último
+ * candidato (`pwsh`, que quase nunca existe) escondia a causa real.
  */
 async function runPowerShell(script: string): Promise<string> {
-  const sysRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
-  const abs = path.join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const candidates = [...(fs.existsSync(abs) ? [abs] : []), 'powershell', 'pwsh'];
-  let lastErr: unknown;
-  for (const exe of candidates) {
+  const errors: string[] = [];
+  for (const exe of powerShellCandidates()) {
     try {
       const { stdout } = await execFileP(
         exe,
@@ -140,12 +143,12 @@ async function runPowerShell(script: string): Promise<string> {
       );
       return stdout.trim();
     } catch (err) {
-      lastErr = err; // ENOENT/UNKNOWN/bloqueio → tenta o próximo
+      // ENOENT (não existe / PATH capado) · UNKNOWN (EDR barrou) → tenta o próximo
+      errors.push(`${path.basename(exe)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
   throw new Error(
-    `PowerShell indisponível para decifrar a chave (${msg}). ` +
+    `PowerShell indisponível para decifrar a chave. Tentativas — ${errors.join(' | ')}. ` +
       'Pode ser bloqueio do antivírus/EDR corporativo — abra o itau.service-now.com logado no Firefox (a detecção lê o Firefox sem PowerShell) ou use o "Copy as cURL".',
   );
 }
@@ -387,15 +390,22 @@ export async function collectCookieHits(
         const rows = readChromiumRows(db).filter((r) => matchesDomain(r.host, domain));
         const pairs: string[] = [];
         const names: string[] = [];
+        let appBound = 0;
         for (const row of rows) {
           const value = target.decrypt(row.value, key);
           if (value !== undefined && value !== '') {
             pairs.push(`${row.name}=${value}`);
             names.push(row.name);
+          } else if (cookiePrefix(row.value) === 'v20') {
+            appBound++;
           }
         }
         if (pairs.length)
           hits.push({ browser: target.label, profile, cookieString: pairs.join('; '), names });
+        // Chrome/Edge 127+ podem cifrar com App-Bound Encryption (v20): a chave
+        // é ligada ao binário do navegador, então nem o DPAPI do usuário abre.
+        else if (appBound)
+          problems.push(`${target.label}: cookies protegidos por App-Bound Encryption (Chrome/Edge 127+)`);
       } catch (err) {
         problems.push(`${target.label}/${profile}: falha ao ler o banco (${err instanceof Error ? err.message : err})`);
       }
@@ -421,14 +431,23 @@ export async function collectCookieHits(
 }
 
 /**
- * Mensagem de erro padrão quando nenhum navegador tinha cookies do domínio —
- * inclui os problemas por navegador (chave negada, banco ilegível…).
+ * Mensagem de erro padrão quando nenhum navegador tinha cookies do domínio.
+ * A orientação vem PRIMEIRO e os detalhes técnicos por último, resumidos: o
+ * despejo cru de um erro por navegador produzia um parágrafo que ninguém lia.
  */
 export function noCookiesError(domain: string, problems: string[]): Error {
-  const detail = problems.length ? ` (${problems.join('; ')})` : '';
+  // Chrome e Edge falham pela mesma causa (o PowerShell), então o texto se
+  // repetia inteiro; um erro por linha, sem repetir, e cada um encurtado.
+  const seen = new Set<string>();
+  const detail = problems
+    .map((p) => (p.length > 160 ? `${p.slice(0, 157)}…` : p))
+    .filter((p) => !seen.has(p) && seen.add(p))
+    .join('\n· ');
   return new Error(
-    `Não encontrei cookies de ${domain} em nenhum navegador${detail}. ` +
-      'Abra o site logado no Chrome, Edge ou Firefox e detecte de novo, ou use o "Copy as cURL" abaixo.',
+    `Não encontrei cookies de ${domain} em nenhum navegador. ` +
+      'Abra o site logado no Chrome, Edge ou Firefox e clique em detectar de novo. ' +
+      'Se não funcionar, use o "Copy as cURL" abaixo.' +
+      (detail ? `\n\nO que cada navegador respondeu:\n· ${detail}` : ''),
   );
 }
 

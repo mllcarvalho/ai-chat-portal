@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCPs — BMAD Studio</title>
+<meta name="description" content="Integrações MCP do portal: ConsumerLab (AWS) e IUClick (ServiceNow) com setup guiado, além dos servidores do seu mcp.json e proxies OAuth2.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">MCP com problema? A tela de <strong>Diagnóstico</strong> do portal é o primeiro lugar a olhar.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">Integrações</p>
+    <h1>MCPs: as ferramentas do assistente.</h1>
+    <p class="lede">
+      <strong>MCP</strong> (Model Context Protocol) é o padrão aberto que conecta assistentes de IA
+      a sistemas reais — consultar a AWS, abrir chamados, ler bases internas. No portal, os MCPs
+      viram <strong>ferramentas que o assistente usa sozinho</strong> no modo Agent, com liga/desliga
+      por servidor e por conversa.
+    </p>
+
+    <div class="prose">
+      <h2>De onde vêm os servidores</h2>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Origem</th><th>Como entra</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>mcp.json do VS Code</td>
+            <td>Os servidores que você já configurou (incluindo os do projeto em <code>.vscode/mcp.json</code>) aparecem automaticamente, com liga/desliga pela UI.</td>
+          </tr>
+          <tr>
+            <td>Setup guiado do portal</td>
+            <td>ConsumerLab e IUClick têm assistentes de instalação passo a passo dentro do portal (detalhes abaixo).</td>
+          </tr>
+          <tr>
+            <td>Proxy OAuth2</td>
+            <td>Gateways MCP corporativos (client_credentials): o portal obtém o token e conecta via Streamable HTTP. O client_secret fica no SecretStorage do VS Code, cifrado em repouso.</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h2>ConsumerLab — dados de consumo na AWS</h2>
+      <p>
+        O MCP do ConsumerLab conecta o assistente aos dados do laboratório na AWS. O setup guiado
+        replica o fluxo manual inteiro, sem terminal:
+      </p>
+      <ol>
+        <li><strong>Pré-requisitos</strong> — confere git, Python e o gerenciador <code>uv</code> (o bootstrap da instalação já deixa tudo pronto).</li>
+        <li><strong>Repositório</strong> — clona o servidor MCP e instala as dependências (<code>uv sync</code>), passando pelo proxy corporativo.</li>
+        <li><strong>Login AWS SSO</strong> — você escolhe o portal SSO (<strong>Landing Zone</strong> ou <strong>CTPRO</strong>, cada um com a própria região), a conta e a role. Máquinas onde o navegador não abre têm fallback por código de dispositivo.</li>
+        <li><strong>Registro</strong> — o portal grava o profile AWS no <code>~/.aws/config</code> e registra o servidor stdio. A conta conectada fica visível na tela do MCP.</li>
+      </ol>
+      <div class="callout">
+        <span>Senha expirou ou trocou de conta? Clique na linha do ConsumerLab e rode o setup
+        de novo — ele sobrescreve a configuração anterior.</span>
+      </div>
+
+      <h2>IUClick — chamados do ServiceNow</h2>
+      <p>
+        O MCP do IUClick permite consultar e movimentar chamados sem sair da conversa. O setup guiado:
+      </p>
+      <ol>
+        <li><strong>Pré-requisitos</strong> — confere Node e npx.</li>
+        <li><strong>Registry</strong> — grava o registry privado (Artifactory) no <code>~/.npmrc</code> e valida o pacote <code>@ai-stack-fn7/mcp-servers</code>.</li>
+        <li><strong>Credenciais</strong> — Cookie e X-UserToken são opcionais: quando informados, ficam no <strong>SecretStorage do VS Code</strong> (cifrados) e entram como variáveis na subida do servidor. Sem eles, a autenticação é feita pela tool <code>login</code> na própria sessão. O portal também consegue capturar os cookies do navegador automaticamente.</li>
+        <li><strong>Registro</strong> — registra o servidor stdio (<code>npx … service-now --stdio</code>).</li>
+      </ol>
+
+      <h2>Rede corporativa: o que o portal resolve por você</h2>
+      <ul>
+        <li><strong>Proxy e CA herdados.</strong> Todo MCP stdio sobe com o proxy corporativo e a CA interna já injetados no ambiente — a mesma configuração da tela de login do portal.</li>
+        <li><strong>Segredos fora do disco.</strong> Tokens e cookies vivem no SecretStorage do VS Code, nunca em arquivos de texto.</li>
+        <li><strong>Timeout com progresso.</strong> Ferramentas MCP demoradas têm 5 minutos de timeout, com reset a cada notificação de progresso — consultas longas não caem no meio.</li>
+        <li><strong>Diagnóstico primeiro.</strong> Se um MCP não conecta, a tela de Diagnóstico testa a conectividade e diz exatamente o que está faltando (proxy, CA, registry, uv…).</li>
+      </ul>
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="arquitetura.html">Próximo: Arquitetura →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

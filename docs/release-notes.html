@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Release Notes — BMAD Studio</title>
+<meta name="description" content="Histórico de versões do BMAD Studio: o que mudou em cada release.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">Atualizar é rodar o comando de instalação de novo — ele sempre traz o <code>@latest</code>.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">Histórico de versões</p>
+    <h1>Release Notes</h1>
+    <p class="lede">
+      O que mudou em cada versão, da mais nova para a mais antiga. Versões de correção pequenas
+      aparecem agrupadas na release que as motivou.
+    </p>
+
+    <div class="prose">
+
+      <section class="release">
+        <div class="release-head">
+          <span class="ver">0.3.46</span>
+          <span class="date">2026-07-08</span>
+          <span class="tag new">mais recente</span>
+        </div>
+        <ul>
+          <li><strong>Pastas referenciadas:</strong> aponte uma pasta de qualquer lugar da máquina e use-a no projeto sem copiar nada — leitura, edição e fixação no contexto acontecem direto nos arquivos originais. Remover a referência nunca apaga a pasta original.</li>
+          <li><strong>Painel de arquivos com memória:</strong> o que você expande/recolhe fica salvo por projeto e volta igual ao reabrir. Na primeira abertura, só o primeiro nível vem expandido.</li>
+          <li>Botões Atualizar e Recolher tudo do painel viraram ícones com dica ao passar o mouse.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.43 – 0.3.45</span><span class="date">2026-07-08</span></div>
+        <ul>
+          <li><strong>ConsumerLab:</strong> escolha do portal SSO (Landing Zone ou CTPRO) logo no início do setup.</li>
+          <li><strong>IUClick no Windows corporativo:</strong> a detecção de cookies encontra o PowerShell mesmo fora do PATH padrão.</li>
+          <li>Ajustes visuais na sidebar.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.41 – 0.3.42</span><span class="date">2026-07-08</span></div>
+        <ul>
+          <li><strong>Checkpoints com reverter:</strong> toda escrita do assistente gera snapshot; desfazer é um clique no card da ferramenta.</li>
+          <li><strong>Detecção de artefatos BMAD:</strong> o portal reconhece brief, PRD, épicos e demais documentos em <code>_bmad-output/</code> e mostra o estágio do projeto.</li>
+          <li>Export da conversa inteira em Markdown.</li>
+          <li>Bootstrap e portal encontram o <code>uv</code> na pasta versionada do <code>pip --user</code> no Windows.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.36 – 0.3.39</span><span class="date">2026-07-07</span></div>
+        <ul>
+          <li><strong>Modo preview:</strong> arquivos abrem em abas no painel do chat, com menu de contexto na árvore.</li>
+          <li>Upload de pasta inteira (arrastar ou selecionar), preservando os originais; Excel/Word/PDF ganham <code>.md</code> extraído automaticamente.</li>
+          <li>Nova pasta pelo menu de contexto e mover arquivos por arrastar e soltar na árvore.</li>
+          <li>Correções de UX: recuo da árvore, uploads e páginas de gestão.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.31 – 0.3.35</span><span class="date">2026-07-07</span></div>
+        <ul>
+          <li><strong>Rebrand para BMAD Studio</strong>, com novo logotipo na sidebar, login e onboarding.</li>
+          <li><strong>Robustez do chat:</strong> tool calls órfãs saneadas, resposta parcial preservada em erro e watchdog do stream.</li>
+          <li>Timeout de ferramenta MCP de 5 minutos com reset por progresso — consultas longas não caem.</li>
+          <li>Auto-scroll acompanha a resposta em streaming; ciclo de vida dos MCPs endurecido.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.29 – 0.3.30</span><span class="date">2026-07-06</span></div>
+        <ul>
+          <li><strong>Stream reconectável:</strong> fechou o navegador no meio da resposta? Ela continua no servidor e a UI retoma ao reabrir.</li>
+          <li><strong>Editar e regenerar</strong> mensagens da conversa.</li>
+          <li>Conversas em paralelo, contexto do editor do VS Code como anexo e indicador de "pensando".</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.25 – 0.3.28</span><span class="date">2026-07-06</span></div>
+        <ul>
+          <li><strong>Skill vira pasta:</strong> SKILL.md + anexos (referências, templates), com export/import completos em <code>.zip</code>.</li>
+          <li>Import aceita SKILL.md em qualquer caixa e pasta zipada do disco; anexos em resumo compacto.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.21 – 0.3.24</span><span class="date">2026-07-06</span></div>
+        <ul>
+          <li><strong>UI compacta</strong> com sidebar retrátil e página <strong>Doc BMAD</strong> — a referência dos workflows dentro do portal.</li>
+          <li><strong>SSO do ConsumerLab</strong> com proxy/CA corporativos e fallback por código de dispositivo.</li>
+          <li>Correções de Windows: abrir o navegador preservando o token e clone do ConsumerLab com login interativo.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.18 – 0.3.20</span><span class="date">2026-07-06</span></div>
+        <ul>
+          <li><strong>Tela de Diagnóstico:</strong> verifica programas, rede e conectividade em background e oferece correções em um clique.</li>
+          <li><strong>Bootstrap corporativo</strong> (<code>bootstrap-itau.sh</code>): certificado, proxy com RACF, npm e uv em um script idempotente com <code>--undo</code>.</li>
+          <li>Captura de cookies do IUClick com fallbacks (inclusive Firefox); senha do proxy mascarada nos logs.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.0 – 0.3.9</span><span class="date">2026-07-03</span></div>
+        <ul>
+          <li><strong>MCP ConsumerLab</strong> com setup guiado (repositório + uv + AWS SSO) e <strong>MCP IUClick</strong> (ServiceNow).</li>
+          <li><strong>Party mode:</strong> vários agentes debatendo na mesma conversa, respeitando a seleção de personas.</li>
+          <li><strong>Ações BMAD</strong> na barra do chat, cada uma já com a persona certa.</li>
+          <li>MCPs stdio herdam proxy/CA corporativos; login em branco para máquina pessoal (sem proxy).</li>
+        </ul>
+      </section>
+
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="index.html">Voltar ao início →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

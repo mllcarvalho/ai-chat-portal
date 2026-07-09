@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquitetura — BMAD Studio</title>
+<meta name="description" content="Como o portal funciona por dentro: extensão VS Code como servidor local, React no navegador, loop agêntico, storage em disco e o modelo de segurança.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">Nada sai da máquina além das chamadas que o próprio VS Code já faz.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">Por dentro</p>
+    <h1>A extensão é o servidor.</h1>
+    <p class="lede">
+      O portal não tem backend na nuvem. Uma <strong>extensão do VS Code</strong> sobe um servidor
+      HTTP em <code>127.0.0.1</code>, serve a interface React e faz proxy para o Copilot e para os
+      MCPs — usando as credenciais que o VS Code já tem.
+    </p>
+
+    <div class="term" role="img" aria-label="Diagrama de camadas: navegador, extensão VS Code com servidor local, e as APIs do VS Code (Copilot e MCPs). Dados persistem em portal-data no disco.">
+      <div class="term-bar"><span class="term-title">visão de camadas</span></div>
+      <pre class="term-body">┌─────────────────────────────────────────────────────────────┐
+│  Navegador — React + Vite (SPA)                             │
+│  chat (SSE) · projetos · arquivos · skills · agentes · KB   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │  HTTP + SSE · 127.0.0.1:4717 · Bearer token
+┌──────────────────────────▼──────────────────────────────────┐
+│  Extensão VS Code (Node)                                    │
+│  ├── servidor HTTP (rotas REST + stream SSE do chat)        │
+│  ├── loop agêntico (rodadas de tool call até a resposta)    │
+│  ├── ferramentas builtin (arquivos, comandos, busca, docs)  │
+│  ├── gerenciador de MCPs (stdio/HTTP + proxies OAuth2)      │
+│  └── storage em JSON no disco                               │
+└──────┬──────────────────────────────┬───────────────────────┘
+       │ vscode.lm (Copilot)          │ portal-data/
+       ▼                              ▼
+  modelos + cota da SUA         sessões · projetos · skills
+  licença, via VS Code          agentes · knowledge · bmad</pre>
+    </div>
+
+    <div class="prose">
+      <h2>Os três pacotes do repositório</h2>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Pacote</th><th>Responsabilidade</th></tr></thead>
+        <tbody>
+          <tr><td>extension/</td><td>Extensão VS Code: servidor HTTP/SSE, loop agêntico, ferramentas, MCPs e storage. É o único processo com acesso a disco e rede.</td></tr>
+          <tr><td>web/</td><td>Interface React (Vite), servida pela própria extensão como assets estáticos. Estado de UI em Zustand + localStorage.</td></tr>
+          <tr><td>shared/</td><td>Tipos TypeScript compartilhados — o contrato da API entre os dois lados.</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h2>O caminho de uma mensagem</h2>
+      <ol>
+        <li>O navegador manda a mensagem via REST e abre um stream <strong>SSE</strong> para a resposta.</li>
+        <li>A extensão monta o prompt: instruções do projeto/agente, skills ativas, arquivos fixados no contexto, bases de conhecimento e histórico (com resumo automático quando a conversa não cabe na janela do modelo).</li>
+        <li>O <strong>loop agêntico</strong> chama o modelo via <code>vscode.lm</code>. Se a resposta pede ferramentas (modo Agent), a extensão executa cada tool call — arquivo, comando, busca, MCP — e devolve os resultados ao modelo, em rodadas, até a resposta final.</li>
+        <li>Cada token gerado desce pelo SSE em tempo real. O stream é <strong>reconectável</strong>: se o navegador cair no meio, a resposta continua no servidor e a UI retoma de onde parou.</li>
+        <li>Tudo é persistido em disco a cada passo — fechar o navegador não perde nada.</li>
+      </ol>
+
+      <h2>Modelo de segurança</h2>
+      <ul>
+        <li><strong>Só localhost.</strong> O servidor escuta em <code>127.0.0.1</code> e exige um token gerado na instalação — outra máquina da rede não alcança nem autentica.</li>
+        <li><strong>Sandbox de arquivos.</strong> Toda operação de arquivo resolve o caminho dentro da pasta de trabalho da conversa e rejeita escapes (<code>..</code>, caminhos absolutos, symlinks não autorizados). Pastas referenciadas são a exceção controlada: só os alvos que o usuário registrou.</li>
+        <li><strong>Checkpoints.</strong> Antes de qualquer escrita/edição/remoção o portal tira um snapshot — reverter é um clique no card da ferramenta.</li>
+        <li><strong>Segredos no SecretStorage.</strong> Tokens de MCP, cookies e client_secrets ficam no cofre do VS Code, cifrados em repouso — nunca em JSON no disco.</li>
+        <li><strong>Sem telemetria própria.</strong> O portal não coleta nem envia dados de uso.</li>
+      </ul>
+
+      <h2>Onde ficam os dados</h2>
+      <div class="term">
+        <div class="term-bar"><span class="term-title">layout do disco</span></div>
+        <pre class="term-body">~/AIChatPortal/            <span class="cmt"># config global da máquina</span>
+  config.json              <span class="cmt"># porta, token, proxy/CA, projectsRoot</span>
+  runtime.json             <span class="cmt"># porta/pid enquanto o servidor está de pé</span>
+
+&lt;dados do portal&gt;/         <span class="cmt"># portal-data/ (ou ~/AIChatPortal)</span>
+  projects/&lt;projeto&gt;/      <span class="cmt"># arquivos do projeto + .aiportal/ (meta)</span>
+  sessions/                <span class="cmt"># conversas persistidas (JSON)</span>
+  workspaces/              <span class="cmt"># pastas das conversas avulsas</span>
+  skills/  knowledge/      <span class="cmt"># skills e bases de conhecimento</span>
+  bmad/                    <span class="cmt"># instalação global do BMAD Method</span></pre>
+      </div>
+
+      <div class="callout">
+        <span>Consequência prática: <strong>backup e portabilidade são copiar pastas</strong>.
+        Nenhum dado do seu trabalho vive fora do seu disco.</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="quem-somos.html">Próximo: Quem somos →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

@@ -228,6 +228,12 @@ export const api = {
     }),
   createSessionFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/sessions/${id}/files/mkdir`, { path }),
+  linkSessionFolder: (id: string) =>
+    request<{ ok: boolean; name?: string; cancelled?: boolean }>(
+      'POST',
+      `/api/sessions/${id}/files/links`,
+      {},
+    ),
 
   listProjects: () => request<Project[]>('GET', '/api/projects'),
   createProject: (name: string) => request<Project>('POST', '/api/projects', { name }),
@@ -266,6 +272,12 @@ export const api = {
     }),
   createProjectFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/projects/${id}/files/mkdir`, { path }),
+  linkProjectFolder: (id: string) =>
+    request<{ ok: boolean; name?: string; cancelled?: boolean }>(
+      'POST',
+      `/api/projects/${id}/files/links`,
+      {},
+    ),
   copilotQuota: (fresh = false) =>
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
   bmadStatus: () => request<BmadStatus>('GET', '/api/bmad'),
@@ -339,7 +351,8 @@ export const api = {
   testMcpProxy: (input: McpProxyInput) =>
     request<{ ok: boolean; tools: string[] }>('POST', '/api/mcp/proxies/test', input),
   getConsumerLab: () => request<ConsumerLabStatus>('GET', '/api/mcp/consumerlab'),
-  startConsumerLab: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/setup'),
+  startConsumerLab: (portal?: string) =>
+    request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/setup', portal ? { portal } : undefined),
   chooseConsumerLab: (choice: { accountId?: string; roleName?: string }) =>
     request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/choose', choice),
   switchConsumerLabSso: () => request<ConsumerLabStatus>('POST', '/api/mcp/consumerlab/switch-sso'),

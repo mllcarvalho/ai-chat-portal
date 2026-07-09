@@ -88,8 +88,21 @@ function listDirFiles(dir: string, relBase: string, depth: number, out: string[]
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules') continue;
     const rel = `${relBase}/${entry.name}`;
-    if (entry.isDirectory()) listDirFiles(path.join(dir, entry.name), rel, depth + 1, out);
-    else if (entry.isFile()) out.push(rel);
+    const full = path.join(dir, entry.name);
+    let isDir = entry.isDirectory();
+    let isFile = entry.isFile();
+    if (entry.isSymbolicLink()) {
+      // pasta referenciada (ou symlink dentro dela): decide pelo alvo
+      try {
+        const stat = fs.statSync(full);
+        isDir = stat.isDirectory();
+        isFile = stat.isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (isDir) listDirFiles(full, rel, depth + 1, out);
+    else if (isFile) out.push(rel);
   }
 }
 

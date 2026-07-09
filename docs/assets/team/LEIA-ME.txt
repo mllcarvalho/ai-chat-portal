@@ -1,0 +1,9 @@
+Fotos do time (página Quem somos)
+
+Salve nesta pasta, com exatamente estes nomes:
+  matheus.jpg   — Matheus Llobregat Carvalho
+  luis.jpg      — Luis Felipe Tavares Crespo
+  vinicius.jpg  — Vinicius Lisboa Almendro
+
+Formato: quadrada, 200px ou mais (jpg). Existindo o arquivo,
+a foto aparece automaticamente no lugar das iniciais.
