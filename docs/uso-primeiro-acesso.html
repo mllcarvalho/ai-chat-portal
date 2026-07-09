@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Primeiro acesso — Como usar — BMAD Studio</title>
+<meta name="description" content="Primeiro acesso ao BMAD Studio: login na rede corporativa ou máquina pessoal, autorização do Copilot no VS Code e a escolha entre MESA e PROJETO.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 01</p>
+    <h1>Primeiro acesso</h1>
+    <p class="lede">
+      O portal abre no navegador, mas quem o mantém vivo é o VS Code — a extensão é o servidor.
+      Este é o caminho da primeira vez: entrar, autorizar o Copilot e escolher por onde começar.
+    </p>
+
+    <div class="prose">
+      <h2>1 · Login</h2>
+      <p>
+        Com o portal <a href="instalacao.html">instalado</a>, o navegador abre na tela de entrada:
+      </p>
+      <figure class="shot">
+        <img src="assets/screenshots/login.webp" alt="Tela de login com campos de usuário RACF e senha, e a explicação de que em máquina pessoal os campos podem ficar em branco" loading="lazy">
+        <figcaption>login — o mesmo RACF do proxy corporativo</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Rede corporativa:</strong> informe usuário RACF e senha. O portal monta a URL do proxy e grava nos lugares certos (settings.json do VS Code, rc do shell, ~/.npmrc) — é o mesmo efeito do bootstrap da instalação, sem terminal.</li>
+        <li><strong>Máquina pessoal:</strong> deixe os dois campos <strong>em branco</strong> e clique em Entrar — nada é alterado na máquina.</li>
+        <li><strong>Senha RACF trocou?</strong> Use o ícone <strong>🗘</strong> ao lado do seu usuário, no rodapé da sidebar, para relogar com a senha nova.</li>
+      </ul>
+      <p>O login fica salvo no navegador — nas próximas vezes você cai direto na tela inicial.</p>
+
+      <h2>2 · Autorizar o Copilot (uma vez só)</h2>
+      <p>
+        Na <strong>primeira mensagem</strong> da primeira conversa, o VS Code mostra uma notificação
+        pedindo permissão para o portal usar os modelos do Copilot. Clique na janela do VS Code e
+        <strong>aceite</strong> — sem isso a resposta não vem. Não apareceu nada? A notificação pode
+        estar atrás de outras janelas; traga o VS Code para frente.
+      </p>
+
+      <h2>3 · MESA ou PROJETO?</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/home.webp" alt="Tela inicial com dois cartões: MESA, espaço aberto de conversa, e PROJETO, trabalho organizado com arquivos e instruções" loading="lazy">
+        <figcaption>tela inicial — dois jeitos de começar</figcaption>
+      </figure>
+      <ul>
+        <li><strong>MESA</strong> — uma conversa avulsa, sem vínculo com projeto. Perfeita para dúvidas, resumos e experimentos. Ela ganha um workspace próprio no disco se você usar arquivos.</li>
+        <li><strong>PROJETO</strong> — o modo de trabalhar de verdade: arquivos numa pasta real, instruções permanentes e conversas agrupadas. Detalhes em <a href="uso-projetos.html">Projetos</a>.</li>
+      </ul>
+
+      <h2>O tour de 30 segundos pela sidebar</h2>
+      <ul>
+        <li><strong>+ Nova conversa</strong> — começa uma conversa avulsa; o <strong>+</strong> ao lado de um projeto cria a conversa dentro dele.</li>
+        <li><strong>Filtrar conversas</strong> — busca por título em tudo.</li>
+        <li><strong>Projetos</strong> e <strong>Conversas avulsas</strong> — clique para abrir; botão direito/× para renomear ou excluir.</li>
+        <li><strong>Menu</strong> (rodapé) — Agentes, Skills, Conhecimento, Servidores MCP, Doc BMAD, Diagnóstico e Configurações.</li>
+        <li><strong>«</strong> — recolhe a sidebar para um trilho compacto.</li>
+      </ul>
+
+      <div class="callout">
+        <span><strong>O portal vive enquanto houver uma janela do VS Code aberta.</strong> Fechou tudo?
+        Rode o comando de instalação de novo (instantâneo) ou, no VS Code,
+        <code>Ctrl/Cmd+Shift+P</code> → "BMAD Product Studio: Abrir no Navegador".</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="como-usar.html">← Guia de uso</a>
+      <a href="uso-conversas.html">Próximo: Conversas, modos e modelos →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

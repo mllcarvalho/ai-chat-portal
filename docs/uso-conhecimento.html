@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bases de conhecimento — Como usar — BMAD Studio</title>
+<meta name="description" content="Bases de conhecimento no BMAD Studio: criar, adicionar documentos do computador, de URLs e do SharePoint, capturar do navegador, sincronizar, exportar e enviar por e-mail.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 07</p>
+    <h1>Bases de conhecimento</h1>
+    <p class="lede">
+      Documentos que entram como <strong>contexto permanente</strong> das conversas — normas,
+      guias, glossários, decisões. A diferença para os arquivos do projeto: a base é
+      <em>referência estável</em> que vale em muitas conversas; o arquivo do projeto é
+      <em>material de trabalho</em> daquele projeto.
+    </p>
+
+    <div class="prose">
+      <figure class="shot">
+        <img src="assets/screenshots/knowledge.webp" alt="Página de bases de conhecimento com uma base habilitada por toggle, a lista de documentos e os botões Importar .zip, Capturar do navegador e Nova base" loading="lazy">
+        <figcaption>página Conhecimento — bases à esquerda, documentos da base selecionada ao lado</figcaption>
+      </figure>
+
+      <h2>Como criar uma base</h2>
+      <ol>
+        <li>Menu da sidebar → <strong>Conhecimento</strong> → <strong>+ Nova base</strong>.</li>
+        <li><strong>Nome e descrição</strong> — a descrição ajuda o time (e o assistente) a saber o que tem dentro.</li>
+        <li><strong>Escopo</strong> — <em>Global</em> vale em todas as conversas; <em>Projeto</em> só nas daquele projeto.</li>
+        <li>O <strong>toggle</strong> liga/desliga a base: habilitada, ela entra no contexto das conversas do escopo.</li>
+      </ol>
+
+      <h2>Adicionar documentos — quatro caminhos</h2>
+      <ul>
+        <li><strong>Do computador</strong> — botão <strong>Adicionar</strong> na coluna de documentos. Office e PDF são convertidos em texto automaticamente.</li>
+        <li><strong>A partir de URL…</strong> — cole o link e a página vira markdown. O documento guarda a URL de origem e pode ser <strong>re-sincronizado</strong> depois (ícone 🗘 — um documento ou a base inteira). Ideal para páginas de intranet e GitHub Pages que mudam.</li>
+        <li><strong>Capturar do navegador</strong> — o botão instala um <em>bookmarklet</em>: em qualquer página aberta e autenticada no seu navegador (SharePoint, Confluence, intranet), clique nele e a página vai para a base — sem configurar credencial nenhuma.</li>
+        <li><strong>SharePoint via login Microsoft</strong> — com o app do Entra ID configurado (Configurações → Microsoft), URLs de SharePoint são lidas direto pelo Graph, com re-sincronização.</li>
+      </ul>
+
+      <h2>Como o assistente usa</h2>
+      <ul>
+        <li>Bases habilitadas entram no contexto das conversas do escopo — as <strong>vinculadas a um agente</strong> entram nas conversas dele mesmo com o toggle desligado.</li>
+        <li>Quando as bases são grandes demais para injetar inteiras, o assistente recebe um <strong>índice</strong> e busca sob demanda (<code>portal_search_knowledge</code>) antes de responder — em qualquer modo, inclusive Ask.</li>
+        <li>Dá para editar qualquer documento na própria página (editor markdown) e <strong>mover documentos entre bases</strong>.</li>
+      </ul>
+      <div class="callout warn">
+        <span><strong>Base habilitada consome contexto</strong> em toda mensagem. Prefira documentos
+        objetivos e desligue bases que não estão em uso — ligar de novo é um clique.</span>
+      </div>
+
+      <h2>Exportar, enviar por e-mail e importar</h2>
+      <ul>
+        <li><strong>Exportar</strong> — baixa a base inteira como <code>.zip</code> (todos os documentos).</li>
+        <li><strong>Enviar por e-mail</strong> (ícone ✉️ no card da base) — abre o cliente de e-mail com o <code>.zip</code> já anexado. Sem cliente com anexo automático, o portal salva o arquivo e abre a pasta para anexar no rascunho.</li>
+        <li><strong>Importar .zip</strong> — no topo da página; escolha nome e escopo na importação. <strong>Reimportar atualiza</strong> a base existente em vez de duplicar.</li>
+      </ul>
+      <div class="callout">
+        <span>Padrão de time: uma base "oficial" por assunto (ex.: "Normas Pix"), mantida por uma
+        pessoa e distribuída por e-mail — todo mundo importa e conversa com as mesmas referências.</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-agentes.html">← Anterior: Agentes</a>
+      <a href="uso-ambiente.html">Próximo: Diagnóstico e configurações →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

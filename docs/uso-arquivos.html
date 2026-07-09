@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquivos do projeto — Como usar — BMAD Studio</title>
+<meta name="description" content="O painel de arquivos do BMAD Studio: upload (Excel/Word/PDF viram .md), referenciar pasta sem copiar, fixar no contexto, menu #, visualizador e preview em abas.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 04</p>
+    <h1>Arquivos do projeto</h1>
+    <p class="lede">
+      O botão <strong>Arquivos</strong> (canto superior direito da conversa) abre o painel lateral
+      com a pasta de trabalho — a do projeto, ou o workspace da conversa avulsa. É a mesma pasta
+      que o assistente usa no modo Agent: o que ele gerar aparece aqui na hora.
+    </p>
+
+    <div class="prose">
+      <figure class="shot">
+        <img src="assets/screenshots/files-drawer.webp" alt="Painel lateral de arquivos com árvore de pastas, botão Adicionar, filtro e um arquivo fixado no contexto com alfinete" loading="lazy">
+        <figcaption>o painel — árvore da pasta real do projeto, com filtro por nome/caminho</figcaption>
+      </figure>
+
+      <h2>Adicionar arquivos</h2>
+      <p>O botão <strong>Adicionar</strong> tem quatro opções (ou simplesmente <strong>arraste</strong> arquivos/pastas para o painel):</p>
+      <ul>
+        <li><strong>Arquivos…</strong> — envia arquivos avulsos (até 15 MB cada).</li>
+        <li><strong>Pasta (copiar para cá)…</strong> — envia uma pasta inteira do computador, <em>copiando</em> o conteúdo para a pasta do projeto. <code>node_modules</code>, <code>.git</code> e afins são pulados.</li>
+        <li><strong>Referenciar pasta do computador…</strong> — aponta uma pasta de qualquer lugar da máquina <em>sem copiar nada</em> (abaixo).</li>
+        <li><strong>Nova pasta vazia…</strong> — cria uma pasta para organizar.</li>
+      </ul>
+      <div class="callout">
+        <span><strong>Excel, Word e PDF</strong> ganham automaticamente um <code>.md</code> irmão com o
+        texto extraído — é esse que o assistente lê e que você fixa no contexto. O original fica
+        guardado do lado, intacto.</span>
+      </div>
+
+      <h2>Referenciar uma pasta (sem copiar)</h2>
+      <p>
+        Tem uma pasta que já vive em outro lugar — um repositório, uma pasta de área de trabalho?
+        <strong>Referencie</strong> em vez de copiar: ela aparece na árvore com um ícone próprio, e
+        toda leitura e escrita acontece <strong>nos arquivos originais</strong>, no lugar onde estão.
+      </p>
+      <ul>
+        <li>Ao escolher a opção, o seletor de pastas abre <strong>na janela do VS Code</strong> — escolha lá e volte ao portal.</li>
+        <li>Tudo funciona igual: fixar no contexto, <code>#</code>, edição, o agente lê e escreve.</li>
+        <li><strong>Remover referência</strong> (botão direito na pasta) desfaz o vínculo — os arquivos originais continuam intactos, sempre.</li>
+        <li>A referência não pode ser renomeada nem arrastada; de resto, é uma pasta como qualquer outra.</li>
+      </ul>
+
+      <h2>Fixar no contexto (o alfinete)</h2>
+      <p>
+        O <strong>alfinete</strong> ao lado de cada item fixa o arquivo — ou a <strong>pasta inteira</strong> —
+        no contexto da conversa atual. Fixado = entra em toda mensagem, sem precisar mencionar.
+        Os chips em "no contexto:" (acima do campo de mensagem) mostram o que está valendo; o × remove.
+      </p>
+      <p>E no próprio campo de mensagem, digite <code>#</code>:</p>
+      <figure class="shot">
+        <img src="assets/screenshots/composer-hash.webp" alt="Menu aberto ao digitar cerquilha no campo de mensagem, listando pastas e arquivos do projeto" loading="lazy">
+        <figcaption># filtra conforme você digita — Enter fixa sem tirar as mãos do teclado</figcaption>
+      </figure>
+
+      <h2>Ler e editar sem sair da conversa</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/file-viewer.webp" alt="Visualizador de arquivo aberto no painel lateral com botões de editar, ampliar, baixar e mostrar na pasta local" loading="lazy">
+        <figcaption>clique num arquivo → visualizador com editar, ampliar, baixar e revelar no Finder/Explorer</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Editar</strong> (lápis) abre o conteúdo para alteração direta; Salvar grava no disco.</li>
+        <li><strong>Ampliar</strong> abre em modal largo — markdown renderizado, ótimo para ler documentos longos.</li>
+        <li><strong>Modo preview</strong> (ícone de colunas na barra superior): os arquivos abrem em <strong>abas ao lado do chat</strong> — acompanhe o documento enquanto o assistente o escreve.</li>
+        <li><strong>Botão direito</strong> em qualquer item: renomear, baixar, <strong>mostrar na pasta local</strong>, excluir, nova pasta dentro.</li>
+        <li><strong>Arrastar</strong> um item sobre uma pasta move; soltar no fundo da árvore leva para a raiz.</li>
+      </ul>
+
+      <div class="callout">
+        <span>A árvore <strong>lembra o que você expandiu</strong> por projeto — feche e reabra o painel
+        que ela volta como estava. Na primeira vez, só o primeiro nível vem aberto.</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-projetos.html">← Anterior: Projetos</a>
+      <a href="uso-skills.html">Próximo: Skills →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

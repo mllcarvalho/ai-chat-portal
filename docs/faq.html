@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ — BMAD Studio</title>
+<meta name="description" content="Perguntas frequentes sobre o BMAD Studio: licença, dados, rede corporativa, erros comuns de instalação e uso.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">Não achou a resposta? Fale com o time — e a pergunta entra aqui.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">Perguntas frequentes</p>
+    <h1>FAQ</h1>
+    <p class="lede">As dúvidas e tropeços mais comuns, com solução direta. Agrupadas por tema.</p>
+
+    <div class="prose">
+      <h2>Licença e custo</h2>
+      <div class="faq">
+        <details>
+          <summary>Preciso de chave de API ou de alguma licença nova?</summary>
+          <div class="a"><p>Não. O portal usa a API oficial de modelos do VS Code (<code>vscode.lm</code>) com a conta GitHub/Copilot que você já tem logada no editor. Se o Copilot funciona no seu VS Code, o portal funciona.</p></div>
+        </details>
+        <details>
+          <summary>O portal consome meus créditos premium do Copilot?</summary>
+          <div class="a"><p>Depende do modelo escolhido — as mesmas regras do Copilot no VS Code. O seletor de modelos do portal mostra o multiplicador de cada um, e a UI exibe a cota restante da sua licença.</p></div>
+        </details>
+        <details>
+          <summary>Meus dados vão para algum servidor do portal?</summary>
+          <div class="a"><p>Não existe servidor do portal. Tudo roda em <code>127.0.0.1</code> na sua máquina; conversas, projetos e configurações ficam no seu disco. As únicas chamadas externas são as que o próprio VS Code faz para o Copilot e para os MCPs que você configurar. Detalhes na página de <a href="arquitetura.html">Arquitetura</a>.</p></div>
+        </details>
+      </div>
+
+      <h2>Instalação e rede corporativa</h2>
+      <div class="faq">
+        <details>
+          <summary>O npx falha com erro de certificado (SELF_SIGNED_CERT / UNABLE_TO_VERIFY)</summary>
+          <div class="a">
+            <p>O proxy corporativo reassina o TLS e o Node não confia na CA interna. Rode o <strong>Passo 3</strong> da <a href="instalacao.html">instalação</a> (bootstrap) — ele instala a CA, configura <code>cafile</code>/<code>strict-ssl</code> no npm e grava as variáveis de ambiente. Depois <strong>feche e reabra o terminal</strong>.</p>
+          </div>
+        </details>
+        <details>
+          <summary>O npx falha com 401/403 no registry</summary>
+          <div class="a"><p>O Artifactory exige autenticação em todas as rotas. Confirme que o bootstrap rodou (ele grava <code>always-auth=true</code>) e que as linhas de auth do registry estão no seu <code>~/.npmrc</code>. Senha RACF trocada também derruba o proxy — rode o bootstrap de novo com a senha nova.</p></div>
+        </details>
+        <details>
+          <summary>O npx dá um erro estranho de cache/pacote corrompido</summary>
+          <div class="a"><p>Limpe o cache do npx e tente de novo: apague a pasta <code>~/.npm/_npx</code> e rode o comando do Passo 4 novamente.</p></div>
+        </details>
+        <details>
+          <summary>Minha senha RACF expirou — o que quebra e como conserto?</summary>
+          <div class="a"><p>O proxy passa a recusar tudo (npm, pip, MCPs, SSO). Rode o bootstrap de novo (<code>sh ~/Downloads/bootstrap-itau.sh</code>), informe a senha nova e reabra terminal e VS Code.</p></div>
+        </details>
+        <details>
+          <summary>Posso usar o portal fora da rede corporativa (máquina pessoal)?</summary>
+          <div class="a"><p>Sim. Na tela de login do portal, deixe o proxy em branco — sem proxy e sem CA ele usa a rede normalmente. O bootstrap corporativo só é necessário na rede da empresa.</p></div>
+        </details>
+        <details>
+          <summary>Instalei, mas o portal não abre no navegador</summary>
+          <div class="a"><p>O portal vive enquanto houver uma janela do VS Code aberta — confirme que o VS Code está rodando. Depois, no VS Code, <code>Ctrl/Cmd+Shift+P</code> → <strong>"BMAD Studio: Abrir no Navegador"</strong>. Se ainda assim nada, a tela de Diagnóstico (ou o comando do Passo 4) mostra o que está faltando.</p></div>
+        </details>
+      </div>
+
+      <h2>Uso no dia a dia</h2>
+      <div class="faq">
+        <details>
+          <summary>Mandei a primeira mensagem e nada acontece</summary>
+          <div class="a"><p>Na primeira conversa o VS Code pede autorização para o portal usar o Copilot — e a notificação pode estar atrás de outras janelas. Clique na janela do VS Code e aceite a solicitação. Acontece só uma vez (Passo 5 da <a href="instalacao.html">instalação</a>).</p></div>
+        </details>
+        <details>
+          <summary>Qual a diferença entre os modos Ask, Plan e Agent?</summary>
+          <div class="a"><p><strong>Ask</strong> é pergunta e resposta, sem ferramentas. <strong>Plan</strong> gera um plano e só lê arquivos, sem alterar nada. <strong>Agent</strong> usa ferramentas de verdade: cria e edita arquivos, roda comandos e chama MCPs. Dá para trocar o modo a qualquer momento na conversa.</p></div>
+        </details>
+        <details>
+          <summary>O assistente alterou um arquivo que eu não queria — dá para desfazer?</summary>
+          <div class="a"><p>Sim. Toda escrita/edição/remoção gera um <strong>checkpoint</strong> automático — no card da ferramenta na conversa há um botão <strong>Reverter</strong> que restaura o estado anterior.</p></div>
+        </details>
+        <details>
+          <summary>Como faço o assistente ler um arquivo específico?</summary>
+          <div class="a"><p>Duas formas: digite <code>#</code> no campo de mensagem e escolha o arquivo, ou abra o painel de arquivos e use o alfinete (fixar no contexto). Pastas inteiras também podem ser fixadas. E dá para <strong>referenciar uma pasta de qualquer lugar da máquina</strong> sem copiá-la — as alterações acontecem nos arquivos originais.</p></div>
+        </details>
+        <details>
+          <summary>Excel, Word e PDF funcionam?</summary>
+          <div class="a"><p>Sim — ao subir um desses arquivos, o portal guarda o original e gera um <code>.md</code> com o texto extraído, que é o que o assistente lê e você pode fixar no contexto.</p></div>
+        </details>
+        <details>
+          <summary>Fechei o navegador no meio de uma resposta longa. Perdi?</summary>
+          <div class="a"><p>Não. A resposta continua sendo gerada no servidor local; ao reabrir a conversa o stream reconecta e retoma de onde estava. Tudo é persistido em disco a cada passo.</p></div>
+        </details>
+        <details>
+          <summary>Um MCP aparece com erro / não conecta</summary>
+          <div class="a"><p>Abra a tela de <strong>Diagnóstico</strong>: ela testa programas, proxy, CA e conectividade e aponta a causa. Para ConsumerLab e IUClick, clicar na linha do servidor reabre o setup guiado, que sobrescreve a configuração anterior. Detalhes na página de <a href="mcps.html">MCPs</a>.</p></div>
+        </details>
+      </div>
+
+      <h2>Dados e segurança</h2>
+      <div class="faq">
+        <details>
+          <summary>Onde exatamente ficam meus arquivos e conversas?</summary>
+          <div class="a"><p>Config global em <code>~/AIChatPortal/</code>; projetos, sessões, skills, agentes e bases na pasta de dados do portal (<code>portal-data/</code> no repo, ou <code>~/AIChatPortal/</code>). Backup é copiar essas pastas. O layout completo está na página de <a href="arquitetura.html">Arquitetura</a>.</p></div>
+        </details>
+        <details>
+          <summary>Onde ficam senhas, tokens e cookies?</summary>
+          <div class="a"><p>No <strong>SecretStorage do VS Code</strong>, cifrado em repouso — nunca em arquivos de texto. A exceção consciente é a senha do proxy gravada pelo bootstrap no ambiente (necessária para o proxy corporativo); o próprio script avisa e o <code>--undo</code> remove.</p></div>
+        </details>
+        <details>
+          <summary>Outra pessoa da rede consegue acessar o meu portal?</summary>
+          <div class="a"><p>Não. O servidor escuta só em <code>127.0.0.1</code> (não é alcançável de fora) e toda chamada exige o token gerado na instalação.</p></div>
+        </details>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="release-notes.html">Próximo: Release Notes →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

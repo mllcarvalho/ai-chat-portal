@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversas, modos e modelos — Como usar — BMAD Studio</title>
+<meta name="description" content="A tela de conversa do BMAD Studio em detalhe: modos Ask/Plan/Agent, escolha de modelo e créditos, atalhos, editar e regenerar, checkpoints, exportar e enviar por e-mail.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 02</p>
+    <h1>Conversas, modos e modelos</h1>
+    <p class="lede">
+      A tela de conversa concentra tudo: o que o assistente pode fazer (modo), com qual modelo,
+      encarnando qual agente, lendo quais arquivos — e quanto isso custa da sua cota.
+    </p>
+
+    <div class="prose">
+      <h2>A anatomia da tela</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/chat.webp" alt="Conversa com pergunta e resposta, barra superior com modo, modelo, agente e consumo, barra de ações BMAD e arquivo fixado no contexto" loading="lazy">
+        <figcaption>de cima para baixo: barra de controle, mensagens, ações BMAD, contexto e composer</figcaption>
+      </figure>
+      <ul>
+        <li><strong>Barra superior:</strong> título, <strong>modo</strong> (Ask/Plan/Agent), <strong>modelo</strong> (com a faixa de custo), <strong>agente</strong> ativo, consumo da conversa (tokens · AI credits restantes da licença), compartilhar, preview e o painel de Arquivos.</li>
+        <li><strong>Cada resposta</strong> mostra os próprios números: tokens de entrada/saída e requisições. Transparência para escolher melhor o modelo da próxima.</li>
+        <li><strong>Ações BMAD:</strong> os workflows do método organizados por fase, com o próximo passo sugerido — um clique já seleciona a persona certa. Detalhes em <a href="bmad-method.html">BMAD Method</a>.</li>
+        <li><strong>no contexto:</strong> chips dos arquivos fixados — entram em toda mensagem desta conversa (veja <a href="uso-arquivos.html">Arquivos</a>).</li>
+        <li><strong>Composer:</strong> Enter envia · Shift+Enter quebra linha · <code>/</code> comandos · <code>#</code> arquivos · 📎 anexos avulsos (até 512 KB de texto por arquivo).</li>
+      </ul>
+
+      <h2>Os três modos</h2>
+      <figure class="shot">
+        <img src="assets/screenshots/chat-modos.webp" alt="Seletor de modos aberto: Ask (pergunta e resposta, sem ferramentas), Plan (gera planos, só leitura) e Agent (usa ferramentas e MCPs automaticamente)" loading="lazy">
+        <figcaption>troque a qualquer momento — o modo vale por conversa</figcaption>
+      </figure>
+      <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Modo</th><th>O que pode</th><th>Use para</th></tr></thead>
+        <tbody>
+          <tr><td>Ask</td><td>Só conversa — nenhuma ferramenta.</td><td>Dúvidas, resumos, revisão de texto. O mais barato e previsível.</td></tr>
+          <tr><td>Plan</td><td>Lê arquivos do projeto, não altera nada.</td><td>Diagnósticos e planos: "o que você faria?" antes de deixar fazer.</td></tr>
+          <tr><td>Agent</td><td>Ferramentas liberadas: cria/edita arquivos, roda comandos, chama MCPs — em rodadas, até concluir.</td><td>Gerar documentos, mexer nos arquivos do projeto, consultar sistemas via MCP.</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <h2>Modelos e créditos</h2>
+      <ul>
+        <li>O seletor de modelos lista os <strong>modelos do Copilot da sua licença</strong>, cada um com a faixa de custo. Modelos <strong>premium</strong> descontam AI credits por requisição (o multiplicador aparece na lista).</li>
+        <li>A pílula de consumo mostra os <strong>credits restantes</strong> — medidos direto na licença, saldo antes − depois de cada resposta.</li>
+        <li>A escolha vale <strong>por conversa</strong>: rascunho num modelo barato, versão final num premium.</li>
+      </ul>
+
+      <h2>Editar, regenerar e conversar em paralelo</h2>
+      <ul>
+        <li><strong>Editar uma mensagem sua</strong> (menu da mensagem) reescreve a pergunta e regenera dali para frente; <strong>regenerar</strong> repete a resposta com o contexto atual (bom após trocar modelo/modo).</li>
+        <li><strong>Parar</strong> interrompe a geração; o que já veio fica na conversa.</li>
+        <li><strong>Conversas em paralelo:</strong> pode abrir outra conversa enquanto uma responde — o spinner na sidebar mostra quem está gerando.</li>
+        <li><strong>Fechou o navegador no meio?</strong> A geração continua no servidor local; ao reabrir, o stream reconecta e retoma de onde estava.</li>
+        <li><strong>Título automático:</strong> a conversa se batiza na primeira resposta; renomeie pelo menu do item na sidebar.</li>
+      </ul>
+
+      <h2 id="checkpoints">Checkpoints: desfazer o que o agente fez</h2>
+      <p>
+        No modo Agent, <strong>antes de toda escrita, edição ou remoção</strong> de arquivo o portal
+        tira um snapshot. O card da ferramenta na conversa ganha o botão <strong>Reverter</strong> —
+        um clique restaura o estado anterior àquela operação. Errou o pedido? Reverta, refine o
+        prompt e mande de novo, sem medo de deixar o agente trabalhar.
+      </p>
+
+      <h2>Exportar e enviar por e-mail</h2>
+      <p>
+        O ícone de <strong>compartilhar</strong> na barra superior abre duas opções:
+      </p>
+      <ul>
+        <li><strong>Exportar conversa (.md)</strong> — baixa a conversa inteira em Markdown legível, boa para colar em wiki ou anexar em card.</li>
+        <li><strong>Enviar por e-mail</strong> — abre seu cliente de e-mail com o arquivo já anexado. Sem cliente com anexo automático? O portal salva o arquivo e abre a pasta para você anexar à mão.</li>
+      </ul>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-primeiro-acesso.html">← Anterior: Primeiro acesso</a>
+      <a href="uso-projetos.html">Próximo: Projetos →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

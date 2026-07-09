@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visão geral — BMAD Studio</title>
+<meta name="description" content="Chat com os modelos do GitHub Copilot direto do navegador — projetos, sessões, skills, agentes, BMAD Method e MCPs. Tudo local, com a licença que você já tem.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript>
+          <li><a href="index.html">Visão geral</a></li>
+          <li><a href="instalacao.html">Como instalar</a></li>
+          <li><a href="como-usar.html">Como usar</a></li>
+          <li><a href="bmad-method.html">BMAD Method</a></li>
+          <li><a href="mcps.html">MCPs</a></li>
+          <li><a href="arquitetura.html">Arquitetura</a></li>
+          <li><a href="quem-somos.html">Quem somos</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="release-notes.html">Release Notes</a></li>
+        </noscript>
+      </ul>
+    </nav>
+    <p class="side-note">Roda 100% local, com a licença Copilot que você já tem no VS Code.</p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow">BMAD Studio · documentação</p>
+    <h1>Chat com os modelos do Copilot, feito para o trabalho de produto.</h1>
+    <p class="lede">
+      O BMAD Studio é um portal de chat que roda <strong>na sua máquina</strong> e usa os
+      modelos do <strong>GitHub Copilot</strong> pelo login que você já tem no VS Code.
+      Sem chave de API, sem custo extra — com projetos, arquivos, skills, agentes,
+      bases de conhecimento, o <strong>BMAD Method</strong> e integrações <strong>MCP</strong>.
+    </p>
+
+    <div class="term" role="img" aria-label="Diagrama: o navegador conversa com a extensão do VS Code em 127.0.0.1, que repassa para o Copilot e para os MCPs">
+      <div class="term-bar"><span class="term-title">como funciona — tudo em 127.0.0.1</span></div>
+      <pre class="term-body">┌──────────────┐    HTTP + SSE    ┌───────────────────────────┐
+│  Navegador   │ ◄──────────────► │  Extensão VS Code (proxy)  │ ──►  vscode.lm (Copilot)
+│  (React UI)  │    127.0.0.1     │  servidor local com token  │ ──►  MCPs do VS Code
+└──────────────┘                  └───────────────────────────┘
+<span class="cmt"># nada sai da sua máquina além das chamadas que o próprio VS Code já faz</span></pre>
+    </div>
+
+    <div class="actions">
+      <a class="btn primary" href="instalacao.html">Instalar agora →</a>
+      <a class="btn" href="como-usar.html">Ver como usar</a>
+    </div>
+
+    <div class="prose">
+      <h2>O que dá para fazer</h2>
+      <div class="cards">
+        <a class="card" href="como-usar.html">
+          <span class="k">chat</span>
+          <h3>Conversas com modos</h3>
+          <p>Ask (pergunta e resposta), Plan (gera plano, só leitura) e Agent (usa ferramentas e mexe nos arquivos).</p>
+        </a>
+        <a class="card" href="como-usar.html">
+          <span class="k">projetos</span>
+          <h3>Projetos e arquivos</h3>
+          <p>Cada projeto tem uma pasta no disco. O assistente lê e escreve nela; você acompanha tudo pelo painel de arquivos.</p>
+        </a>
+        <a class="card" href="bmad-method.html">
+          <span class="k">método</span>
+          <h3>BMAD Method</h3>
+          <p>Personas e workflows do BMAD v6 integrados: da pesquisa ao PRD, épicos, arquitetura e revisão.</p>
+        </a>
+        <a class="card" href="mcps.html">
+          <span class="k">integrações</span>
+          <h3>MCPs</h3>
+          <p>ConsumerLab (AWS) e IUClick (ServiceNow) com setup guiado, além dos MCPs que você já usa no VS Code.</p>
+        </a>
+        <a class="card" href="como-usar.html">
+          <span class="k">reuso</span>
+          <h3>Skills e agentes</h3>
+          <p>Instruções reutilizáveis, comandos slash e presets de agente — exportáveis em .zip para compartilhar com o time.</p>
+        </a>
+        <a class="card" href="como-usar.html">
+          <span class="k">contexto</span>
+          <h3>Bases de conhecimento</h3>
+          <p>Documentos e URLs que entram como contexto das conversas. Importa SharePoint, páginas web e arquivos locais.</p>
+        </a>
+      </div>
+
+      <h2>Princípios</h2>
+      <ul>
+        <li><strong>Local primeiro.</strong> A extensão sobe um servidor em <code>127.0.0.1</code> protegido por token; o navegador conversa só com ela. Seus dados ficam no seu disco.</li>
+        <li><strong>Sem custo novo.</strong> As chamadas de modelo passam pela API oficial do VS Code (<code>vscode.lm</code>) — a mesma licença Copilot, a mesma cota.</li>
+        <li><strong>Feito para a rede corporativa.</strong> Proxy com RACF, CA interna, registry Artifactory e a tela de Diagnóstico que confere tudo e diz o que falta.</li>
+        <li><strong>Time de produto no centro.</strong> As ações BMAD ficam a um clique na conversa: brainstorm, pesquisa, brief, PRD, épicos — cada uma já com a persona certa.</li>
+      </ul>
+
+      <h2>Requisitos em uma linha</h2>
+      <p>
+        <strong>VS Code</strong> com conta GitHub logada (Copilot habilitado) + <strong>Node.js 18+</strong>.
+        Windows ou macOS. O portal vive enquanto houver uma janela do VS Code aberta — a extensão é o servidor.
+      </p>
+      <div class="callout">
+        <span>Primeira vez aqui? Siga o <strong><a href="instalacao.html">passo a passo de instalação</a></strong> —
+        ele verifica os programas da sua máquina e configura a rede corporativa por você.</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <span>BMAD Studio · documentação</span>
+      <a href="instalacao.html">Próximo: Como instalar →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

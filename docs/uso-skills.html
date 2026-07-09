@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skills — Como usar — BMAD Studio</title>
+<meta name="description" content="Skills no BMAD Studio: criar com comando slash e anexos, usar na conversa, exportar em .zip, enviar por e-mail e importar.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 05</p>
+    <h1>Skills</h1>
+    <p class="lede">
+      Uma skill é uma <strong>instrução reutilizável</strong> — um jeito de escrever, um checklist,
+      um template de documento. Você escreve uma vez e usa em qualquer conversa como comando
+      slash, ou deixa o assistente carregá-la sozinho quando o pedido combina com a descrição.
+    </p>
+
+    <div class="prose">
+      <figure class="shot">
+        <img src="assets/screenshots/skills.webp" alt="Página de skills com a lista de skills e o editor com nome, comando slash, escopo, descrição e conteúdo em markdown" loading="lazy">
+        <figcaption>página Skills (menu da sidebar) — lista à esquerda, editor à direita</figcaption>
+      </figure>
+
+      <h2>Como criar</h2>
+      <ol>
+        <li>Menu da sidebar → <strong>Skills</strong> → <strong>+ Nova skill</strong>.</li>
+        <li><strong>Nome</strong> — curto e descritivo (ex.: "Tom executivo"). O <strong>comando slash</strong> é derivado dele (<code>/tom-executivo</code>), mas dá para personalizar.</li>
+        <li><strong>Escopo</strong> — <em>Global</em> vale em qualquer conversa; <em>Projeto</em> só nas conversas daquele projeto.</li>
+        <li><strong>Descrição</strong> — capriche: é por ela que o assistente decide carregar a skill sozinho quando o pedido do usuário combina. "Resume qualquer conteúdo em bullets para diretoria" funciona; "skill de resumo" não.</li>
+        <li><strong>Conteúdo</strong> — markdown simples com as instruções. Use <code>{{input}}</code> onde o texto digitado após o comando deve entrar:</li>
+      </ol>
+      <div class="term">
+        <div class="term-bar"><span class="term-title">exemplo de conteúdo — /tom-executivo</span></div>
+        <pre class="term-body">Reescreva ou resuma o conteúdo pedido em no máximo 5 bullets,
+sem jargão técnico, começando pelo impacto para o negócio.
+Feche com uma linha de recomendação.
+
+{{input}}</pre>
+      </div>
+
+      <h2>Anexos: a skill é uma pasta</h2>
+      <p>
+        Cada skill pode carregar arquivos junto — templates, exemplos, referências. No editor da
+        skill, envie os anexos; o assistente os lê quando precisa (ferramenta
+        <code>portal_read_skill_file</code>). Um template de PRD anexado à skill
+        <code>/prd-resumido</code>, por exemplo, garante que o documento saia sempre no formato da casa.
+      </p>
+
+      <h2>Como usar na conversa</h2>
+      <ul>
+        <li><strong>Comando slash:</strong> digite <code>/</code> no campo de mensagem — o menu lista os comandos disponíveis. <code>/tom-executivo cole aqui o texto…</code> aplica a skill àquela mensagem.</li>
+        <li><strong>Carregamento automático:</strong> as demais skills ficam num catálogo leve que o assistente consulta — quando o seu pedido combina com a descrição de uma, ele a carrega sozinho antes de responder.</li>
+        <li><strong>Vinculada a um agente:</strong> skills vinculadas (na edição do <a href="uso-agentes.html">agente</a>) entram ativas em todas as conversas daquele agente.</li>
+      </ul>
+
+      <h2>Exportar, enviar por e-mail e importar</h2>
+      <p>Cada skill na lista tem três ações de compartilhamento:</p>
+      <ul>
+        <li><strong>Exportar</strong> — baixa a skill como <code>.skill.zip</code> (SKILL.md + anexos). Sem anexos, um <code>.md</code> simples resolve.</li>
+        <li><strong>Enviar por e-mail</strong> (ícone ✉️) — abre seu cliente de e-mail com o arquivo <strong>já anexado</strong>, pronto para mandar ao time. Sem cliente com anexo automático? O portal salva o arquivo e abre a pasta para anexar à mão.</li>
+        <li><strong>Importar (.md ou .zip)</strong> — no topo da página. Aceita vários arquivos de uma vez e cria as skills direto. <strong>Reimportar atualiza</strong> a skill existente em vez de duplicar — mande a versão nova pelo mesmo caminho.</li>
+      </ul>
+      <div class="callout">
+        <span>Fluxo de time que funciona: uma pessoa mantém as skills "oficiais", exporta e manda
+        por e-mail; todo mundo importa. Atualizou? Reenvia — o import substitui a versão antiga.</span>
+      </div>
+
+      <h2>Skills do BMAD</h2>
+      <p>
+        Os workflows do BMAD Method (<code>/bmad-*</code>) aparecem na página como skills — são
+        registrados pela integração e atualizados com ela. Dá para filtrá-los pela aba "BMAD" e
+        usá-los como qualquer comando; para o método em si, veja <a href="bmad-method.html">BMAD Method</a>.
+      </p>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-arquivos.html">← Anterior: Arquivos</a>
+      <a href="uso-agentes.html">Próximo: Agentes →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

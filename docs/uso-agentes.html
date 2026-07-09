@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentes — Como usar — BMAD Studio</title>
+<meta name="description" content="Agentes no BMAD Studio: criar presets de instruções + modelo + modo, usar na conversa, party mode, importar do VS Code, exportar e enviar por e-mail.">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+  <button class="menu-btn" id="menu-open" aria-expanded="false">Menu</button>
+</header>
+
+<div class="shell">
+  <aside class="side" id="side">
+    <button class="menu-btn side-close" id="menu-close">Fechar ✕</button>
+    <a class="brand" href="index.html"><span class="itau-badge" aria-hidden="true">itaú</span>BMAD Studio</a>
+    <nav aria-label="Seções da documentação">
+      <ul class="nav" id="nav">
+        <noscript><li><a href="como-usar.html">Como usar</a></li></noscript>
+      </ul>
+    </nav>
+    <p class="side-note"><a href="como-usar.html">← Todos os temas do guia</a></p>
+  </aside>
+
+  <main class="doc" id="conteudo">
+    <p class="eyebrow"><a href="como-usar.html" style="text-decoration:none;color:inherit">Guia de uso</a> · 06</p>
+    <h1>Agentes</h1>
+    <p class="lede">
+      Um agente é um <strong>preset completo de papel</strong>: instruções + modelo padrão + modo +
+      skills e bases de conhecimento vinculadas. Onde a skill é uma tarefa, o agente é uma
+      <em>pessoa</em> — "PM de Pagamentos", "Analista de riscos", "Redator do relatório mensal".
+    </p>
+
+    <div class="prose">
+      <figure class="shot">
+        <img src="assets/screenshots/agents.webp" alt="Página de agentes com as personas BMAD e um agente próprio selecionado, mostrando instruções, modelo e modo padrão" loading="lazy">
+        <figcaption>página Agentes — personas BMAD prontas + os presets do seu time</figcaption>
+      </figure>
+
+      <h2>Como criar</h2>
+      <ol>
+        <li>Menu da sidebar → <strong>Agentes</strong> → <strong>+ Novo agente</strong>.</li>
+        <li><strong>Nome e ícone</strong> — o emoji aparece nos seletores do chat.</li>
+        <li><strong>Instruções</strong> — o papel em si: quem o agente é, como responde, o que prioriza, o que nunca faz. É o campo que mais importa.</li>
+        <li><strong>Modelo e modo padrão</strong> — opcionais: toda conversa com esse agente já começa neles (ex.: um "Dev sênior" pode nascer no modo Agent com modelo premium).</li>
+        <li><strong>Skills e bases vinculadas</strong> — o que ele leva junto: as skills entram ativas nas conversas dele, e as bases entram no contexto mesmo desligadas no toggle geral.</li>
+      </ol>
+
+      <h2>Como usar na conversa</h2>
+      <ul>
+        <li>Na barra superior da conversa, clique na pílula do agente (<strong>"Sem agente"</strong>, quando nenhum está ativo) e escolha na lista — vale a partir da próxima mensagem, e dá para trocar no meio.</li>
+        <li>Um projeto pode ter <strong>agente padrão</strong>: toda conversa nova dele já nasce com o papel certo.</li>
+        <li>As <strong>personas BMAD</strong> (analista, PM, arquiteto, dev, revisor, UX…) já vêm registradas — as ações BMAD selecionam a persona certa automaticamente. Quais aparecem nos seletores é configurável em <a href="uso-ambiente.html">Configurações</a>.</li>
+      </ul>
+
+      <h2>Party mode: vários agentes na mesa</h2>
+      <p>
+        O comando <code>/bmad-party-mode</code> coloca <strong>vários agentes debatendo na mesma
+        conversa</strong>, um balão por persona — o PM defende o escopo, o arquiteto aponta riscos,
+        o analista cobra dados. Ótimo para simular a reunião de alinhamento antes da reunião de
+        verdade. O modo respeita a sua seleção de agentes habilitados.
+      </p>
+
+      <h2>Importar do VS Code</h2>
+      <p>
+        Já tem <strong>chat modes</strong> configurados no VS Code (arquivos <code>.chatmode.md</code>
+        do repositório ou do perfil)? A página de Agentes lista todos na seção "Chat modes do VS Code" —
+        um clique em <strong>Importar →</strong> transforma cada um em agente do portal.
+      </p>
+
+      <h2>Exportar, enviar por e-mail e importar</h2>
+      <ul>
+        <li><strong>Exportar</strong> — baixa o agente como <code>.agent.json</code>; se ele tem skills ou bases vinculadas, vira <code>.agent.zip</code> com <strong>tudo dentro</strong> — quem importa recebe o pacote completo.</li>
+        <li><strong>Enviar por e-mail</strong> (ícone ✉️) — abre o cliente de e-mail com o arquivo já anexado. Sem cliente com anexo automático, o portal salva o arquivo e abre a pasta.</li>
+        <li><strong>Importar</strong> — no topo da página, aceita <code>.agent.json</code> e <code>.agent.zip</code>. <strong>Reimportar atualiza</strong> o agente existente em vez de duplicar.</li>
+      </ul>
+      <div class="callout">
+        <span>É o jeito de padronizar o time: o agente "oficial" do squad, com as skills e a base de
+        conhecimento junto, num arquivo só. Quem chega importa e está no padrão em um minuto.</span>
+      </div>
+    </div>
+
+    <footer class="doc-footer">
+      <a href="uso-skills.html">← Anterior: Skills</a>
+      <a href="uso-conhecimento.html">Próximo: Bases de conhecimento →</a>
+    </footer>
+  </main>
+</div>
+<script src="assets/site.js" defer></script>
+</body>
+</html>
