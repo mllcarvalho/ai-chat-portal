@@ -22,6 +22,7 @@ import { Toasts } from './components/common/Toasts';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { EnvBanner } from './components/layout/EnvBanner';
 import { DiagnosticsBanner } from './components/layout/DiagnosticsBanner';
+import { UpdateBanner } from './components/layout/UpdateBanner';
 import { DiagnosticsPage } from './components/pages/DiagnosticsPage';
 import { useDiagnostics } from './stores/diagnosticsStore';
 
@@ -80,6 +81,7 @@ export function App() {
     <div className="app-root">
       <EnvBanner />
       <DiagnosticsBanner />
+      <UpdateBanner />
       <div className="app-shell">
         <Sidebar />
         <MainArea />

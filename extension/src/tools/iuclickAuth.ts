@@ -1,4 +1,5 @@
-import { collectCookieHits, noCookiesError } from './browserCookies';
+import { collectCookieHits } from './browserCookies';
+import { captureCookiesViaBrowser } from './cdpCapture';
 import { requestInitFor, resolveShellEnv } from './netEnv';
 import { saveIuclickCredentials } from '../storage/iuclickStore';
 
@@ -109,31 +110,62 @@ async function fetchAuthSession(cookieString: string): Promise<{ token: string; 
   return { token, cookies: mergeCookies(cookieString, setCookies) };
 }
 
-/**
- * Lê os cookies de TODOS os navegadores/perfis (Chrome, Edge, Brave e Firefox)
- * e valida cada candidato contra o ServiceNow, devolvendo o primeiro que tem
- * uma sessão autenticada de verdade — assim uma sessão velha num navegador não
- * impede usar a sessão boa de outro. Lança com mensagem clara quando não há
- * cookies (orienta o "Copy as cURL") ou quando nenhum candidato autentica.
- */
-export async function captureIuclickCredentials(): Promise<IuclickCapture> {
-  await resolveShellEnv();
-  const { hits, problems } = await collectCookieHits(SERVICENOW_DOMAIN);
-  if (!hits.length) throw noCookiesError(SERVICENOW_DOMAIN, problems);
+/** Valida uma Cookie string contra o ServiceNow e devolve o par cookie+token. */
+async function sessionFromCookies(
+  cookieString: string,
+  browser: string,
+  profile: string,
+): Promise<IuclickCapture> {
+  const { token, cookies } = await fetchAuthSession(cookieString);
+  return { cookies, token, browser, profile };
+}
 
+/**
+ * Obtém as credenciais do IUClick com dois caminhos, nesta ordem:
+ *
+ *  1) Leitura direta do banco de cookies (Chrome/Edge/Firefox) — rápida e sem
+ *     abrir janela. Funciona no macOS (Keychain), no Firefox (texto puro) e no
+ *     Chrome/Edge antigo (v10/DPAPI).
+ *  2) Captura pelo próprio navegador via CDP (cdpCapture) — o plano para o
+ *     Windows corporativo onde (1) não tem como funcionar: App-Bound Encryption
+ *     (Chrome/Edge 127+) e/ou PowerShell bloqueado pelo EDR. Sobe Edge/Chrome
+ *     num perfil limpo e deixa o SSO transparente logar.
+ *
+ * `viaBrowser` pula o passo 1 e vai direto ao navegador — usado pelo botão
+ * "Detectar via navegador (SSO)" (e para testar o caminho 2 no macOS, onde o
+ * passo 1 sempre venceria).
+ */
+export async function captureIuclickCredentials(
+  opts: { viaBrowser?: boolean } = {},
+): Promise<IuclickCapture> {
+  await resolveShellEnv();
   const failures: string[] = [];
-  for (const hit of hits) {
-    try {
-      const { token, cookies } = await fetchAuthSession(hit.cookieString);
-      return { cookies, token, browser: hit.browser, profile: hit.profile };
-    } catch (err) {
-      failures.push(`${hit.browser}/${hit.profile}: ${err instanceof Error ? err.message : err}`);
+
+  if (!opts.viaBrowser) {
+    const { hits, problems } = await collectCookieHits(SERVICENOW_DOMAIN);
+    for (const hit of hits) {
+      try {
+        return await sessionFromCookies(hit.cookieString, hit.browser, hit.profile);
+      } catch (err) {
+        failures.push(`${hit.browser}/${hit.profile}: ${err instanceof Error ? err.message : err}`);
+      }
     }
+    // sem cookies decifráveis (ex.: App-Bound no Windows) o motivo vem dos problems
+    if (!hits.length && problems.length) failures.push(...problems);
   }
-  // achamos cookies, mas nenhum abre uma sessão válida (todos expirados/anônimos)
+
+  // passo 2: captura via navegador (SSO). Único caminho no Windows App-Bound.
+  try {
+    const cap = await captureCookiesViaBrowser(SERVICENOW_DOMAIN, SERVICENOW_URL);
+    return await sessionFromCookies(cap.cookieString, cap.browser, cap.profile);
+  } catch (err) {
+    failures.push(`Navegador (SSO): ${err instanceof Error ? err.message : err}`);
+  }
+
   throw new Error(
-    `Encontrei cookies do ServiceNow (${hits.map((h) => h.browser).join(', ')}), mas nenhuma sessão está válida. ` +
-      `Abra o itau.service-now.com logado, recarregue (F5) e detecte de novo. Detalhe: ${failures.join(' | ')}`,
+    'Não consegui obter uma sessão válida do ServiceNow. ' +
+      'Abra o itau.service-now.com logado e detecte de novo — ou use o "Copy as cURL" abaixo.' +
+      (failures.length ? `\n\nDetalhe:\n· ${failures.join('\n· ')}` : ''),
   );
 }
 

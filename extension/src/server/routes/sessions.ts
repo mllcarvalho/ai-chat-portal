@@ -9,6 +9,7 @@ import {
   listSessions,
   saveSession,
 } from '../../storage/sessionStore';
+import { revertCheckpoint } from '../../storage/checkpointStore';
 import { sessionExportFileName, sessionToMarkdown } from '../../storage/sessionMarkdown';
 import { registerFileRoutes } from './files';
 
@@ -109,6 +110,50 @@ export function registerSessionRoutes(router: Router): void {
   router.delete('/api/sessions/:id', ({ res, params }) => {
     const ok = deleteSession(params.id);
     sendJson(res, ok ? 200 : 404, { ok });
+  });
+
+  // "restaurar arquivos até aqui" (paridade com o restore checkpoint do
+  // Copilot): reverte, do mais recente ao mais antigo, todos os checkpoints
+  // das ferramentas a partir da mensagem indicada — os arquivos voltam ao
+  // estado de antes daquele pedido. A conversa em si não é alterada.
+  router.post('/api/sessions/:id/restore-files', ({ res, params, body }) => {
+    const messageId = ((body ?? {}) as { messageId?: string }).messageId;
+    if (!messageId) {
+      sendError(res, 400, 'messageId é obrigatório');
+      return;
+    }
+    const session = getSession(params.id);
+    if (!session) {
+      sendError(res, 404, 'Sessão não encontrada');
+      return;
+    }
+    const start = session.messages.findIndex((m) => m.id === messageId);
+    if (start < 0) {
+      sendError(res, 404, 'Mensagem não encontrada nesta conversa');
+      return;
+    }
+    const markRe = /\[checkpoint:([a-z0-9-]+)\]\s*$/;
+    const ids: string[] = [];
+    for (const message of session.messages.slice(start)) {
+      for (const part of message.parts) {
+        if (part.type !== 'tool_result') continue;
+        const match = markRe.exec(part.content);
+        if (match) ids.push(match[1]);
+      }
+    }
+    const files = new Set<string>();
+    let reverted = 0;
+    let skipped = 0;
+    for (const id of ids.reverse()) {
+      try {
+        for (const file of revertCheckpoint(id).files) files.add(file);
+        reverted++;
+      } catch {
+        // checkpoint removido pela retenção: segue revertendo o que existe
+        skipped++;
+      }
+    }
+    sendJson(res, 200, { ok: true, reverted, skipped, files: [...files] });
   });
 
   // pasta de trabalho da conversa: a do projeto, ou o workspace da sessão avulsa

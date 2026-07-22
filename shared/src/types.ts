@@ -17,6 +17,11 @@ export interface Config {
   microsoft?: MicrosoftGraphConfig;
   /** Último usuário RACF informado no login (a senha nunca é persistida). */
   racfUser?: string;
+  /**
+   * Executáveis liberados sem aprovação no portal_run_command (primeiro token
+   * do comando, ex.: "python3") — preenchido pelo "sempre permitir" da UI.
+   */
+  commandAllowlist?: string[];
 }
 
 /**
@@ -98,6 +103,8 @@ export interface HealthInfo {
   account?: { id: string; label: string };
   needsConsent: boolean;
   env?: EnvStatus;
+  /** Presente quando há versão mais nova do portal publicada no npm. */
+  update?: { latest: string; command: string };
 }
 
 /** Arquivo/seleção ativos no editor do VS Code — vira anexo no chat (como o # do Copilot). */

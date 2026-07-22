@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
 import type { FileEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { resolveInProject, READ_LIMIT, LIST_LIMIT, WRITE_LIMIT } from '../../tools/builtinTools';
-import { PROJECT_META_DIR } from '../../storage/paths';
 import { addLink, removeLinkEntry, renameLinkEntry } from '../../storage/linkStore';
 
 function buildTree(dir: string, base: string, depth: number, count: { n: number }): FileEntry[] {
@@ -18,7 +17,9 @@ function buildTree(dir: string, base: string, depth: number, count: { n: number 
   }
   const result: FileEntry[] = [];
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (entry.name === PROJECT_META_DIR || entry.name === 'node_modules' || entry.name === '.git') {
+    // entradas ocultas (.aiportal, .git, .tmp dos scripts auxiliares do modelo…)
+    // não aparecem no painel Arquivos — como num gerenciador de arquivos
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') {
       continue;
     }
     if (count.n >= LIST_LIMIT) break;

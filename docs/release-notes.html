@@ -49,9 +49,42 @@
 
       <section class="release">
         <div class="release-head">
+          <span class="ver">0.3.52</span>
+          <span class="date">2026-07-21</span>
+          <span class="tag new">mais recente</span>
+        </div>
+        <ul>
+          <li><strong>"Sempre permitir" em comandos:</strong> ao aprovar um comando do assistente, dá para liberar aquele executável (ex.: <code>python3</code>) de uma vez — as próximas execuções não pedem mais aprovação. Gerencie a lista em Configurações.</li>
+          <li><strong>Parar agora é imediato:</strong> o botão de parar interrompe a resposta na hora, mesmo quando o modelo está "mudo" gerando um arquivo longo — antes a conversa podia ficar presa em "resposta em andamento" por minutos.</li>
+          <li><strong>Gerações longas não são mais abandonadas:</strong> o limite de silêncio do modelo subiu de 2 para 5 minutos e, após 1 minuto, a interface avisa que a demora é esperada (ex.: escrevendo um HTML inteiro). Se mesmo assim estourar, a mensagem orienta a pedir em partes.</li>
+          <li><strong>Erro 403 "token expired" se resolve sozinho:</strong> quando a sessão do Copilot expira (a cada ~30 min), o portal espera a renovação automática e re-tenta — sem precisar abrir outra conversa. O Diagnóstico ganhou um check de <code>api.github.com</code>, o caminho da renovação.</li>
+          <li><strong>Plano de trabalho visível:</strong> em tarefas com várias etapas, o assistente mantém um checklist no chat mostrando o que já foi feito e o que vem a seguir.</li>
+          <li><strong>Botão Continuar:</strong> quando a resposta para no limite de rodadas de ferramentas, um clique retoma de onde parou.</li>
+          <li><strong>Restaurar arquivos:</strong> cada mensagem sua ganhou a ação "restaurar arquivos", que desfaz todas as alterações feitas dali em diante — os arquivos voltam ao estado de antes daquele pedido.</li>
+          <li><strong>Terminal com memória:</strong> comandos da mesma conversa compartilham o mesmo shell — <code>cd</code> e variáveis definidas num comando valem no seguinte. Processos longos (servidores) podem rodar em segundo plano.</li>
+          <li><strong>Prompts e recursos de MCP:</strong> servidores MCP ligados aparecem no menu "/" (prompts prontos) e no novo botão de anexar recurso como contexto da conversa.</li>
+          <li><strong>Edições mais robustas:</strong> o assistente edita arquivos por trechos (com diff visível no card), lê arquivos grandes por faixas de linhas e grava arquivos longos em blocos — adeus timeout no meio de um documento grande.</li>
+          <li><strong>Título automático:</strong> a conversa ganha um título curto gerado por um modelo incluído na licença (sem custo premium) logo após a primeira resposta.</li>
+          <li><strong>Aviso de versão nova:</strong> quando sai uma versão mais recente no npm, um banner avisa com o comando de atualização.</li>
+          <li><strong>Relatório de suporte:</strong> botão no Diagnóstico que copia um resumo da máquina (versões, rede mascarada, checks) para colar no chat de suporte — chega de foto da tela.</li>
+          <li>Limpeza automática de workspaces órfãos de conversas excluídas e ajuste de configuração do Copilot Chat (<code>useMessagesApi</code>) aplicado a todas as máquinas.</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head"><span class="ver">0.3.47 – 0.3.51</span><span class="date">2026-07-16</span></div>
+        <ul>
+          <li><strong>Geração de PPT, Excel, Word e PDF:</strong> o assistente gera documentos de verdade (python-pptx, openpyxl, python-docx, reportlab) num ambiente Python exclusivo do portal. O Diagnóstico ganhou o passo opcional "Geração de documentos", que instala tudo de uma vez com fallbacks para Mac/Windows (uv ou Python da máquina, nunca o Python global).</li>
+          <li><strong>Proteções contra arquivo corrompido:</strong> formatos binários não podem mais ser gravados como texto nem "renomeados" para .pptx/.xlsx/.docx/.pdf; cada documento gerado tem a assinatura validada e o assistente é avisado na mesma rodada se o arquivo não abriria.</li>
+          <li><strong>Scripts auxiliares invisíveis:</strong> os .py que o assistente usa para gerar documentos ficam numa pasta oculta — o painel Arquivos mostra só o que interessa.</li>
+          <li><strong>Diagnóstico do GitHub mais preciso:</strong> quando o proxy responde no lugar do GitHub, o check explica isso (em vez de sugerir uma configuração que não resolve).</li>
+        </ul>
+      </section>
+
+      <section class="release">
+        <div class="release-head">
           <span class="ver">0.3.46</span>
           <span class="date">2026-07-08</span>
-          <span class="tag new">mais recente</span>
         </div>
         <ul>
           <li><strong>Pastas referenciadas:</strong> aponte uma pasta de qualquer lugar da máquina e use-a no projeto sem copiar nada — leitura, edição e fixação no contexto acontecem direto nos arquivos originais. Remover a referência nunca apaga a pasta original.</li>

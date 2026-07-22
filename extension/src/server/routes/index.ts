@@ -48,7 +48,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerCopilotRoutes(router);
   registerEditorRoutes(router);
   registerShareRoutes(router);
-  registerDiagnosticsRoutes(router);
+  registerDiagnosticsRoutes(router, deps);
   registerCheckpointRoutes(router);
   return router;
 }

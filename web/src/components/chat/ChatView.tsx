@@ -18,6 +18,7 @@ export function ChatView() {
   // stream DESTA sessão — outras conversas podem estar gerando em paralelo
   const stream = useChat((s) => (session ? s.streams[session.id] : undefined));
   const resume = useChat((s) => s.resume);
+  const send = useChat((s) => s.send);
   const isStreaming = !!stream;
   const listRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -80,6 +81,18 @@ export function ChatView() {
                   }}
                 />
               )}
+              {!isStreaming && lastMessage?.role === 'assistant' &&
+                lastMessage.finishReason === 'max_rounds' && (
+                  <div className="continue-offer">
+                    A resposta parou no limite de rodadas de ferramentas.
+                    <button
+                      className="btn btn--sm btn--primary"
+                      onClick={() => void send('Continue de onde parou.')}
+                    >
+                      Continuar
+                    </button>
+                  </div>
+                )}
               {session.messages.length === 0 && !isStreaming && (
                 <div className="empty-state" style={{ paddingTop: '12vh' }}>
                   Envie uma mensagem para começar — ou dispare uma ação BMAD pelos botões abaixo.

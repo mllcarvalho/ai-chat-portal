@@ -11,6 +11,7 @@ import type {
   MessagePart,
   Project,
   Session,
+  SessionSummary,
   SkillWithContent,
   TokenUsage,
 } from '@aiportal/shared';
@@ -29,7 +30,7 @@ import {
 } from '../tools/builtinTools';
 import { describeEnvForPrompt } from '../tools/envCheck';
 import { callMcpTool } from '../tools/mcpManager';
-import { executeCommand } from '../tools/runCommand';
+import { executeCommand, startBackgroundCommand } from '../tools/runCommand';
 import { getEnabledToolDefs } from '../tools/toolRegistry';
 import { collectKnowledgeContext } from '../storage/knowledgeStore';
 import { buildMessages, type ContextFile } from './messageBuilder';
@@ -38,11 +39,12 @@ import { waitForApproval } from './approvals';
 import { waitForAnswer } from './questions';
 import {
   MODEL_RETRIES,
-  MODEL_RETRY_DELAY_MS,
   ModelIdleTimeoutError,
   isRateLimitError,
+  isTokenExpiredError,
   isTransientModelError,
   raceCancellation,
+  retryDelayMs,
   sleep,
 } from './retry';
 import { runSubagent, type SubagentOutcome } from './subagent';
@@ -255,6 +257,15 @@ function mapError(err: unknown): { code: ChatErrorCode; message: string } {
         'O Copilot limitou temporariamente as requisições (rate limit). Aguarde alguns segundos e envie de novo.',
     };
   }
+  if (isTokenExpiredError(err)) {
+    return {
+      code: 'internal',
+      message:
+        'A sessão do Copilot expirou e a renovação automática ainda não completou. Aguarde uns ' +
+        '30 segundos e clique em "tentar novamente" — NA MESMA conversa, não precisa abrir outra. ' +
+        'Se persistir por minutos, confira o login do GitHub no VS Code e a rede/VPN (a renovação passa por api.github.com).',
+    };
+  }
   return { code: 'internal', message: err instanceof Error ? err.message : String(err) };
 }
 
@@ -270,18 +281,29 @@ const BUILTIN_TOOL_TIMEOUT_MS = 120_000;
  * O gateway do Copilot pode pendurar sem erro e sem tokens; como o heartbeat
  * mantém o SSE "vivo", sem este teto de progresso a resposta ficaria em
  * "digitando" para sempre. Vale entre um evento e o próximo, não para a
- * resposta inteira.
+ * resposta inteira. IMPORTANTE: um tool call chega INTEIRO no fim da geração
+ * — modelo escrevendo um portal_write_file com um HTML grande fica MINUTOS
+ * sem emitir parte nenhuma, saudável; 120s matava essas gerações (e o retry
+ * recomeçava a mesma geração condenada, queimando créditos).
  */
-const MODEL_IDLE_TIMEOUT_MS = 120_000;
+const MODEL_IDLE_TIMEOUT_MS = 300_000;
 
-function withIdleTimeout<T>(promise: PromiseLike<T>): Promise<T> {
+/** Depois deste silêncio, avisa a UI que a demora é esperada (geração longa). */
+const MODEL_SLOW_NOTICE_MS = 60_000;
+
+function withIdleTimeout<T>(promise: PromiseLike<T>, onSlow?: () => void): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
+  let slowTimer: NodeJS.Timeout | undefined;
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
+      if (onSlow) slowTimer = setTimeout(onSlow, MODEL_SLOW_NOTICE_MS);
       timer = setTimeout(() => reject(new ModelIdleTimeoutError(MODEL_IDLE_TIMEOUT_MS)), MODEL_IDLE_TIMEOUT_MS);
     }),
-  ]).finally(() => clearTimeout(timer)) as Promise<T>;
+  ]).finally(() => {
+    clearTimeout(timer);
+    clearTimeout(slowTimer);
+  }) as Promise<T>;
 }
 
 export async function runChat(args: ChatRunArgs): Promise<void> {
@@ -320,6 +342,8 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
   };
   applyUserTurn(session); // snapshot local usado para montar o prompt
   updateSession(session.id, applyUserTurn);
+  // primeira troca da conversa: depois do done, um modelo barato gera o título
+  const isFirstExchange = session.messages.length === 1;
 
   const assistantMessageId = crypto.randomUUID();
   sse.send('meta', { requestId, userMessageId: userMessage.id, assistantMessageId });
@@ -444,28 +468,49 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
 
       let roundText = '';
       const roundCalls: vscode.LanguageModelToolCallPart[] = [];
+      // um tool call grande (ex.: gravar um HTML inteiro) chega de uma vez só
+      // no fim — avisa a UI UMA vez por rodada que o silêncio é esperado
+      let slowNoticeSent = false;
+      const notifySlow = (): void => {
+        if (slowNoticeSent) return;
+        slowNoticeSent = true;
+        sse.send('notice', {
+          message:
+            'O modelo está gerando uma resposta longa (ex.: um arquivo inteiro) — isso pode levar alguns minutos, siga aguardando…',
+        });
+      };
       // 502/503 transitórios do gateway do Copilot: retenta — mas só enquanto
       // nada foi transmitido à UI nesta rodada (retry após emitir duplicaria)
       for (let attempt = 0; ; attempt++) {
         usage.requests++;
         try {
-          const response = await withIdleTimeout(
-            model.sendRequest(
-              messages,
-              {
-                justification: 'BMAD Product Studio — chat do analista',
-                ...(toolDefs.length
-                  ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
-                  : {}),
-              },
-              cts.token,
+          // raceCancellation: o "Parar" precisa valer NA HORA mesmo com o
+          // gateway pendurado — sem a corrida, o cancel só era percebido
+          // quando o stream entregasse a próxima parte (ou no idle timeout),
+          // e a conversa ficava "em andamento" por minutos
+          const response = await raceCancellation(
+            withIdleTimeout(
+              model.sendRequest(
+                messages,
+                {
+                  justification: 'BMAD Product Studio — chat do analista',
+                  ...(toolDefs.length
+                    ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
+                    : {}),
+                },
+                cts.token,
+              ),
             ),
+            cts.token,
           );
           // iteração manual: cada avanço do stream tem teto de progresso —
           // um for await penduraria junto com o gateway
           const iterator = response.stream[Symbol.asyncIterator]();
           while (true) {
-            const next = await withIdleTimeout(iterator.next());
+            const next = await raceCancellation(
+              withIdleTimeout(iterator.next(), notifySlow),
+              cts.token,
+            );
             if (next.done) break;
             if (cts.token.isCancellationRequested) break;
             const part = next.value;
@@ -501,9 +546,11 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
             throw err;
           }
           sse.send('notice', {
-            message: `O Copilot respondeu um erro transitório — tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`,
+            message: isTokenExpiredError(err)
+              ? `A sessão do Copilot expirou — aguardando a renovação automática e tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`
+              : `O Copilot respondeu um erro transitório — tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`,
           });
-          await sleep(MODEL_RETRY_DELAY_MS * (attempt + 1));
+          await sleep(retryDelayMs(err, attempt));
         }
       }
       usage.inputTokens += await inputTokensCount;
@@ -582,24 +629,40 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
         try {
           if (call.name === 'portal_run_command') {
             // comando de shell: pausa o stream até o usuário aprovar na UI
-            const input = (call.input ?? {}) as { command?: unknown; timeoutSeconds?: unknown };
+            const input = (call.input ?? {}) as {
+              command?: unknown;
+              timeoutSeconds?: unknown;
+              background?: unknown;
+            };
             const command = typeof input.command === 'string' ? input.command.trim() : '';
             if (!command) throw new Error('Campo "command" é obrigatório');
-            sse.send('approval_request', {
-              callId: call.callId,
-              toolName: call.name,
-              command,
-              cwd: workRoot,
-            });
-            const verdict = await waitForApproval(requestId, call.callId, cts.token);
+            // executável na allowlist ("sempre permitir"): pula a aprovação
+            const bin = command.split(/\s+/)[0] ?? '';
+            let verdict: Awaited<ReturnType<typeof waitForApproval>>;
+            if (bin && (getConfig().commandAllowlist ?? []).includes(bin)) {
+              verdict = 'approved';
+            } else {
+              sse.send('approval_request', {
+                callId: call.callId,
+                toolName: call.name,
+                command,
+                cwd: workRoot,
+              });
+              verdict = await waitForApproval(requestId, call.callId, cts.token);
+            }
             if (verdict === 'approved') {
               ensureDir(workRoot);
-              const outcome = await executeCommand(
-                command,
-                workRoot,
-                cts.token,
-                typeof input.timeoutSeconds === 'number' ? input.timeoutSeconds : undefined,
-              );
+              const outcome =
+                input.background === true
+                  ? startBackgroundCommand(command, workRoot)
+                  : await executeCommand(
+                      command,
+                      workRoot,
+                      cts.token,
+                      typeof input.timeoutSeconds === 'number' ? input.timeoutSeconds : undefined,
+                      // shell persistente da conversa: cd/env sobrevivem entre comandos
+                      session.id,
+                    );
               ok = outcome.ok;
               content = outcome.content;
             } else {
@@ -776,6 +839,18 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     ...(respondedModelId ? { modelId: respondedModelId } : {}),
   });
 
+  // título gerado por modelo (como o Copilot): melhor esforço em background —
+  // se terminar enquanto o stream espera o usage_update, a UI atualiza na hora
+  if (isFirstExchange && modelForSummary && finishReason !== 'error') {
+    const assistantText = (savedAssistant?.parts ?? [])
+      .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n');
+    void generateTitle(session.id, args.text ?? '', assistantText, modelForSummary, (summary) =>
+      sse.send('session_update', { updatedSession: summary }),
+    );
+  }
+
   // custo real da resposta: delta dos credits da licença entre início e fim.
   // A contabilização do GitHub leva alguns segundos, então o done sai antes e
   // o stream fica aberto só para o usage_update. Sem delta dentro da janela
@@ -833,6 +908,55 @@ function summarySource(messages: ChatMessage[]): string {
  * background, melhor esforço). Rolling: aproveita o resumo anterior e
  * acrescenta só as mensagens que saíram do contexto desde então.
  */
+/**
+ * Título curto gerado por modelo (paridade com o Copilot Chat) — substitui a
+ * primeira linha truncada. Prefere um modelo incluído na licença (título não
+ * deve custar premium request); melhor esforço: falhou, fica o título atual.
+ */
+async function generateTitle(
+  sessionId: string,
+  userText: string,
+  assistantText: string,
+  fallbackModel: vscode.LanguageModelChat,
+  notify: (summary: SessionSummary) => void,
+): Promise<void> {
+  const prompt =
+    'Crie um título curto (máximo 6 palavras, em português, sem aspas e sem ponto final) para a ' +
+    'conversa abaixo. Responda SÓ o título.\n\n' +
+    `Usuário: ${clamp(userText, 1000)}` +
+    (assistantText ? `\nAssistente: ${clamp(assistantText, 500)}` : '');
+  const cts = new vscode.CancellationTokenSource();
+  const timer = setTimeout(() => cts.cancel(), 20_000);
+  try {
+    const models = await withTimeout(
+      vscode.lm.selectChatModels({ vendor: 'copilot' }),
+      3000,
+      NO_MODELS,
+    );
+    const model = models.find((m) => /gpt-4\.1|gpt-4o|gpt-5-mini/i.test(m.id)) ?? fallbackModel;
+    const response = await model.sendRequest(
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { justification: 'BMAD Product Studio — título da conversa' },
+      cts.token,
+    );
+    let title = '';
+    for await (const part of response.stream) {
+      if (part instanceof vscode.LanguageModelTextPart) title += part.value;
+    }
+    title = (title.trim().split('\n')[0] ?? '').replace(/^["“”']+|["“”'.]+$/g, '').trim();
+    if (!title || title.length > 80) return;
+    const updated = updateSession(sessionId, (s) => {
+      s.title = title;
+    });
+    if (updated) notify(toSummary(updated));
+  } catch {
+    // melhor esforço: mantém o título derivado da primeira linha
+  } finally {
+    clearTimeout(timer);
+    cts.dispose();
+  }
+}
+
 async function refreshHistorySummary(
   sessionId: string,
   pruned: ChatMessage[],

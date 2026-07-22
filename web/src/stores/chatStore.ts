@@ -50,7 +50,7 @@ interface ChatState {
    * de conversas em background — sem isso elas morrem ao fim da graça de 120s.
    */
   resumeAll: () => Promise<void>;
-  respondApproval: (sessionId: string, approved: boolean) => void;
+  respondApproval: (sessionId: string, approved: boolean, alwaysAllow?: string) => void;
   respondQuestion: (sessionId: string, answer: string) => void;
   stop: (sessionId: string) => void;
 }
@@ -232,6 +232,9 @@ export const useChat = create<ChatState>((set, get) => {
         // a resposta acabou: libera a conversa já — o stream segue aberto
         // só esperando o usage_update (credits reais medidos na cota)
         clearStream(sessionId);
+      },
+      onSessionUpdate: (data) => {
+        useSessions.getState().refreshSummary(data.updatedSession);
       },
       onUsageUpdate: (data) => {
         useSessions.getState().mutateSession(sessionId, (s) => ({
@@ -497,13 +500,13 @@ export const useChat = create<ChatState>((set, get) => {
       for (const id of sessionIds) void get().resume(id);
     },
 
-    respondApproval: (sessionId, approved) => {
+    respondApproval: (sessionId, approved, alwaysAllow) => {
       const stream = get().streams[sessionId];
       if (!stream?.requestId || !stream.pendingApproval) return;
       const { requestId, pendingApproval } = stream;
       // limpa já: o desfecho real chega no tool_result deste callId
       patchStream(sessionId, { pendingApproval: undefined });
-      api.respondApproval(requestId, pendingApproval.callId, approved).catch((err) => {
+      api.respondApproval(requestId, pendingApproval.callId, approved, alwaysAllow).catch((err) => {
         useUi.getState().toast((err as Error).message, 'error');
         // falha transitória (rede/servidor): devolve o card para tentar de novo.
         // 404 = expirou/já respondida em outra aba — aí não volta.

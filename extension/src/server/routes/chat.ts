@@ -8,6 +8,7 @@ import { cancelRequest } from '../../chat/activeRequests';
 import { ChatStream, activeSessionIds, activeStream, registerStream } from '../../chat/streamHub';
 import { resolveApproval } from '../../chat/approvals';
 import { resolveQuestion } from '../../chat/questions';
+import { getConfig, patchConfig } from '../../storage/configStore';
 import { getSession } from '../../storage/sessionStore';
 
 const MAX_ATTACHMENT_CHARS = UPLOAD_LIMITS.chatAttachmentChars;
@@ -117,10 +118,23 @@ export function registerChatRoutes(router: Router): void {
 
   // resposta da UI a um approval_request (comando do portal_run_command)
   router.post('/api/chat/:requestId/approval', ({ res, params, body }) => {
-    const { callId, approved } = (body ?? {}) as { callId?: string; approved?: boolean };
+    const { callId, approved, alwaysAllow } = (body ?? {}) as {
+      callId?: string;
+      approved?: boolean;
+      alwaysAllow?: string;
+    };
     if (!callId || typeof approved !== 'boolean') {
       sendError(res, 400, 'callId e approved são obrigatórios');
       return;
+    }
+    // "sempre permitir": grava o executável (1º token) na allowlist — as
+    // próximas execuções desse binário pulam a aprovação
+    const bin = typeof alwaysAllow === 'string' ? alwaysAllow.trim() : '';
+    if (approved && bin && !/\s/.test(bin) && bin.length <= 64) {
+      const current = getConfig().commandAllowlist ?? [];
+      if (!current.includes(bin)) {
+        patchConfig({ commandAllowlist: [...current, bin].slice(0, 100) });
+      }
     }
     const ok = resolveApproval(params.requestId, callId, approved);
     if (!ok) {

@@ -3,9 +3,9 @@ import { listAgents } from '../storage/agentStore';
 import { isBmadInstalled } from '../storage/paths';
 import {
   MODEL_RETRIES,
-  MODEL_RETRY_DELAY_MS,
   isTransientModelError,
   raceCancellation,
+  retryDelayMs,
   sleep,
 } from './retry';
 import {
@@ -191,8 +191,13 @@ export async function runSubagent(opts: {
             },
             opts.token,
           );
-          for await (const part of response.stream) {
-            if (opts.token.isCancellationRequested) break;
+          // iteração manual com corrida de cancelamento: um for await ficaria
+          // pendurado junto com o gateway e ignoraria o "Parar" do usuário
+          const iterator = response.stream[Symbol.asyncIterator]();
+          while (true) {
+            const next = await raceCancellation(iterator.next(), opts.token);
+            if (next.done || opts.token.isCancellationRequested) break;
+            const part = next.value;
             if (part instanceof vscode.LanguageModelTextPart) roundText += part.value;
             else if (part instanceof vscode.LanguageModelToolCallPart) roundCalls.push(part);
           }
@@ -205,7 +210,7 @@ export async function runSubagent(opts: {
           if (!canRetry) throw err;
           roundText = '';
           roundCalls = [];
-          await sleep(MODEL_RETRY_DELAY_MS * (attempt + 1));
+          await sleep(retryDelayMs(err, attempt));
         }
       }
       if (roundText) {

@@ -23,7 +23,7 @@ function effectiveEnabled(session?: Session, agent?: AgentPreset): string[] | nu
  */
 function builtinAvailable(name: string, session?: Session): boolean {
   if (BMAD_TOOL_NAMES.includes(name)) return isBmadInstalled();
-  if (name === 'portal_run_command') return shellAvailable();
+  if (name === 'portal_run_command' || name === 'portal_command_output') return shellAvailable();
   if (PROJECT_ONLY_TOOL_NAMES.includes(name)) return !session || !!session.projectId;
   return true;
 }

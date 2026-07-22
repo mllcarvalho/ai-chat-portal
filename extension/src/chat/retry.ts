@@ -9,7 +9,7 @@ export class ModelIdleTimeoutError extends Error {
   constructor(idleMs: number) {
     super(
       `O modelo ficou ${Math.round(idleMs / 1000)}s sem enviar progresso e a rodada foi abandonada. ` +
-        'Tente de novo em instantes.',
+        'Tente de novo em instantes; se estava gerando um arquivo muito grande, peça o conteúdo em partes menores.',
     );
   }
 }
@@ -20,6 +20,27 @@ export function isRateLimitError(err: unknown): boolean {
 }
 
 /**
+ * Sessão do Copilot vencida: o Copilot Chat troca o login do GitHub por um
+ * token de ~30 min e o renova sozinho, mas a renovação leva alguns segundos
+ * (e passa por api.github.com, que a rede corporativa às vezes atrasa). Vale
+ * retry com espera maior — reenviar na hora reusa o token vencido e falha.
+ */
+export function isTokenExpiredError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes('token expired or invalid') ||
+    (/\b(401|403)\b/.test(msg) && /token|auth/.test(msg))
+  );
+}
+
+/** Espera antes do retry: renovação de sessão demora mais que blip de gateway. */
+const TOKEN_RETRY_DELAY_MS = 4000;
+
+export function retryDelayMs(err: unknown, attempt: number): number {
+  return (isTokenExpiredError(err) ? TOKEN_RETRY_DELAY_MS : MODEL_RETRY_DELAY_MS) * (attempt + 1);
+}
+
+/**
  * Erros transitórios do gateway do Copilot (api.githubcopilot.com) que valem
  * retry: 5xx, 429, timeout e queda de conexão — típicos quando o backend do
  * modelo demora demais com um prompt grande. Erros de permissão/conteúdo não
@@ -27,6 +48,7 @@ export function isRateLimitError(err: unknown): boolean {
  */
 export function isTransientModelError(err: unknown): boolean {
   if (err instanceof ModelIdleTimeoutError) return true;
+  if (isTokenExpiredError(err)) return true;
   if (err instanceof vscode.LanguageModelError && err.code !== 'Unknown') return false;
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return (

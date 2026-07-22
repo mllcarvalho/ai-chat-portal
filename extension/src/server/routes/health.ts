@@ -7,6 +7,7 @@ import { withTimeout } from '../../util';
 import { getConfig } from '../../storage/configStore';
 import { getPortalRoot } from '../../storage/paths';
 import { envCheckDone, getEnvStatus } from '../../tools/envCheck';
+import { updateAvailable } from '../../updateCheck';
 import type { RouteDeps } from './index';
 
 export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
@@ -47,6 +48,8 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
       // omitido até a detecção da ativação terminar (evita aviso falso na UI)
       ...(envCheckDone() ? { env: getEnvStatus() } : {}),
     };
+    const update = updateAvailable(deps.version);
+    if (update) health.update = update;
     sendJson(res, 200, health);
   });
 

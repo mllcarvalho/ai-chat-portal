@@ -30,7 +30,20 @@ export function registerConfigRoutes(router: Router): void {
         extraCaCerts?: string;
       };
       microsoft?: { clientId?: string; tenant?: string };
+      commandAllowlist?: string[];
     };
+    // lista de executáveis liberados sem aprovação: só tokens simples
+    const commandAllowlist =
+      patch.commandAllowlist !== undefined
+        ? [
+            ...new Set(
+              patch.commandAllowlist
+                .filter((c): c is string => typeof c === 'string')
+                .map((c) => c.trim())
+                .filter((c) => c && !/\s/.test(c) && c.length <= 64),
+            ),
+          ].slice(0, 100)
+        : undefined;
     if (patch.projectsRoot !== undefined && !patch.projectsRoot.trim()) {
       sendError(res, 400, 'projectsRoot não pode ser vazio');
       return;
@@ -84,6 +97,7 @@ export function registerConfigRoutes(router: Router): void {
       ...(patch.projectsRoot ? { projectsRoot: patch.projectsRoot.trim() } : {}),
       ...(network ? { network } : {}),
       ...(microsoft ? { microsoft } : {}),
+      ...(commandAllowlist !== undefined ? { commandAllowlist } : {}),
     });
     const { token: _token, ...safe } = updated;
     sendJson(res, 200, safe);

@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { ArrowDown, ArrowUp, Copy, Paperclip, Pencil, Play, RefreshCw, TriangleAlert } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, History, Paperclip, Pencil, Play, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { ChatMessage, MessagePart } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
 import { useChat } from '../../stores/chatStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -94,6 +95,28 @@ export const MessageBubble = memo(function MessageBubble(props: {
               onClick={() => useUi.getState().seedComposer(text, message.id)}
             >
               <Pencil className="icon icon--sm" aria-hidden /> editar
+            </button>
+            <button
+              className="msg__action"
+              title="Desfaz todas as alterações de arquivos feitas desta mensagem em diante"
+              onClick={() => {
+                const sessionId = useSessions.getState().current?.id;
+                if (!sessionId) return;
+                void api.restoreFiles(sessionId, message.id).then(
+                  ({ reverted, files }) => {
+                    useUi.getState().toast(
+                      reverted
+                        ? `Arquivos restaurados (${files.length}): estado de antes desta mensagem.`
+                        : 'Nenhuma alteração de arquivo para desfazer a partir daqui.',
+                      reverted ? 'ok' : 'info',
+                    );
+                    if (reverted) useUi.getState().bumpFilesVersion();
+                  },
+                  (err: Error) => useUi.getState().toast(err.message, 'error'),
+                );
+              }}
+            >
+              <History className="icon icon--sm" aria-hidden /> restaurar arquivos
             </button>
           </div>
         )}

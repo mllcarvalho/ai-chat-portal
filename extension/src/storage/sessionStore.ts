@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Session, SessionMode, SessionSummary } from '@aiportal/shared';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
-import { PROJECT_META_DIR, sessionWorkspaceDir, sessionsDir } from './paths';
+import { PROJECT_META_DIR, sessionWorkspaceDir, sessionWorkspacesDir, sessionsDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
 
 function sessionsDirFor(projectId: string | null): string | undefined {
@@ -120,4 +120,33 @@ export function deleteSession(id: string): boolean {
     // melhor-esforço (ex: arquivo aberto no Windows); a pasta órfã não atrapalha
   }
   return true;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Remove workspaces órfãos — pastas de conversas que não existem mais (sobra
+ * de crash ou de versões antigas que não apagavam junto com a conversa).
+ * Chamado em background na ativação; só toca pastas com nome de UUID cuja
+ * sessão não é encontrada nem avulsa nem em projeto.
+ */
+export function cleanOrphanWorkspaces(): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(sessionWorkspacesDir(), { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !UUID_RE.test(entry.name)) continue;
+    if (findSessionFile(entry.name)) continue;
+    try {
+      fs.rmSync(path.join(sessionWorkspacesDir(), entry.name), { recursive: true, force: true });
+      removed++;
+    } catch {
+      // melhor-esforço; tenta de novo na próxima ativação
+    }
+  }
+  return removed;
 }

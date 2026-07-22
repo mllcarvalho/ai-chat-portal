@@ -184,10 +184,21 @@ export const api = {
     ),
   chatActiveAll: () => request<{ sessionIds: string[] }>('GET', '/api/chat/active-all'),
   editorContext: () => request<EditorContext>('GET', '/api/editor/context'),
-  respondApproval: (requestId: string, callId: string, approved: boolean) =>
-    request<{ ok: boolean }>('POST', `/api/chat/${requestId}/approval`, { callId, approved }),
+  respondApproval: (requestId: string, callId: string, approved: boolean, alwaysAllow?: string) =>
+    request<{ ok: boolean }>('POST', `/api/chat/${requestId}/approval`, {
+      callId,
+      approved,
+      ...(alwaysAllow ? { alwaysAllow } : {}),
+    }),
   respondQuestion: (requestId: string, callId: string, answer: string) =>
     request<{ ok: boolean }>('POST', `/api/chat/${requestId}/question`, { callId, answer }),
+  // reverte todos os checkpoints a partir de uma mensagem (restore de conversa)
+  restoreFiles: (sessionId: string, messageId: string) =>
+    request<{ ok: boolean; reverted: number; skipped: number; files: string[] }>(
+      'POST',
+      `/api/sessions/${sessionId}/restore-files`,
+      { messageId },
+    ),
   // desfaz uma mutação de ferramenta (botão "Reverter" do ToolCallCard)
   revertCheckpoint: (id: string) =>
     request<{ ok: boolean; message: string; files: string[] }>(
@@ -364,8 +375,8 @@ export const api = {
   purgeIuclick: () => request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/purge'),
   reauthIuclick: (creds: { cookies: string; token: string }) =>
     request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/credentials', creds),
-  autodetectIuclick: () =>
-    request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/autodetect'),
+  autodetectIuclick: (via?: 'browser') =>
+    request<{ ok: boolean; message: string }>('POST', '/api/mcp/iuclick/autodetect', via ? { via } : {}),
   setupGitHubMcp: () => request<McpServerInfo>('POST', '/api/mcp/github/setup'),
 
   listVsCodeAgents: () => request<VsCodeAgent[]>('GET', '/api/vscode-agents'),
@@ -427,8 +438,29 @@ export const api = {
       { kind, id },
     ),
 
+  // prompts/resources dos servidores MCP ligados (paridade com o Copilot)
+  listMcpPrompts: () =>
+    request<{
+      prompts: Array<{
+        server: string;
+        name: string;
+        title?: string;
+        description: string;
+        args: Array<{ name: string; required: boolean; description?: string }>;
+      }>;
+    }>('GET', '/api/mcp/prompts'),
+  getMcpPrompt: (server: string, name: string, args?: Record<string, string>) =>
+    request<{ text: string }>('POST', '/api/mcp/prompts/get', { server, name, args }),
+  listMcpResources: () =>
+    request<{
+      resources: Array<{ server: string; uri: string; name: string; description?: string }>;
+    }>('GET', '/api/mcp/resources'),
+  readMcpResource: (server: string, uri: string) =>
+    request<{ content: string }>('POST', '/api/mcp/resources/read', { server, uri }),
+
   getDiagnostics: () => request<DiagnosticsReport>('GET', '/api/diagnostics'),
   runDiagnostics: () => request<DiagnosticsReport>('POST', '/api/diagnostics/run'),
+  supportReport: () => request<{ text: string }>('GET', '/api/diagnostics/support-report'),
   fixDiagnostic: (id: string) =>
     request<{ ok: boolean; message: string; report: DiagnosticsReport }>(
       'POST',
@@ -441,5 +473,6 @@ export const api = {
     projectsRoot?: string;
     network?: NetworkConfig;
     microsoft?: MicrosoftGraphConfig;
+    commandAllowlist?: string[];
   }) => request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

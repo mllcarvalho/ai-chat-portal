@@ -9,8 +9,10 @@ import { registerBmadAssets, startBmadInstall } from './storage/bmadStore';
 import { loadConfig } from './storage/configStore';
 import { setSecretStore } from './storage/mcpProxyStore';
 import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths';
+import { cleanOrphanWorkspaces } from './storage/sessionStore';
 import { seedDefaultSkills } from './storage/skillStore';
 import { checkEnvironment } from './tools/envCheck';
+import { killAllBackground } from './tools/runCommand';
 import { autoStartEnabled, stopAll } from './tools/mcpManager';
 import { prepareUvOnStartup } from './tools/consumerLabSetup';
 import { resolveShellEnv } from './tools/netEnv';
@@ -125,8 +127,25 @@ function maybeOfferWarmup(context: vscode.ExtensionContext): void {
   });
 }
 
+/**
+ * O modo "Messages API" do Copilot Chat para modelos Anthropic muda como os
+ * modelos Claude respondem via vscode.lm e quebra o portal — precisa estar
+ * desligado em toda máquina que usa o portal. Grava no settings.json do
+ * usuário só quando ainda não está false (não fica regravando a cada boot).
+ */
+async function ensureAnthropicMessagesApiOff(): Promise<void> {
+  try {
+    const section = vscode.workspace.getConfiguration('github.copilot.chat.anthropic');
+    if (section.inspect<boolean>('useMessagesApi')?.globalValue === false) return;
+    await section.update('useMessagesApi', false, vscode.ConfigurationTarget.Global);
+  } catch {
+    // melhor esforço — sem essa config o portal ainda sobe
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   initPortalRoot(findPortalRoot());
+  void ensureAnthropicMessagesApiOff();
   let skillCreatorMd: string | undefined;
   try {
     skillCreatorMd = fs.readFileSync(
@@ -194,6 +213,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // deixa o uv pronto e no PATH permanente (transparente; ConsumerLab precisa dele)
       void prepareUvOnStartup();
     });
+    // fora do caminho crítico: sobras de workspace de conversas já excluídas
+    setTimeout(() => {
+      try {
+        cleanOrphanWorkspaces();
+      } catch {
+        // nunca derruba a ativação por causa de limpeza
+      }
+    }, 15_000);
     shutdownRef.close = () => {
       shutdownRef.close = () => {};
       // drena antes de fechar: gerações órfãs seguiriam gastando créditos e
@@ -258,6 +285,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): Promise<void> {
   clearRuntime();
+  // comandos em background do chat não podem sobreviver ao VS Code
+  killAllBackground();
   // aguardado pelo VS Code: dá tempo de matar os processos MCP filhos
   // (o dispose síncrono das subscriptions não espera o close de cada um)
   return stopAll();

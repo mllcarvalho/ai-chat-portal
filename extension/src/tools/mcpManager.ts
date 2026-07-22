@@ -45,6 +45,13 @@ interface McpToolDef {
   inputSchema?: unknown;
 }
 
+interface McpPromptSpec {
+  name: string;
+  title?: string;
+  description: string;
+  args: Array<{ name: string; required: boolean; description?: string }>;
+}
+
 interface ServerState {
   /** Entry sintética para http/stdio; nos proxies descreve só o gateway. */
   entry: McpServerEntry;
@@ -54,6 +61,8 @@ interface ServerState {
   error?: string;
   client?: Client;
   tools: McpToolDef[];
+  /** Prompts anunciados pelo servidor (capability prompts) — viram "/" no chat. */
+  prompts?: McpPromptSpec[];
   /** Estado do token OAuth (proxies). */
   tokenExpiresAt?: number;
   /** Start em andamento: chamadas concorrentes pegam carona em vez de duplicar o processo. */
@@ -400,6 +409,26 @@ async function doStartServer(name: string, state: ServerState): Promise<McpServe
       description: t.description ?? '',
       inputSchema: t.inputSchema,
     }));
+    // prompts do servidor (viram comandos "/" no chat, como no Copilot) —
+    // melhor esforço: servidor sem a capability (ou que trava) segue só com tools
+    state.prompts = [];
+    if (client.getServerCapabilities()?.prompts) {
+      try {
+        const listed = await withTimeout(client.listPrompts(), 8000, undefined);
+        state.prompts = (listed?.prompts ?? []).map((p) => ({
+          name: p.name,
+          title: typeof p.title === 'string' ? p.title : undefined,
+          description: p.description ?? '',
+          args: (p.arguments ?? []).map((a) => ({
+            name: a.name,
+            required: a.required === true,
+            description: a.description,
+          })),
+        }));
+      } catch {
+        // segue sem prompts
+      }
+    }
     state.status = 'running';
   } catch (err) {
     state.status = 'error';
@@ -419,6 +448,7 @@ export async function stopServer(name: string): Promise<McpServerInfo | undefine
   const client = state.client;
   state.client = undefined;
   state.tools = [];
+  state.prompts = [];
   state.status = 'stopped';
   state.error = undefined;
   state.tokenExpiresAt = undefined;
@@ -626,6 +656,94 @@ export function listRunningTools(): QualifiedTool[] {
 export function isMcpToolName(qualifiedName: string): boolean {
   if (!qualifiedIndex.size) listRunningTools();
   return qualifiedIndex.has(qualifiedName);
+}
+
+// --- Prompts e resources dos servidores (paridade com o Copilot Chat) ---------
+
+export interface McpPromptInfo extends McpPromptSpec {
+  server: string;
+}
+
+/** Prompts anunciados pelos servidores ligados (cacheados no start). */
+export function listMcpPrompts(): McpPromptInfo[] {
+  const out: McpPromptInfo[] = [];
+  for (const [name, state] of servers) {
+    if (state.status !== 'running') continue;
+    for (const prompt of state.prompts ?? []) out.push({ server: name, ...prompt });
+  }
+  return out;
+}
+
+/** Resolve um prompt no servidor e devolve o texto concatenado das mensagens. */
+export async function getMcpPromptText(
+  server: string,
+  name: string,
+  args: Record<string, string>,
+): Promise<string> {
+  const state = servers.get(server);
+  if (!state?.client || state.status !== 'running') {
+    throw new Error(`O servidor MCP "${server}" está desligado`);
+  }
+  const result = await state.client.getPrompt({ name, arguments: args });
+  const texts: string[] = [];
+  for (const message of result.messages ?? []) {
+    const content = message.content as { type?: string; text?: string } | undefined;
+    if (content?.type === 'text' && typeof content.text === 'string') texts.push(content.text);
+  }
+  if (!texts.length) throw new Error(`O prompt "${name}" não retornou texto`);
+  return texts.join('\n\n');
+}
+
+export interface McpResourceInfo {
+  server: string;
+  uri: string;
+  name: string;
+  description?: string;
+}
+
+const RESOURCE_LIST_CAP = 200;
+
+/** Resources dos servidores ligados (consultados na hora; melhor esforço). */
+export async function listMcpResources(): Promise<McpResourceInfo[]> {
+  const out: McpResourceInfo[] = [];
+  for (const [name, state] of servers) {
+    if (out.length >= RESOURCE_LIST_CAP) break;
+    if (state.status !== 'running' || !state.client) continue;
+    if (!state.client.getServerCapabilities()?.resources) continue;
+    try {
+      const listed = await withTimeout(state.client.listResources(), 8000, undefined);
+      for (const resource of listed?.resources ?? []) {
+        if (out.length >= RESOURCE_LIST_CAP) break;
+        out.push({
+          server: name,
+          uri: resource.uri,
+          name: typeof resource.name === 'string' && resource.name ? resource.name : resource.uri,
+          description: resource.description,
+        });
+      }
+    } catch {
+      // servidor sem suporte real ou lento — segue com os demais
+    }
+  }
+  return out;
+}
+
+/** Lê um resource e devolve o conteúdo textual (binário não é suportado). */
+export async function readMcpResource(server: string, uri: string): Promise<string> {
+  const state = servers.get(server);
+  if (!state?.client || state.status !== 'running') {
+    throw new Error(`O servidor MCP "${server}" está desligado`);
+  }
+  const result = await state.client.readResource({ uri });
+  const texts: string[] = [];
+  for (const content of result.contents ?? []) {
+    const c = content as { text?: unknown };
+    if (typeof c.text === 'string') texts.push(c.text);
+  }
+  if (!texts.length) {
+    throw new Error('O recurso não tem conteúdo textual (binário não é suportado como anexo)');
+  }
+  return texts.join('\n\n');
 }
 
 function extractText(result: Awaited<ReturnType<Client['callTool']>>, toolName: string): string {

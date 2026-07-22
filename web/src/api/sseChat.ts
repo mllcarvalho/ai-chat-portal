@@ -14,6 +14,8 @@ export interface ChatStreamHandlers {
   onDone: (data: ChatSseEvents['done']) => void;
   /** Chega depois do done: credits reais medidos na cota da licença. */
   onUsageUpdate: (data: ChatSseEvents['usage_update']) => void;
+  /** Chega depois do done: metadados da sessão (ex.: título gerado pelo modelo). */
+  onSessionUpdate: (data: ChatSseEvents['session_update']) => void;
   onError: (data: ChatSseEvents['error']) => void;
 }
 
@@ -88,6 +90,9 @@ async function readSseStream(body: ReadableStream<Uint8Array>, handlers: ChatStr
         break;
       case 'usage_update':
         handlers.onUsageUpdate(data as ChatSseEvents['usage_update']);
+        break;
+      case 'session_update':
+        handlers.onSessionUpdate(data as ChatSseEvents['session_update']);
         break;
       case 'error':
         handlers.onError(data as ChatSseEvents['error']);

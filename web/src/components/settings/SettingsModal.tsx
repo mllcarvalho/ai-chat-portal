@@ -184,6 +184,38 @@ export function SettingsModal() {
         </div>
       )}
 
+      {(config?.commandAllowlist?.length ?? 0) > 0 && (
+        <div className="field">
+          <label>Comandos sempre permitidos</label>
+          <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+            Executáveis liberados pelo "Sempre permitir" — rodam sem pedir aprovação no chat.
+            Clique para remover.
+          </span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {config?.commandAllowlist?.map((bin) => (
+              <button
+                key={bin}
+                className="btn btn--sm btn--ghost"
+                title={`Voltar a pedir aprovação para "${bin}"`}
+                onClick={() =>
+                  void api
+                    .patchConfig({
+                      commandAllowlist: (config?.commandAllowlist ?? []).filter((b) => b !== bin),
+                    })
+                    .then((updated) => {
+                      setConfig(updated);
+                      toast(`"${bin}" voltará a pedir aprovação.`, 'ok');
+                    })
+                    .catch((err) => toast((err as Error).message, 'error'))
+                }
+              >
+                {bin} ✕
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="field">
         <label>Rede corporativa (proxy)</label>
         <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
