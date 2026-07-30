@@ -145,6 +145,14 @@ export function ChatHeader() {
     premium && !premium.unlimited ? Math.max(0, premium.entitlement - premium.remaining) : undefined;
   // credits da conversa: soma o custo real medido por resposta; para mensagens
   // antigas sem medição, estima por requisições × multiplicador (quando havia)
+  // o painel de AI credits mede a licença do Copilot — não faz sentido em
+  // conversa de outro motor, que tem unidade de cobrança própria (ou nenhuma)
+  const isCopilot = sessionProvider === 'copilot';
+  // motores de CLI reportam dólares por resposta em vez de créditos
+  const conversationCostUsd = session.messages.reduce<number | undefined>((acc, m) => {
+    if (m.usage?.costUsd === undefined) return acc;
+    return (acc ?? 0) + m.usage.costUsd;
+  }, undefined);
   const conversationCredits = session.messages.reduce<number | undefined>((acc, m) => {
     if (!m.usage) return acc;
     if (m.usage.credits !== undefined) return (acc ?? 0) + m.usage.credits;
@@ -411,13 +419,19 @@ export function ChatHeader() {
           <button
             className="pill-btn"
             onClick={toggle}
-            title="Quanto esta conversa já consumiu e quanto ainda resta do seu pacote mensal de AI credits do Copilot"
+            title={
+              isCopilot
+                ? 'Quanto esta conversa já consumiu e quanto ainda resta do seu pacote mensal de AI credits do Copilot'
+                : `Quanto esta conversa já consumiu no motor ${currentProvider?.label ?? ''}`.trim()
+            }
           >
             <Zap className="icon" aria-hidden style={{ color: '#dd9a00' }} fill="currentColor" />{' '}
             {totalTokens ? `${formatTokens(totalTokens)} tok` : 'Uso'}
-            {creditsUsed !== undefined && premium
+            {isCopilot && creditsUsed !== undefined && premium
               ? ` · ${formatCredits(creditsUsed)}/${premium.entitlement}`
-              : ''}
+              : !isCopilot && conversationCostUsd !== undefined
+                ? ` · US$ ${conversationCostUsd.toFixed(2)}`
+                : ''}
           </button>
         )}
       >
@@ -443,7 +457,7 @@ export function ChatHeader() {
                 </span>
                 <strong>{totals.requests}</strong>
               </div>
-              {conversationCredits !== undefined && (
+              {isCopilot && conversationCredits !== undefined && (
                 <div className="usage-pop__row">
                   <span title="Quanto esta conversa já gastou do seu pacote mensal de AI credits">
                     AI credits da conversa
@@ -451,8 +465,31 @@ export function ChatHeader() {
                   <strong>{formatCredits(conversationCredits)}</strong>
                 </div>
               )}
+              {!isCopilot && conversationCostUsd !== undefined && (
+                <div className="usage-pop__row">
+                  <span title="Custo somado das respostas, conforme reportado pela CLI deste motor">
+                    Custo da conversa
+                  </span>
+                  <strong>US$ {conversationCostUsd.toFixed(4)}</strong>
+                </div>
+              )}
             </div>
-            <div className="dropdown__sep" />
+            {!isCopilot && (
+              <>
+                <div className="dropdown__sep" />
+                <div className="usage-pop__section">
+                  <div className="dropdown__label">
+                    {currentProvider?.label ?? 'Motor'}
+                  </div>
+                  <div className="usage-pop__hint">
+                    Esta conversa não usa a licença do Copilot — o consumo é cobrado pelo
+                    próprio {currentProvider?.label ?? 'motor'}.
+                  </div>
+                </div>
+              </>
+            )}
+            {isCopilot && (
+            <><div className="dropdown__sep" />
             <div className="usage-pop__section">
               <div className="dropdown__label">AI credits (premium requests)</div>
               {premium ? (
@@ -522,6 +559,8 @@ export function ChatHeader() {
               mensal, e o gasto varia com o modelo escolhido e o tamanho da conversa. O valor
               mostrado é medido direto na sua licença (saldo antes − depois de cada resposta).
             </div>
+            </>
+            )}
           </div>
         )}
       </Dropdown>

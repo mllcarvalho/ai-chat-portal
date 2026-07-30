@@ -13,6 +13,7 @@ import { ensureDir } from '../../storage/paths';
 import { resolveInProject } from '../../tools/builtinTools';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
+import { findBin } from '../../tools/findBin';
 import { waitForApproval } from '../approvals';
 import { AcpClient, AcpProcessError } from './acpClient';
 import { portalMcpServer } from './portalMcp';
@@ -60,12 +61,12 @@ function clamp(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit)}\n… (truncado)`;
 }
 
-function probe(args: string[]): Promise<string | undefined> {
+function probe(bin: string, args: string[]): Promise<string | undefined> {
   return new Promise((resolve) => {
     let out = '';
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(BIN, args, { env: { ...process.env, ...netProcessEnv() } });
+      child = spawn(bin, args, { env: { ...process.env, ...netProcessEnv() } });
     } catch {
       return resolve(undefined);
     }
@@ -87,16 +88,29 @@ function probe(args: string[]): Promise<string | undefined> {
 }
 
 const VERSION_TTL_MS = 20_000;
-let versionCache: { at: number; value: string | undefined } | undefined;
+/** Negativo expira rápido: instalar a CLI não deve exigir esperar a janela toda. */
+const MISS_TTL_MS = 5_000;
+let versionCache: { at: number; value: string | undefined; bin?: string } | undefined;
+
+/** Caminho absoluto da CLI nesta máquina (undefined = não instalada). */
+async function devinBinPath(): Promise<string | undefined> {
+  await cliVersion();
+  return versionCache?.bin;
+}
 
 async function cliVersion(): Promise<string | undefined> {
-  if (versionCache && Date.now() - versionCache.at < VERSION_TTL_MS) return versionCache.value;
+  const ttl = versionCache?.value ? VERSION_TTL_MS : MISS_TTL_MS;
+  if (versionCache && Date.now() - versionCache.at < ttl) return versionCache.value;
+  // caminho absoluto: o PATH do host da extensão pode não ter o binário
+  const bin = await findBin(BIN);
   let value: string | undefined;
-  for (const args of PROBES) {
-    value = await probe(args);
-    if (value) break;
+  if (bin) {
+    for (const args of PROBES) {
+      value = await probe(bin, args);
+      if (value) break;
+    }
   }
-  versionCache = { at: Date.now(), value };
+  versionCache = { at: Date.now(), value, bin };
   return value;
 }
 
@@ -269,7 +283,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   };
 
   const client = new AcpClient({
-    command: BIN,
+    command: (await devinBinPath()) ?? BIN,
     args: ['acp'],
     cwd: ctx.workRoot,
     // netProcessEnv devolve só o overlay de rede — sem process.env o filho
@@ -560,7 +574,7 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
   let text = '';
 
   const client = new AcpClient({
-    command: BIN,
+    command: (await devinBinPath()) ?? BIN,
     args: ['acp'],
     cwd: req.workRoot,
     env: { ...process.env, ...netProcessEnv() },

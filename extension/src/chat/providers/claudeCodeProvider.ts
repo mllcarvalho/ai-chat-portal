@@ -10,6 +10,7 @@ import type {
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
+import { findBin } from '../../tools/findBin';
 import { portalMcpServer } from './portalMcp';
 import { skillCatalogBlock } from './skillCatalog';
 import type {
@@ -141,22 +142,38 @@ function childEnv(): NodeJS.ProcessEnv {
  * é recarregado a cada boot da UI — sem cache seria um spawn por consulta.
  */
 const VERSION_TTL_MS = 20_000;
-let versionCache: { at: number; value: string | undefined } | undefined;
+/**
+ * Resultado negativo expira rápido: o usuário que acabou de instalar a CLI (ou
+ * cujo PATH só ficou pronto depois do boot) não deve esperar a janela inteira
+ * para o portal reconhecê-la.
+ */
+const MISS_TTL_MS = 5_000;
+let versionCache: { at: number; value: string | undefined; bin?: string } | undefined;
+
+/** Caminho absoluto da CLI nesta máquina (undefined = não instalada). */
+export async function claudeBinPath(): Promise<string | undefined> {
+  await cliVersion();
+  return versionCache?.bin;
+}
 
 async function cliVersion(): Promise<string | undefined> {
-  if (versionCache && Date.now() - versionCache.at < VERSION_TTL_MS) return versionCache.value;
-  const value = await probeVersion();
-  versionCache = { at: Date.now(), value };
+  const ttl = versionCache?.value ? VERSION_TTL_MS : MISS_TTL_MS;
+  if (versionCache && Date.now() - versionCache.at < ttl) return versionCache.value;
+  // caminho absoluto: o PATH do host da extensão pode não ter o binário mesmo
+  // com ele instalado (VS Code aberto pela GUI)
+  const bin = await findBin(BIN);
+  const value = bin ? await probeVersion(bin) : undefined;
+  versionCache = { at: Date.now(), value, bin };
   return value;
 }
 
-/** Roda `claude --version` só para saber se a CLI existe e está no PATH. */
-function probeVersion(): Promise<string | undefined> {
+/** Roda `claude --version` só para confirmar que a CLI responde. */
+function probeVersion(bin: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     let out = '';
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(BIN, ['--version'], { env: childEnv() });
+      child = spawn(bin, ['--version'], { env: childEnv() });
     } catch {
       return resolve(undefined);
     }
@@ -359,9 +376,11 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   ensureDir(ctx.workRoot);
 
   const args = buildArgs(ctx);
+  // caminho absoluto: o PATH do host da extensão pode não ter o binário
+  const bin = (await claudeBinPath()) ?? BIN;
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(BIN, args, { cwd: ctx.workRoot, env: childEnv() });
+    child = spawn(bin, args, { cwd: ctx.workRoot, env: childEnv() });
   } catch (err) {
     throw new ClaudeCliError(
       'Não foi possível iniciar o Claude Code.',
@@ -671,10 +690,11 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
     args.push('--append-system-prompt', req.persona);
   }
 
+  const bin = (await claudeBinPath()) ?? BIN;
   return new Promise<SubagentOutcome>((resolve) => {
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(BIN, args, { cwd: req.workRoot, env: childEnv() });
+      child = spawn(bin, args, { cwd: req.workRoot, env: childEnv() });
     } catch (err) {
       return resolve({
         ok: false,
