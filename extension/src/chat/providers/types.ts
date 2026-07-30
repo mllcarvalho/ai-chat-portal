@@ -53,6 +53,13 @@ export interface TurnContext {
   parts: MessagePart[];
   /** Idem: o shell lê no fim, o provider vai somando durante o turno. */
   usage: TokenUsage;
+  /**
+   * Modelo que de fato respondeu, preenchido assim que o provider o resolve.
+   * Existe além do `modelId` do TurnResult porque um turno que termina em
+   * exceção não devolve resultado — e a mensagem parcial ainda precisa
+   * registrar qual modelo estava respondendo.
+   */
+  respondedModelId?: string;
 }
 
 export interface TurnResult {
@@ -97,4 +104,32 @@ export interface ChatProvider {
    * Provider que não implementa mantém o título derivado da primeira linha.
    */
   generateTitle?(ctx: TurnContext, assistantText: string): Promise<string | undefined>;
+
+  /**
+   * Um subagente do party mode: conversa independente, com persona e tarefa
+   * próprias e SÓ ferramentas de leitura, cujo texto final volta como
+   * resultado da ferramenta. Provider sem isto não oferece party mode.
+   */
+  runSubagent?(req: SubagentRequest): Promise<SubagentOutcome>;
+}
+
+/** Pedido de subagente, já com a persona resolvida pelo chamador. */
+export interface SubagentRequest {
+  /** Instruções da persona (vazio = subagente genérico). */
+  persona?: string;
+  task: string;
+  label?: string;
+  /** Modelo pedido pelo chamador; cada provider interpreta no catálogo dele. */
+  modelId?: string;
+  workRoot: string;
+  sessionId: string;
+  projectId: string;
+  agentBaseIds: string[];
+  token: vscode.CancellationToken;
+}
+
+export interface SubagentOutcome {
+  ok: boolean;
+  content: string;
+  usage: { inputTokens: number; outputTokens: number; requests: number };
 }

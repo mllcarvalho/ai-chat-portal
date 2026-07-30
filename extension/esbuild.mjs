@@ -29,9 +29,24 @@ const ctx = await esbuild.context({
   logLevel: 'info',
 });
 
+// Servidor MCP do portal: processo à parte, spawnado pelas CLIs agênticas
+// (Claude Code, Devin) para que elas enxerguem as ferramentas do portal com os
+// mesmos nomes. Precisa ser um bundle próprio porque o .vsix não leva
+// node_modules — o SDK do MCP tem que estar embutido no arquivo.
+const mcpCtx = await esbuild.context({
+  entryPoints: [join(root, 'src', 'mcp', 'portalMcpServer.ts')],
+  outfile: join(root, 'dist', 'portal-mcp-server.cjs'),
+  bundle: true,
+  platform: 'node',
+  target: 'node18',
+  format: 'cjs',
+  sourcemap: false,
+  logLevel: 'info',
+});
+
 if (watch) {
-  await ctx.watch();
+  await Promise.all([ctx.watch(), mcpCtx.watch()]);
 } else {
-  await ctx.rebuild();
-  await ctx.dispose();
+  await Promise.all([ctx.rebuild(), mcpCtx.rebuild()]);
+  await Promise.all([ctx.dispose(), mcpCtx.dispose()]);
 }

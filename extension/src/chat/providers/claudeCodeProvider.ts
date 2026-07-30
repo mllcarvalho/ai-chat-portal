@@ -10,7 +10,17 @@ import type {
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
-import type { ChatProvider, TurnContext, TurnResult } from './types';
+import { findBin } from '../../tools/findBin';
+import { portalMcpServer } from './portalMcp';
+import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
+import { historyReplayBlock } from './history';
+import type {
+  ChatProvider,
+  SubagentOutcome,
+  SubagentRequest,
+  TurnContext,
+  TurnResult,
+} from './types';
 
 /**
  * Ao contrário do Copilot, aqui o portal NÃO é dono do loop agêntico: o
@@ -102,16 +112,21 @@ const CAPABILITIES = {
   // instruções do agente/projeto e skills viram --append-system-prompt
   skills: true,
   knowledge: true,
-  // o Claude Code usa a própria configuração de MCP, não a do portal
-  mcp: false,
-  // as ferramentas são as embutidas da CLI; o liga/desliga do portal não vale
-  toolToggles: false,
+  // os MCPs do portal chegam PROXIADOS pelo servidor MCP do portal: a conexão
+  // e as credenciais ficam do lado do portal, a CLI só vê as ferramentas
+  mcp: true,
+  // o catálogo vem do mesmo getEnabledToolDefs do Copilot, então o liga/desliga
+  // da conversa e do agente valem igual
+  toolToggles: true,
   agents: true,
   // ask/plan/agent viram --tools ""/--permission-mode plan/acceptEdits
   modes: true,
   // a CLI lê os arquivos sozinha (cwd = pasta do projeto); só apontamos quais
   contextFiles: true,
   cost: true,
+  // as ferramentas que o adaptador do BMAD invoca chegam pelo servidor MCP do
+  // portal (--mcp-config), com os mesmos nomes do loop do Copilot
+  bmad: true,
 } as const;
 
 /**
@@ -128,22 +143,38 @@ function childEnv(): NodeJS.ProcessEnv {
  * é recarregado a cada boot da UI — sem cache seria um spawn por consulta.
  */
 const VERSION_TTL_MS = 20_000;
-let versionCache: { at: number; value: string | undefined } | undefined;
+/**
+ * Resultado negativo expira rápido: o usuário que acabou de instalar a CLI (ou
+ * cujo PATH só ficou pronto depois do boot) não deve esperar a janela inteira
+ * para o portal reconhecê-la.
+ */
+const MISS_TTL_MS = 5_000;
+let versionCache: { at: number; value: string | undefined; bin?: string } | undefined;
+
+/** Caminho absoluto da CLI nesta máquina (undefined = não instalada). */
+export async function claudeBinPath(): Promise<string | undefined> {
+  await cliVersion();
+  return versionCache?.bin;
+}
 
 async function cliVersion(): Promise<string | undefined> {
-  if (versionCache && Date.now() - versionCache.at < VERSION_TTL_MS) return versionCache.value;
-  const value = await probeVersion();
-  versionCache = { at: Date.now(), value };
+  const ttl = versionCache?.value ? VERSION_TTL_MS : MISS_TTL_MS;
+  if (versionCache && Date.now() - versionCache.at < ttl) return versionCache.value;
+  // caminho absoluto: o PATH do host da extensão pode não ter o binário mesmo
+  // com ele instalado (VS Code aberto pela GUI)
+  const bin = await findBin(BIN);
+  const value = bin ? await probeVersion(bin) : undefined;
+  versionCache = { at: Date.now(), value, bin };
   return value;
 }
 
-/** Roda `claude --version` só para saber se a CLI existe e está no PATH. */
-function probeVersion(): Promise<string | undefined> {
+/** Roda `claude --version` só para confirmar que a CLI responde. */
+function probeVersion(bin: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     let out = '';
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(BIN, ['--version'], { env: childEnv() });
+      child = spawn(bin, ['--version'], { env: childEnv() });
     } catch {
       return resolve(undefined);
     }
@@ -169,8 +200,30 @@ function probeVersion(): Promise<string | undefined> {
  * --append-system-prompt (soma ao system prompt padrão do Claude Code em vez
  * de substituí-lo, para não perder o comportamento de ferramentas dele).
  */
-function buildSystemPrompt(ctx: TurnContext): string | undefined {
+/**
+ * O Claude Code publica ferramentas de MCP com o prefixo do servidor
+ * (`bmad_read_file` vira `mcp__portal__bmad_read_file`). O adaptador do BMAD
+ * cita os nomes SEM prefixo em dezenas de lugares — sem esta nota o agente
+ * teria que adivinhar a correspondência a cada workflow.
+ */
+const MCP_PREFIX_NOTE =
+  '# Ferramentas do portal\n\n' +
+  'As ferramentas do portal estão disponíveis com o prefixo `mcp__portal__`. ' +
+  'Sempre que uma instrução, persona ou workflow mencionar uma ferramenta pelo nome ' +
+  '(`portal_write_file`, `portal_read_file`, `portal_run_command`, `bmad_read_file`, ' +
+  '`bmad_list_files` etc.), use a versão prefixada — por exemplo, `portal_write_file` ' +
+  'é `mcp__portal__portal_write_file`. Prefira essas ferramentas às suas próprias ' +
+  '(Read/Write/Edit/Bash) quando a instrução pedir uma delas pelo nome: elas gravam na ' +
+  'pasta certa da conversa e registram checkpoints que o usuário pode reverter.';
+
+function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | undefined {
   const blocks: string[] = [];
+  if (hasPortalTools) blocks.push(MCP_PREFIX_NOTE);
+  // sem --resume a CLI não conhece a conversa: devolve o que já aconteceu
+  if (!ctx.session.providerSessionId) {
+    const history = historyReplayBlock(ctx);
+    if (history) blocks.push(history);
+  }
   if (ctx.project?.instructions?.trim()) {
     blocks.push(`# Instruções do projeto "${ctx.project.name}"\n\n${ctx.project.instructions.trim()}`);
   }
@@ -179,6 +232,12 @@ function buildSystemPrompt(ctx: TurnContext): string | undefined {
   }
   for (const skill of ctx.instructionSkills) {
     blocks.push(`# Skill: ${skill.name}\n\n${skill.content}`);
+  }
+  // /comando: só faz sentido com portal_load_skill disponível para buscar o
+  // conteúdo, e ela vem do servidor MCP do portal
+  if (hasPortalTools) {
+    const catalog = skillCatalogBlock(ctx);
+    if (catalog) blocks.push(catalog);
   }
   // base de conhecimento: o índice basta quando a CLI pode abrir os arquivos
   const knowledge = collectKnowledgeContext(
@@ -208,7 +267,8 @@ function buildSystemPrompt(ctx: TurnContext): string | undefined {
 
 /** Mensagem do usuário deste turno, com os anexos colados no fim. */
 function buildPrompt(ctx: TurnContext): string {
-  const parts = [ctx.text];
+  // a CLI tem namespace próprio de barra e engoliria o /comando do portal
+  const parts = [rewriteSlashCommand(ctx)];
   for (const att of ctx.attachments) {
     parts.push(`\n\n--- Anexo: ${att.name} ---\n${clamp(att.content, ATTACHMENT_CLAMP)}`);
   }
@@ -237,24 +297,50 @@ function buildArgs(ctx: TurnContext): string[] {
     args.push('--model', modelId);
   }
 
-  // os modos do portal mapeiam nos modos de permissão da CLI
+  // Modos do portal. O `--permission-mode plan` da CLI NÃO é usado: ele
+  // bloqueia toda ferramenta MCP (mesmo as de leitura, e mesmo com
+  // --allowedTools), então o plan ficaria sem as ferramentas do portal. A
+  // restrição de leitura vem do catálogo — getEnabledToolDefs já filtra para
+  // as read-only quando a sessão está em plan — e `--tools ""` tira as nativas
+  // da CLI, que não conhecem essa regra.
   switch (ctx.session.mode) {
     case 'ask':
-      // pergunta/resposta pura: sem ferramenta nenhuma
+      // pergunta/resposta pura: o portal também não publica nada em ask
       args.push('--tools', '');
       break;
     case 'plan':
-      args.push('--permission-mode', 'plan');
+      args.push('--tools', '');
+      args.push('--permission-mode', 'acceptEdits');
       break;
     case 'agent':
     default:
-      // edições dentro da pasta do projeto seguem sem perguntar; a aprovação
-      // por comando ainda não passa pela UI do portal (ver runTurn)
       args.push('--permission-mode', 'acceptEdits');
       break;
   }
 
-  const systemPrompt = buildSystemPrompt(ctx);
+  // ferramentas do portal (é o que faz o BMAD rodar aqui). --strict-mcp-config
+  // NÃO é usado de propósito: os MCPs que o usuário já configurou na CLI dele
+  // continuam valendo, o do portal apenas se soma a eles.
+  const portal = portalMcpServer(ctx.session.id);
+  if (portal) {
+    args.push(
+      '--mcp-config',
+      JSON.stringify({
+        mcpServers: {
+          portal: { command: portal.command, args: portal.args, env: portal.env },
+        },
+      }),
+    );
+    // Sem isto a CLI pede permissão para cada ferramenta MCP — e em modo
+    // --print não existe prompt para responder, então a chamada só falha
+    // ("requested permissions ... but you haven't granted it yet").
+    // Liberar é correto: quem decide o que precisa de aprovação é o PORTAL,
+    // que já abre o diálogo dele no portal_run_command e aplica o
+    // liga/desliga de ferramentas da conversa.
+    args.push('--allowedTools', 'mcp__portal__*');
+  }
+
+  const systemPrompt = buildSystemPrompt(ctx, !!portal);
   if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
 
   return args;
@@ -308,9 +394,11 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   ensureDir(ctx.workRoot);
 
   const args = buildArgs(ctx);
+  // caminho absoluto: o PATH do host da extensão pode não ter o binário
+  const bin = (await claudeBinPath()) ?? BIN;
   let child: ChildProcessWithoutNullStreams;
   try {
-    child = spawn(BIN, args, { cwd: ctx.workRoot, env: childEnv() });
+    child = spawn(bin, args, { cwd: ctx.workRoot, env: childEnv() });
   } catch (err) {
     throw new ClaudeCliError(
       'Não foi possível iniciar o Claude Code.',
@@ -557,6 +645,8 @@ export const claudeCodeProvider: ChatProvider = {
   id: 'claude-code',
   runTurn,
   mapError,
+  runSubagent: runSubagentTurn,
+  generateTitle,
   async listModels(): Promise<ModelInfo[]> {
     return (await cliVersion()) ? MODELS : [];
   },
@@ -573,3 +663,158 @@ export const claudeCodeProvider: ChatProvider = {
     };
   },
 };
+
+/**
+ * Subagente do party mode rodando no próprio Claude Code.
+ *
+ * Um subagente é uma conversa isolada: persona + tarefa, só ferramentas de
+ * LEITURA, e o texto final volta como resultado. Nada disso é específico do
+ * Copilot — daí a implementação aqui. As ferramentas vêm do servidor MCP do
+ * portal em escopo `subagent`, e `--tools ""` desliga as nativas da CLI para
+ * que o subagente enxergue exatamente o mesmo conjunto do subagente do
+ * Copilot (sem escrita, sem shell).
+ */
+async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
+  const usage = { inputTokens: 0, outputTokens: 0, requests: 0 };
+  const args = [
+    '--print',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    // conversa nova a cada subagente: sem --resume, sem contaminar a principal
+    '--no-session-persistence',
+    '--tools',
+    '',
+    // Nada a aprovar: --tools "" tira as ferramentas nativas e o servidor MCP
+    // roda em escopo `subagent`, que só publica as de LEITURA. O modo `plan`
+    // parece mais seguro mas bloqueia toda ferramenta MCP (a CLI não sabe que
+    // são read-only), e o subagente terminava sem conseguir ler nada.
+    '--permission-mode',
+    'bypassPermissions',
+  ];
+  const modelId = req.modelId;
+  if (modelId && modelId !== CLI_DEFAULT_MODEL && MODELS.some((m) => m.id === modelId)) {
+    args.push('--model', modelId);
+  }
+  const portal = portalMcpServer(req.sessionId, 'subagent');
+  if (portal) {
+    args.push(
+      '--mcp-config',
+      JSON.stringify({
+        mcpServers: { portal: { command: portal.command, args: portal.args, env: portal.env } },
+      }),
+    );
+    args.push('--append-system-prompt', `${req.persona ?? ''}\n\n${MCP_PREFIX_NOTE}`.trim());
+  } else if (req.persona) {
+    args.push('--append-system-prompt', req.persona);
+  }
+
+  const bin = (await claudeBinPath()) ?? BIN;
+  return new Promise<SubagentOutcome>((resolve) => {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(bin, args, { cwd: req.workRoot, env: childEnv() });
+    } catch (err) {
+      return resolve({
+        ok: false,
+        content: err instanceof Error ? err.message : String(err),
+        usage,
+      });
+    }
+    const cancel = req.token.onCancellationRequested(() => child.kill('SIGTERM'));
+    let text = '';
+    let stderr = '';
+    const rl = readline.createInterface({ input: child.stdout });
+    rl.on('line', (line) => {
+      const t = line.trim();
+      if (!t.startsWith('{')) return;
+      try {
+        const evt = JSON.parse(t) as CliEvent & { total_cost_usd?: number };
+        if (evt.type === 'assistant') {
+          for (const raw of evt.message?.content ?? []) {
+            const b = raw as { type?: string; text?: string };
+            if (b.type === 'text' && b.text) text += b.text;
+          }
+        } else if (evt.type === 'result') {
+          const u = evt.usage ?? {};
+          usage.inputTokens +=
+            (u.input_tokens ?? 0) +
+            (u.cache_creation_input_tokens ?? 0) +
+            (u.cache_read_input_tokens ?? 0);
+          usage.outputTokens += u.output_tokens ?? 0;
+          usage.requests += evt.num_turns ?? 1;
+        }
+      } catch {
+        // linha não-JSON no meio do stream
+      }
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+      if (stderr.length > 8 * 1024) stderr = stderr.slice(-8 * 1024);
+    });
+    // nunca rejeita: o chamador dispara vários em paralelo
+    child.on('error', (err) => {
+      cancel.dispose();
+      rl.close();
+      resolve({ ok: false, content: err.message, usage });
+    });
+    child.on('close', (code) => {
+      cancel.dispose();
+      rl.close();
+      if (text.trim()) return resolve({ ok: true, content: text.trim(), usage });
+      resolve({
+        ok: false,
+        content:
+          stderr.trim().split('\n').slice(-3).join('\n') ||
+          `O subagente encerrou sem resposta (código ${code}).`,
+        usage,
+      });
+    });
+    child.stdin.end(req.task);
+  });
+}
+
+/**
+ * Título curto gerado por modelo, paridade com o Copilot. Usa haiku e nenhuma
+ * ferramenta: é uma chamada barata e isolada, que não pode tocar a sessão da
+ * conversa (--no-session-persistence).
+ */
+async function generateTitle(
+  ctx: TurnContext,
+  assistantText: string,
+): Promise<string | undefined> {
+  const prompt =
+    'Crie um título curto (máximo 6 palavras, em português, sem aspas e sem ponto final) para a ' +
+    'conversa abaixo. Responda SÓ o título.\n\n' +
+    `Usuário: ${clamp(ctx.text ?? '', 1000)}` +
+    (assistantText ? `\nAssistente: ${clamp(assistantText, 500)}` : '');
+  const bin = (await claudeBinPath()) ?? BIN;
+  return new Promise<string | undefined>((resolve) => {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(
+        bin,
+        ['--print', '--no-session-persistence', '--tools', '', '--model', 'haiku'],
+        { cwd: ctx.workRoot, env: childEnv() },
+      );
+    } catch {
+      return resolve(undefined);
+    }
+    const timer = setTimeout(() => child.kill('SIGTERM'), 20_000);
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    // melhor esforço: falhou, o shell mantém o título da primeira linha
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      const title = (out.trim().split('\n')[0] ?? '')
+        .replace(/^["“”']+|["“”'.]+$/g, '')
+        .trim();
+      resolve(title && title.length <= 80 ? title : undefined);
+    });
+    child.stdin.end(prompt);
+  });
+}

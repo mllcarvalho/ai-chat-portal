@@ -44,7 +44,7 @@ export interface SubagentOutcome {
   usage: SubagentUsage;
 }
 
-interface SubagentInput {
+export interface SubagentInput {
   task: string;
   label?: string;
   personaPath?: string;
@@ -53,7 +53,7 @@ interface SubagentInput {
   modelId?: string;
 }
 
-function parseInput(raw: unknown): SubagentInput {
+export function parseInput(raw: unknown): SubagentInput {
   const args = (raw ?? {}) as Record<string, unknown>;
   const task = typeof args.task === 'string' ? args.task.trim() : '';
   if (!task) throw new Error('Campo "task" é obrigatório');
@@ -69,7 +69,7 @@ function parseInput(raw: unknown): SubagentInput {
 }
 
 /** Instruções da persona: texto direto, agente do portal ou arquivo (BMAD/workspace). */
-function resolvePersona(input: SubagentInput, workRoot: string): string | undefined {
+export function resolvePersona(input: SubagentInput, workRoot: string): string | undefined {
   if (input.systemPrompt) return input.systemPrompt;
   if (input.personaAgent) {
     const wanted = input.personaAgent.toLowerCase();

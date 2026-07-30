@@ -1400,6 +1400,12 @@ select:focus {
   border-radius: inherit;
   background: var(--accent);
 }
+/* explicação curta dentro do painel de uso (ex.: motor sem licença do Copilot) */
+.usage-pop__hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
 .usage-pop__note {
   padding: 8px 14px 6px;
   font-size: 11px;

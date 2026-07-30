@@ -15,6 +15,15 @@ export function cancelRequest(requestId: string): boolean {
   return true;
 }
 
+/**
+ * Token da geração em andamento. A ponte MCP precisa dele: uma ferramenta
+ * chamada de fora (pelo Claude Code ou pelo Devin) tem que morrer junto com o
+ * "Parar" da conversa, igual às chamadas de dentro do loop do Copilot.
+ */
+export function tokenFor(requestId: string): vscode.CancellationToken | undefined {
+  return active.get(requestId)?.token;
+}
+
 export function releaseRequest(requestId: string): void {
   const cts = active.get(requestId);
   active.delete(requestId);
