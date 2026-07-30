@@ -291,19 +291,23 @@ function buildArgs(ctx: TurnContext): string[] {
     args.push('--model', modelId);
   }
 
-  // os modos do portal mapeiam nos modos de permissão da CLI
+  // Modos do portal. O `--permission-mode plan` da CLI NÃO é usado: ele
+  // bloqueia toda ferramenta MCP (mesmo as de leitura, e mesmo com
+  // --allowedTools), então o plan ficaria sem as ferramentas do portal. A
+  // restrição de leitura vem do catálogo — getEnabledToolDefs já filtra para
+  // as read-only quando a sessão está em plan — e `--tools ""` tira as nativas
+  // da CLI, que não conhecem essa regra.
   switch (ctx.session.mode) {
     case 'ask':
-      // pergunta/resposta pura: sem ferramenta nenhuma
+      // pergunta/resposta pura: o portal também não publica nada em ask
       args.push('--tools', '');
       break;
     case 'plan':
-      args.push('--permission-mode', 'plan');
+      args.push('--tools', '');
+      args.push('--permission-mode', 'acceptEdits');
       break;
     case 'agent':
     default:
-      // edições dentro da pasta do projeto seguem sem perguntar; a aprovação
-      // por comando ainda não passa pela UI do portal (ver runTurn)
       args.push('--permission-mode', 'acceptEdits');
       break;
   }
@@ -321,6 +325,13 @@ function buildArgs(ctx: TurnContext): string[] {
         },
       }),
     );
+    // Sem isto a CLI pede permissão para cada ferramenta MCP — e em modo
+    // --print não existe prompt para responder, então a chamada só falha
+    // ("requested permissions ... but you haven't granted it yet").
+    // Liberar é correto: quem decide o que precisa de aprovação é o PORTAL,
+    // que já abre o diálogo dele no portal_run_command e aplica o
+    // liga/desliga de ferramentas da conversa.
+    args.push('--allowedTools', 'mcp__portal__*');
   }
 
   const systemPrompt = buildSystemPrompt(ctx, !!portal);
