@@ -10,7 +10,15 @@ import type {
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
-import type { ChatProvider, TurnContext, TurnResult } from './types';
+import { portalMcpServer } from './portalMcp';
+import { skillCatalogBlock } from './skillCatalog';
+import type {
+  ChatProvider,
+  SubagentOutcome,
+  SubagentRequest,
+  TurnContext,
+  TurnResult,
+} from './types';
 
 /**
  * Ao contrário do Copilot, aqui o portal NÃO é dono do loop agêntico: o
@@ -102,16 +110,21 @@ const CAPABILITIES = {
   // instruções do agente/projeto e skills viram --append-system-prompt
   skills: true,
   knowledge: true,
-  // o Claude Code usa a própria configuração de MCP, não a do portal
-  mcp: false,
-  // as ferramentas são as embutidas da CLI; o liga/desliga do portal não vale
-  toolToggles: false,
+  // os MCPs do portal chegam PROXIADOS pelo servidor MCP do portal: a conexão
+  // e as credenciais ficam do lado do portal, a CLI só vê as ferramentas
+  mcp: true,
+  // o catálogo vem do mesmo getEnabledToolDefs do Copilot, então o liga/desliga
+  // da conversa e do agente valem igual
+  toolToggles: true,
   agents: true,
   // ask/plan/agent viram --tools ""/--permission-mode plan/acceptEdits
   modes: true,
   // a CLI lê os arquivos sozinha (cwd = pasta do projeto); só apontamos quais
   contextFiles: true,
   cost: true,
+  // as ferramentas que o adaptador do BMAD invoca chegam pelo servidor MCP do
+  // portal (--mcp-config), com os mesmos nomes do loop do Copilot
+  bmad: true,
 } as const;
 
 /**
@@ -169,8 +182,25 @@ function probeVersion(): Promise<string | undefined> {
  * --append-system-prompt (soma ao system prompt padrão do Claude Code em vez
  * de substituí-lo, para não perder o comportamento de ferramentas dele).
  */
-function buildSystemPrompt(ctx: TurnContext): string | undefined {
+/**
+ * O Claude Code publica ferramentas de MCP com o prefixo do servidor
+ * (`bmad_read_file` vira `mcp__portal__bmad_read_file`). O adaptador do BMAD
+ * cita os nomes SEM prefixo em dezenas de lugares — sem esta nota o agente
+ * teria que adivinhar a correspondência a cada workflow.
+ */
+const MCP_PREFIX_NOTE =
+  '# Ferramentas do portal\n\n' +
+  'As ferramentas do portal estão disponíveis com o prefixo `mcp__portal__`. ' +
+  'Sempre que uma instrução, persona ou workflow mencionar uma ferramenta pelo nome ' +
+  '(`portal_write_file`, `portal_read_file`, `portal_run_command`, `bmad_read_file`, ' +
+  '`bmad_list_files` etc.), use a versão prefixada — por exemplo, `portal_write_file` ' +
+  'é `mcp__portal__portal_write_file`. Prefira essas ferramentas às suas próprias ' +
+  '(Read/Write/Edit/Bash) quando a instrução pedir uma delas pelo nome: elas gravam na ' +
+  'pasta certa da conversa e registram checkpoints que o usuário pode reverter.';
+
+function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | undefined {
   const blocks: string[] = [];
+  if (hasPortalTools) blocks.push(MCP_PREFIX_NOTE);
   if (ctx.project?.instructions?.trim()) {
     blocks.push(`# Instruções do projeto "${ctx.project.name}"\n\n${ctx.project.instructions.trim()}`);
   }
@@ -179,6 +209,12 @@ function buildSystemPrompt(ctx: TurnContext): string | undefined {
   }
   for (const skill of ctx.instructionSkills) {
     blocks.push(`# Skill: ${skill.name}\n\n${skill.content}`);
+  }
+  // /comando: só faz sentido com portal_load_skill disponível para buscar o
+  // conteúdo, e ela vem do servidor MCP do portal
+  if (hasPortalTools) {
+    const catalog = skillCatalogBlock(ctx);
+    if (catalog) blocks.push(catalog);
   }
   // base de conhecimento: o índice basta quando a CLI pode abrir os arquivos
   const knowledge = collectKnowledgeContext(
@@ -254,7 +290,22 @@ function buildArgs(ctx: TurnContext): string[] {
       break;
   }
 
-  const systemPrompt = buildSystemPrompt(ctx);
+  // ferramentas do portal (é o que faz o BMAD rodar aqui). --strict-mcp-config
+  // NÃO é usado de propósito: os MCPs que o usuário já configurou na CLI dele
+  // continuam valendo, o do portal apenas se soma a eles.
+  const portal = portalMcpServer(ctx.session.id);
+  if (portal) {
+    args.push(
+      '--mcp-config',
+      JSON.stringify({
+        mcpServers: {
+          portal: { command: portal.command, args: portal.args, env: portal.env },
+        },
+      }),
+    );
+  }
+
+  const systemPrompt = buildSystemPrompt(ctx, !!portal);
   if (systemPrompt) args.push('--append-system-prompt', systemPrompt);
 
   return args;
@@ -557,6 +608,7 @@ export const claudeCodeProvider: ChatProvider = {
   id: 'claude-code',
   runTurn,
   mapError,
+  runSubagent: runSubagentTurn,
   async listModels(): Promise<ModelInfo[]> {
     return (await cliVersion()) ? MODELS : [];
   },
@@ -573,3 +625,112 @@ export const claudeCodeProvider: ChatProvider = {
     };
   },
 };
+
+/**
+ * Subagente do party mode rodando no próprio Claude Code.
+ *
+ * Um subagente é uma conversa isolada: persona + tarefa, só ferramentas de
+ * LEITURA, e o texto final volta como resultado. Nada disso é específico do
+ * Copilot — daí a implementação aqui. As ferramentas vêm do servidor MCP do
+ * portal em escopo `subagent`, e `--tools ""` desliga as nativas da CLI para
+ * que o subagente enxergue exatamente o mesmo conjunto do subagente do
+ * Copilot (sem escrita, sem shell).
+ */
+async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
+  const usage = { inputTokens: 0, outputTokens: 0, requests: 0 };
+  const args = [
+    '--print',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    // conversa nova a cada subagente: sem --resume, sem contaminar a principal
+    '--no-session-persistence',
+    '--tools',
+    '',
+    // Nada a aprovar: --tools "" tira as ferramentas nativas e o servidor MCP
+    // roda em escopo `subagent`, que só publica as de LEITURA. O modo `plan`
+    // parece mais seguro mas bloqueia toda ferramenta MCP (a CLI não sabe que
+    // são read-only), e o subagente terminava sem conseguir ler nada.
+    '--permission-mode',
+    'bypassPermissions',
+  ];
+  const modelId = req.modelId;
+  if (modelId && modelId !== CLI_DEFAULT_MODEL && MODELS.some((m) => m.id === modelId)) {
+    args.push('--model', modelId);
+  }
+  const portal = portalMcpServer(req.sessionId, 'subagent');
+  if (portal) {
+    args.push(
+      '--mcp-config',
+      JSON.stringify({
+        mcpServers: { portal: { command: portal.command, args: portal.args, env: portal.env } },
+      }),
+    );
+    args.push('--append-system-prompt', `${req.persona ?? ''}\n\n${MCP_PREFIX_NOTE}`.trim());
+  } else if (req.persona) {
+    args.push('--append-system-prompt', req.persona);
+  }
+
+  return new Promise<SubagentOutcome>((resolve) => {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(BIN, args, { cwd: req.workRoot, env: childEnv() });
+    } catch (err) {
+      return resolve({
+        ok: false,
+        content: err instanceof Error ? err.message : String(err),
+        usage,
+      });
+    }
+    const cancel = req.token.onCancellationRequested(() => child.kill('SIGTERM'));
+    let text = '';
+    let stderr = '';
+    const rl = readline.createInterface({ input: child.stdout });
+    rl.on('line', (line) => {
+      const t = line.trim();
+      if (!t.startsWith('{')) return;
+      try {
+        const evt = JSON.parse(t) as CliEvent & { total_cost_usd?: number };
+        if (evt.type === 'assistant') {
+          for (const raw of evt.message?.content ?? []) {
+            const b = raw as { type?: string; text?: string };
+            if (b.type === 'text' && b.text) text += b.text;
+          }
+        } else if (evt.type === 'result') {
+          const u = evt.usage ?? {};
+          usage.inputTokens +=
+            (u.input_tokens ?? 0) +
+            (u.cache_creation_input_tokens ?? 0) +
+            (u.cache_read_input_tokens ?? 0);
+          usage.outputTokens += u.output_tokens ?? 0;
+          usage.requests += evt.num_turns ?? 1;
+        }
+      } catch {
+        // linha não-JSON no meio do stream
+      }
+    });
+    child.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+      if (stderr.length > 8 * 1024) stderr = stderr.slice(-8 * 1024);
+    });
+    // nunca rejeita: o chamador dispara vários em paralelo
+    child.on('error', (err) => {
+      cancel.dispose();
+      rl.close();
+      resolve({ ok: false, content: err.message, usage });
+    });
+    child.on('close', (code) => {
+      cancel.dispose();
+      rl.close();
+      if (text.trim()) return resolve({ ok: true, content: text.trim(), usage });
+      resolve({
+        ok: false,
+        content:
+          stderr.trim().split('\n').slice(-3).join('\n') ||
+          `O subagente encerrou sem resposta (código ${code}).`,
+        usage,
+      });
+    });
+    child.stdin.end(req.task);
+  });
+}

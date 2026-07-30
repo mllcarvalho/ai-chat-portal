@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Bot, Columns2, Cpu, Diamond, Download, FileText, Mail, RefreshCw, Share2, Zap } from 'lucide-react';
 import { AgentIcon } from '../common/AgentIcon';
-import type { ProviderId, SessionMode, TokenUsage } from '@aiportal/shared';
-import { slugifyCommand } from '@aiportal/shared';
+import type {
+  ProviderCapabilities,
+  ProviderId,
+  ProviderInfo,
+  SessionMode,
+  TokenUsage,
+} from '@aiportal/shared';
+import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
 import { useCatalog } from '../../stores/catalogStore';
@@ -37,6 +43,16 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 };
 
 const PROVIDER_ORDER: ProviderId[] = ['copilot', 'claude-code', 'devin'];
+
+/**
+ * Linha do seletor de motor. `capabilities` é opcional porque a lista inclui
+ * motores que o servidor ainda não descreveu (primeiro render, ou servidor
+ * com build antiga sem /api/providers).
+ */
+type ProviderRow = Pick<ProviderInfo, 'id' | 'label' | 'available'> & {
+  detail?: string;
+  capabilities?: ProviderCapabilities;
+};
 
 /** Janela de contexto legível: "200k" até 1 milhão, "1M" daí para cima. */
 function formatContextWindow(tokens: number): string {
@@ -93,7 +109,7 @@ export function ChatHeader() {
   const model = providerModels.find((m) => m.id === session.modelId) ?? providerModels[0];
   // sempre lista todos os motores conhecidos, mesmo os que a máquina não tem:
   // ver "Claude Code — CLI não encontrada" explica mais do que a ausência dele
-  const providerList = PROVIDER_ORDER.map(
+  const providerList: ProviderRow[] = PROVIDER_ORDER.map(
     (id) =>
       providers.find((p) => p.id === id) ?? {
         id,
@@ -103,6 +119,13 @@ export function ChatHeader() {
       },
   );
   const currentProvider = providerList.find((p) => p.id === sessionProvider);
+  // BMAD manda o agente usar as ferramentas do portal pelo nome; onde elas não
+  // existem a persona é injetada mas os workflows não rodam. Avisa em vez de
+  // deixar o usuário descobrir com um workflow travado no meio.
+  const usesBmad =
+    (!!session.agentId && isBmadAsset(session.agentId)) ||
+    session.activeSkillIds.some(isBmadAsset);
+  const bmadBroken = usesBmad && currentProvider?.capabilities?.bmad === false;
 
   // total da conversa: soma o usage de todas as respostas
   const totals = session.messages.reduce<TokenUsage>(
@@ -208,13 +231,22 @@ export function ChatHeader() {
             className="pill-btn"
             onClick={toggle}
             title={
-              currentProvider?.detail
-                ? `${currentProvider.label} — ${currentProvider.detail}`
-                : 'Motor que responde a conversa'
+              bmadBroken
+                ? `${currentProvider?.label}: os workflows do BMAD ainda não rodam neste motor — ` +
+                  'a persona entra no contexto, mas as ferramentas do portal que ela usa ' +
+                  '(bmad_read_file, portal_write_file…) só existem no GitHub Copilot.'
+                : currentProvider?.detail
+                  ? `${currentProvider.label} — ${currentProvider.detail}`
+                  : 'Motor que responde a conversa'
             }
           >
-            <Cpu className="icon icon--sm" aria-hidden style={{ color: '#7c3aed' }} />{' '}
+            <Cpu
+              className="icon icon--sm"
+              aria-hidden
+              style={{ color: bmadBroken ? 'var(--warn, #b45309)' : '#7c3aed' }}
+            />{' '}
             {currentProvider?.label ?? 'motor'}
+            {bmadBroken ? ' ⚠' : ''}
           </button>
         )}
       >
@@ -240,7 +272,11 @@ export function ChatHeader() {
             >
               <span>
                 {p.label}
-                <span className="dropdown__item-sub">{p.detail ?? ''}</span>
+                <span className="dropdown__item-sub">
+                  {usesBmad && p.capabilities?.bmad === false
+                    ? 'Workflows do BMAD ainda não rodam aqui'
+                    : (p.detail ?? '')}
+                </span>
               </span>
             </button>
           ))

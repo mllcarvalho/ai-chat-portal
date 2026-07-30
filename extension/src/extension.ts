@@ -5,7 +5,7 @@ import { buildPortalUrl, clearRuntime, readRuntime, writeRuntime } from './authT
 import { cancelAllRequests } from './chat/activeRequests';
 import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
-import { setExtensionContext } from './lmAccess';
+import { setExtensionContext } from './extensionContext';
 import { registerBmadAssets, startBmadInstall } from './storage/bmadStore';
 import { loadConfig } from './storage/configStore';
 import { setSecretStore } from './storage/mcpProxyStore';

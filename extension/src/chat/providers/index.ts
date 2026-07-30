@@ -85,6 +85,7 @@ async function detectAll(): Promise<ProviderInfo[]> {
             modes: false,
             contextFiles: false,
             cost: false,
+            bmad: false,
           },
         } satisfies ProviderInfo;
       }

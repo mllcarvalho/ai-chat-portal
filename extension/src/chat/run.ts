@@ -190,7 +190,8 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       id: assistantMessageId,
       role: 'assistant',
       parts: assistantParts,
-      modelId: respondedModelId ?? session.modelId,
+      // ctx.respondedModelId sobrevive a um turno que lançou exceção
+      modelId: respondedModelId ?? ctx.respondedModelId ?? session.modelId,
       ...(usage.requests ? { usage } : {}),
       createdAt: new Date().toISOString(),
       finishReason,

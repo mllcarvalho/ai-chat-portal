@@ -9,6 +9,7 @@ import { registerProjectRoutes } from './projects';
 import { registerSkillRoutes } from './skills';
 import { registerAgentRoutes } from './agents';
 import { registerToolRoutes } from './tools';
+import { registerPortalToolRoutes } from './portalTools';
 import { registerKnowledgeRoutes } from './knowledge';
 import { registerConfigRoutes } from './config';
 import { registerLoginRoutes } from './login';
@@ -40,6 +41,7 @@ export function buildRouter(deps: RouteDeps): Router {
   registerSkillRoutes(router);
   registerAgentRoutes(router);
   registerToolRoutes(router);
+  registerPortalToolRoutes(router);
   registerKnowledgeRoutes(router);
   registerConfigRoutes(router);
   registerLoginRoutes(router);

@@ -34,6 +34,16 @@ export interface ProviderCapabilities {
   contextFiles: boolean;
   /** Custo da resposta é reportado (créditos ou dólares). */
   cost: boolean;
+  /**
+   * Personas e workflows do BMAD funcionam de verdade.
+   *
+   * Não basta o texto da persona chegar no contexto: o adaptador do BMAD manda
+   * o agente usar as ferramentas do portal pelo nome (bmad_read_file,
+   * portal_write_file, portal_run_command, portal_spawn_subagent). Onde essas
+   * ferramentas não existem, a persona é injetada mas os workflows não
+   * executam como escritos — por isso este flag é separado de `skills`.
+   */
+  bmad: boolean;
 }
 
 /** Um provider disponível (ou não) nesta máquina — GET /api/providers. */

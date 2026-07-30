@@ -43,7 +43,7 @@ import {
   type ModelBilling,
 } from '../../server/routes/copilot';
 import { withTimeout } from '../../util';
-import { canSendRequest } from '../../lmAccess';
+import { canSendRequest } from '../../extensionContext';
 import type { ChatProvider, TurnContext, TurnResult } from './types';
 
 const MAX_ROUNDS = 20;
@@ -330,6 +330,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     );
   }
   respondedModelId = model.id;
+  ctx.respondedModelId = model.id;
   if (preferredModelId && model.id !== preferredModelId) {
     sse.send('notice', {
       message: `O modelo "${preferredModelId}" não está disponível — respondendo com ${model.name}.`,
@@ -860,6 +861,8 @@ const CAPABILITIES = {
   modes: true,
   contextFiles: true,
   cost: true,
+  // o loop do Copilot é o único que despacha as builtins que o BMAD invoca
+  bmad: true,
 } as const;
 
 async function listModels(): Promise<ModelInfo[]> {
