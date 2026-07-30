@@ -114,20 +114,48 @@ async function cliVersion(): Promise<string | undefined> {
   return value;
 }
 
+/**
+ * Id reservado: não define DEVIN_MODEL, deixando valer o que o usuário
+ * escolheu no /model da própria CLI.
+ */
+const CLI_DEFAULT_MODEL = 'default';
+
+/**
+ * O ACP não expõe seleção de modelo — o configOptions do session/new traz
+ * apenas `mode`. Mas o flag --model da CLI tem equivalente em ambiente
+ * (`[env: DEVIN_MODEL=]`), e quem spawna o processo do `devin acp` é o portal:
+ * setar a variável no filho é o que permite escolher o modelo por conversa.
+ *
+ * A lista vem dos exemplos do `devin --help`. Não há endpoint que a enumere,
+ * então valores fora daqui devem ser adicionados conforme aparecerem no /model.
+ */
 const MODELS: ModelInfo[] = [
   {
-    id: 'default',
+    id: CLI_DEFAULT_MODEL,
     name: 'Padrão do Devin',
-    // o ACP não expõe seleção de modelo: o configOptions do session/new traz
-    // apenas `mode`. A escolha é feita pelo /model da própria CLI, e o modelo
-    // que respondeu aparece no rodapé da mensagem (modelLabel do agent_stopped).
-    family: 'escolha pelo /model na CLI',
+    family: 'segue o /model da CLI',
     vendor: 'cognition',
-    version: 'default',
+    version: CLI_DEFAULT_MODEL,
     maxInputTokens: 200_000,
     provider: 'devin',
   },
+  ...['claude-opus-4.6', 'claude-sonnet-4', 'opus', 'codex'].map((id) => ({
+    id,
+    name: id,
+    family: 'devin --model',
+    vendor: 'cognition',
+    version: id,
+    maxInputTokens: 200_000,
+    provider: 'devin' as const,
+  })),
 ];
+
+/** Ambiente do `devin acp`, com o modelo da conversa quando houver escolha. */
+function devinEnv(modelId?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...netProcessEnv() };
+  if (modelId && modelId !== CLI_DEFAULT_MODEL) env.DEVIN_MODEL = modelId;
+  return env;
+}
 
 const CAPABILITIES = {
   skills: true,
@@ -318,7 +346,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     cwd: ctx.workRoot,
     // netProcessEnv devolve só o overlay de rede — sem process.env o filho
     // ficaria sem PATH (mesmo bug que o provider do Claude Code teve)
-    env: { ...process.env, ...netProcessEnv() },
+    env: devinEnv(ctx.session.modelId ?? ctx.agent?.defaultModelId),
     onNotification: (method, params) => handleNotification(method, params),
     onRequest: (method, params) => handleRequest(method, params),
   });
@@ -624,7 +652,7 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
     command: (await devinBinPath()) ?? BIN,
     args: ['acp'],
     cwd: req.workRoot,
-    env: { ...process.env, ...netProcessEnv() },
+    env: devinEnv(req.modelId),
     onNotification: (method, params) => {
       if (method !== 'session/update') return;
       const update = (params as { update?: SessionUpdate } | undefined)?.update;

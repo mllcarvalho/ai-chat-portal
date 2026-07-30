@@ -18,6 +18,7 @@ import type {
   NetworkConfig,
   MeInfo,
   ModelInfo,
+  ProviderId,
   ProviderInfo,
   Project,
   Session,
@@ -166,6 +167,8 @@ export const api = {
     title?: string;
     projectId?: string | null;
     mode?: SessionMode;
+    /** Motor da conversa; ausente = o primeiro disponível na máquina. */
+    provider?: ProviderId;
     agentId?: string;
     modelId?: string;
   }) => request<Session>('POST', '/api/sessions', init),

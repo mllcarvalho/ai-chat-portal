@@ -87,8 +87,15 @@ export const useSessions = create<SessionsState>((set, get) => ({
   newSession: async (projectId, init) => {
     // quem chama depende do retorno: o toast avisa e o erro segue propagando
     let session: Session;
+    // herda o motor da conversa aberta: quem estava no Claude Code e clica em
+    // "nova conversa" espera continuar nele, não voltar para o padrão
+    const inherited = get().current?.provider;
     try {
-      session = await api.createSession({ projectId: projectId ?? null, ...init });
+      session = await api.createSession({
+        projectId: projectId ?? null,
+        ...(inherited ? { provider: inherited } : {}),
+        ...init,
+      });
     } catch (err) {
       reportError('Falha ao criar a conversa', err);
       throw err;
