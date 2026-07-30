@@ -10,7 +10,6 @@ import type {
   SessionMode,
 } from '@aiportal/shared';
 import { ensureDir } from '../../storage/paths';
-import { resolveInProject } from '../../tools/builtinTools';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
@@ -129,18 +128,20 @@ const MODELS: ModelInfo[] = [
 const CAPABILITIES = {
   skills: true,
   knowledge: true,
-  // os MCPs do portal chegam proxiados pelo servidor MCP do portal
-  mcp: true,
-  // mesmo catálogo do Copilot (getEnabledToolDefs), então o liga/desliga vale
-  toolToggles: true,
+  // TODO: o Devin recusa o servidor MCP declarado no session/new ("Server
+  // portal not found in configuration") — o formato correto está sendo
+  // levantado com scripts/probe-devin-mcp.mjs. Até lá ele roda com as
+  // ferramentas nativas dele, sem as do portal.
+  mcp: false,
+  toolToggles: false,
   agents: true,
   modes: true,
   contextFiles: true,
   // reporta ACU (unidade do Devin), não dólares nem credits do Copilot
   cost: false,
-  // as ferramentas que o adaptador do BMAD invoca chegam pelo servidor MCP do
-  // portal, declarado no session/new
-  bmad: true,
+  // depende do servidor MCP acima: sem ele o adaptador do BMAD manda usar
+  // ferramentas que não existem do lado do Devin
+  bmad: false,
 } as const;
 
 /** Modos do portal → modos da sessão ACP (vistos no availableModes do trace). */
@@ -228,6 +229,25 @@ function buildPromptText(
     parts.push(`\n\n--- Anexo: ${att.name} ---\n${clamp(att.content, ATTACHMENT_CLAMP)}`);
   }
   return parts.join('');
+}
+
+/**
+ * Valida um caminho vindo do agente e devolve o absoluto.
+ *
+ * O ACP especifica `path` como ABSOLUTO. A versão anterior convertia para
+ * relativo antes de validar, o que quebrava quando o caminho era a própria
+ * raiz (path.relative devolve "") ou vinha com symlink resolvido diferente.
+ * Aqui a comparação é feita direto entre caminhos resolvidos.
+ */
+function insideWorkRoot(workRoot: string, p: string | undefined): string {
+  if (!p) throw new Error('path é obrigatório');
+  const root = path.resolve(workRoot);
+  const target = path.resolve(path.isAbsolute(p) ? p : path.join(root, p));
+  const rel = path.relative(root, target);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Caminho fora da pasta de trabalho da conversa: ${p}`);
+  }
+  return target;
 }
 
 /** Junta os blocos de conteúdo do ACP num texto só. */
@@ -370,16 +390,24 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
       case 'session/request_permission':
         return requestPermission(params);
       case 'fs/read_text_file': {
-        const { path: p } = (params ?? {}) as { path?: string };
-        if (!p) throw new Error('path é obrigatório');
-        // resolveInProject impede escapar da pasta da conversa (../)
-        const target = resolveInProject(ctx.workRoot, path.relative(ctx.workRoot, p) || p);
-        return { content: clamp(fs.readFileSync(target, 'utf8'), FS_READ_CLAMP) };
+        const { path: p, line, limit } = (params ?? {}) as {
+          path?: string;
+          line?: number;
+          limit?: number;
+        };
+        const target = insideWorkRoot(ctx.workRoot, p);
+        let text = clamp(fs.readFileSync(target, 'utf8'), FS_READ_CLAMP);
+        // o protocolo permite pedir uma faixa de linhas (1-based)
+        if (typeof line === 'number' || typeof limit === 'number') {
+          const all = text.split('\n');
+          const start = Math.max(0, (line ?? 1) - 1);
+          text = all.slice(start, typeof limit === 'number' ? start + limit : undefined).join('\n');
+        }
+        return { content: text };
       }
       case 'fs/write_text_file': {
         const { path: p, content } = (params ?? {}) as { path?: string; content?: string };
-        if (!p) throw new Error('path é obrigatório');
-        const target = resolveInProject(ctx.workRoot, path.relative(ctx.workRoot, p) || p);
+        const target = insideWorkRoot(ctx.workRoot, p);
         fs.mkdirSync(path.dirname(target), { recursive: true });
         fs.writeFileSync(target, content ?? '', 'utf8');
         return null;
