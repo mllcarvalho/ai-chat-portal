@@ -17,6 +17,7 @@ import { waitForApproval } from '../approvals';
 import { AcpClient, AcpProcessError } from './acpClient';
 import { portalMcpServer } from './portalMcp';
 import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
+import { historyReplayBlock } from './history';
 import type {
   ChatProvider,
   SubagentOutcome,
@@ -170,6 +171,10 @@ const MCP_PREFIX_NOTE =
 function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | undefined {
   const blocks: string[] = [];
   if (hasPortalTools) blocks.push(MCP_PREFIX_NOTE);
+  if (!ctx.session.providerSessionId) {
+    const history = historyReplayBlock(ctx);
+    if (history) blocks.push(history);
+  }
   if (ctx.project?.instructions?.trim()) {
     blocks.push(
       `# Instruções do projeto "${ctx.project.name}"\n\n${ctx.project.instructions.trim()}`,

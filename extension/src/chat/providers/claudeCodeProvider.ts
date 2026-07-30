@@ -13,6 +13,7 @@ import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
 import { portalMcpServer } from './portalMcp';
 import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
+import { historyReplayBlock } from './history';
 import type {
   ChatProvider,
   SubagentOutcome,
@@ -218,6 +219,11 @@ const MCP_PREFIX_NOTE =
 function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | undefined {
   const blocks: string[] = [];
   if (hasPortalTools) blocks.push(MCP_PREFIX_NOTE);
+  // sem --resume a CLI não conhece a conversa: devolve o que já aconteceu
+  if (!ctx.session.providerSessionId) {
+    const history = historyReplayBlock(ctx);
+    if (history) blocks.push(history);
+  }
   if (ctx.project?.instructions?.trim()) {
     blocks.push(`# Instruções do projeto "${ctx.project.name}"\n\n${ctx.project.instructions.trim()}`);
   }
@@ -640,6 +646,7 @@ export const claudeCodeProvider: ChatProvider = {
   runTurn,
   mapError,
   runSubagent: runSubagentTurn,
+  generateTitle,
   async listModels(): Promise<ModelInfo[]> {
     return (await cliVersion()) ? MODELS : [];
   },
@@ -764,5 +771,50 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
       });
     });
     child.stdin.end(req.task);
+  });
+}
+
+/**
+ * Título curto gerado por modelo, paridade com o Copilot. Usa haiku e nenhuma
+ * ferramenta: é uma chamada barata e isolada, que não pode tocar a sessão da
+ * conversa (--no-session-persistence).
+ */
+async function generateTitle(
+  ctx: TurnContext,
+  assistantText: string,
+): Promise<string | undefined> {
+  const prompt =
+    'Crie um título curto (máximo 6 palavras, em português, sem aspas e sem ponto final) para a ' +
+    'conversa abaixo. Responda SÓ o título.\n\n' +
+    `Usuário: ${clamp(ctx.text ?? '', 1000)}` +
+    (assistantText ? `\nAssistente: ${clamp(assistantText, 500)}` : '');
+  const bin = (await claudeBinPath()) ?? BIN;
+  return new Promise<string | undefined>((resolve) => {
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(
+        bin,
+        ['--print', '--no-session-persistence', '--tools', '', '--model', 'haiku'],
+        { cwd: ctx.workRoot, env: childEnv() },
+      );
+    } catch {
+      return resolve(undefined);
+    }
+    const timer = setTimeout(() => child.kill('SIGTERM'), 20_000);
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    // melhor esforço: falhou, o shell mantém o título da primeira linha
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      const title = (out.trim().split('\n')[0] ?? '')
+        .replace(/^["“”']+|["“”'.]+$/g, '')
+        .trim();
+      resolve(title && title.length <= 80 ? title : undefined);
+    });
+    child.stdin.end(prompt);
   });
 }

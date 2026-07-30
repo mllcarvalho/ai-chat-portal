@@ -66,7 +66,14 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       const idx = s.messages.findIndex(
         (m) => m.id === args.retryFromMessageId && m.role === 'user',
       );
-      if (idx >= 0) s.messages.splice(idx);
+      if (idx >= 0) {
+        s.messages.splice(idx);
+        // A sessão do lado da CLI (retomada com --resume) ainda contém o trecho
+        // que acabou de ser apagado — o modelo lembraria do que o usuário
+        // descartou. Começa uma sessão nova; o provider reenvia o histórico
+        // que sobrou.
+        s.providerSessionId = undefined;
+      }
     }
     s.messages.push(userMessage);
     if (s.title === 'Nova conversa' && s.messages.length === 1) {
@@ -75,6 +82,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     }
   };
   applyUserTurn(session); // snapshot local usado para montar o prompt
+  if (args.retryFromMessageId) session.providerSessionId = undefined;
   updateSession(session.id, applyUserTurn);
   // primeira troca da conversa: depois do done, o provider pode gerar o título
   const isFirstExchange = session.messages.length === 1;
