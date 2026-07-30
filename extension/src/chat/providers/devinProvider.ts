@@ -118,7 +118,10 @@ const MODELS: ModelInfo[] = [
   {
     id: 'default',
     name: 'Padrão do Devin',
-    family: 'segue a configuração da CLI',
+    // o ACP não expõe seleção de modelo: o configOptions do session/new traz
+    // apenas `mode`. A escolha é feita pelo /model da própria CLI, e o modelo
+    // que respondeu aparece no rodapé da mensagem (modelLabel do agent_stopped).
+    family: 'escolha pelo /model na CLI',
     vendor: 'cognition',
     version: 'default',
     maxInputTokens: 200_000,
@@ -291,6 +294,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     sessionId: ctx.session.providerSessionId,
     finishReason: 'stop' as ChatFinishReason,
     acuCost: undefined as number | undefined,
+    respondedModelId: undefined as string | undefined,
   };
   /** Início de cada tool call, para medir duração; também guarda o nome. */
   const tools = new Map<string, { name: string; startedAt: number; reported: boolean }>();
@@ -333,7 +337,15 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   function handleNotification(method: string, params: unknown): void {
     lastEventAt = Date.now();
-    if (method !== 'session/update') return; // _cognition.ai/* tratado abaixo
+    // evento proprietário de fim de turno: é o ÚNICO lugar que diz qual modelo
+    // de fato respondeu (o ACP não expõe escolha nem identificação de modelo)
+    if (method === '_cognition.ai/agent_stopped') {
+      const stats = (params as { stats?: { modelLabel?: string; acuCost?: number } })?.stats;
+      if (stats?.modelLabel) state.respondedModelId = stats.modelLabel;
+      if (typeof stats?.acuCost === 'number') state.acuCost = stats.acuCost;
+      return;
+    }
+    if (method !== 'session/update') return;
     const update = (params as { update?: SessionUpdate } | undefined)?.update;
     if (!update) return;
 
@@ -548,7 +560,8 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   return {
     finishReason: state.finishReason,
-    modelId: 'default',
+    // rótulo real ("SWE-1.6 Fast") quando a CLI informou; senão o id do catálogo
+    modelId: state.respondedModelId ?? 'default',
     providerSessionId: state.sessionId,
   };
 }
