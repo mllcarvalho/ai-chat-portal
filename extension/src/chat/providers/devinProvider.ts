@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   ChatErrorCode,
@@ -173,6 +174,80 @@ function acpStdioServer(
     args: server.args,
     env: Object.entries(server.env).map(([k, value]) => ({ name: k, value })),
   };
+}
+
+/** Uma opção de configuração da sessão ACP (mode, model…). */
+interface ConfigOption {
+  id?: string;
+  category?: string;
+  type?: string;
+  currentValue?: string;
+  options?: { value?: string; name?: string }[];
+}
+
+/**
+ * Modelos disponíveis, lidos da PRÓPRIA CLI.
+ *
+ * O ACP não tem um "list models", mas o `session/new` devolve (e notifica via
+ * `config_option_update`) os `configOptions` da sessão — entre eles o select
+ * de modelo, que é o mesmo que o /model mostra no terminal. Fixar uma lista
+ * aqui seria chutar: cada instalação corporativa expõe um conjunto diferente.
+ *
+ * Faz o handshake e encerra sem enviar prompt: não consome modelo, só cria uma
+ * sessão vazia do lado da CLI.
+ */
+const MODELS_TTL_MS = 10 * 60_000;
+let modelsCache: { at: number; value: ModelInfo[] } | undefined;
+
+async function probeModels(): Promise<ModelInfo[]> {
+  const bin = await devinBinPath();
+  if (!bin) return [];
+  const found: ConfigOption[] = [];
+  const client = new AcpClient({
+    command: bin,
+    args: ['acp'],
+    cwd: os.tmpdir(),
+    env: { ...process.env, ...netProcessEnv() },
+    onNotification: (method, params) => {
+      if (method !== 'session/update') return;
+      const update = (params as { update?: { configOptions?: ConfigOption[] } } | undefined)
+        ?.update;
+      if (update?.configOptions) found.push(...update.configOptions);
+    },
+    onRequest: async () => ({}),
+  });
+  try {
+    await client.request('initialize', {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+    });
+    const created = await client.request<{ configOptions?: ConfigOption[] }>('session/new', {
+      cwd: os.tmpdir(),
+      mcpServers: [],
+    });
+    if (created?.configOptions) found.push(...created.configOptions);
+  } catch {
+    return [];
+  } finally {
+    await client.dispose();
+  }
+
+  // o select de modelo é o que NÃO é o de modo (o único outro select conhecido)
+  const option = found.find(
+    (o) => o.type === 'select' && o.id !== 'mode' && o.category !== 'mode' && o.options?.length,
+  );
+  if (!option?.options?.length) return [];
+  return option.options
+    .filter((o): o is { value: string; name?: string } => !!o.value)
+    .map((o) => ({
+      id: o.value,
+      name: o.name ?? o.value,
+      family: 'devin',
+      vendor: 'cognition',
+      version: o.value,
+      maxInputTokens: 200_000,
+      provider: 'devin' as const,
+    }));
 }
 
 /** Ambiente do `devin acp`, com o modelo da conversa quando houver escolha. */
@@ -630,7 +705,18 @@ export const devinProvider: ChatProvider = {
   mapError,
   runSubagent: runSubagentTurn,
   async listModels(): Promise<ModelInfo[]> {
-    return (await cliVersion()) ? MODELS : [];
+    if (!(await cliVersion())) return [];
+    if (modelsCache && Date.now() - modelsCache.at < MODELS_TTL_MS) return modelsCache.value;
+    let probed: ModelInfo[] = [];
+    try {
+      probed = await probeModels();
+    } catch {
+      // melhor esforço: sem a sonda, valem os exemplos do --help
+    }
+    // "Padrão" primeiro: quem não quer escolher segue o /model da CLI
+    const value = probed.length ? [MODELS[0], ...probed] : MODELS;
+    modelsCache = { at: Date.now(), value };
+    return value;
   },
   async describe(): Promise<ProviderInfo> {
     const version = await cliVersion();
