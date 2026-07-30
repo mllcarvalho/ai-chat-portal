@@ -20,10 +20,10 @@ import {
 
 /**
  * Subagente (portal_spawn_subagent): uma conversa independente com o modelo,
- * com persona e tarefa próprias, disparada de dentro do agentLoop. Não fala
+ * com persona e tarefa próprias, disparada de dentro do loop do Copilot. Não fala
  * com o usuário nem escreve arquivos — recebe só ferramentas de leitura — e a
  * resposta final volta ao agente principal como resultado da ferramenta.
- * Sempre RESOLVE (nunca rejeita): erros viram { ok: false }, para o agentLoop
+ * Sempre RESOLVE (nunca rejeita): erros viram { ok: false }, para o loop
  * poder disparar vários em paralelo sem risco de rejeição não tratada.
  */
 

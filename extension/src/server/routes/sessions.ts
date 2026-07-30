@@ -1,4 +1,4 @@
-import type { Session, SessionMode } from '@aiportal/shared';
+import type { ProviderId, Session, SessionMode } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { sessionWorkspaceDir } from '../../storage/paths';
 import { getProject, projectDir } from '../../storage/projectStore';
@@ -12,8 +12,10 @@ import {
 import { revertCheckpoint } from '../../storage/checkpointStore';
 import { sessionExportFileName, sessionToMarkdown } from '../../storage/sessionMarkdown';
 import { registerFileRoutes } from './files';
+import { defaultProviderId } from '../../chat/providers';
 
 const MODES: SessionMode[] = ['ask', 'plan', 'agent'];
+const PROVIDERS: ProviderId[] = ['copilot', 'claude-code', 'devin'];
 
 export function registerSessionRoutes(router: Router): void {
   router.get('/api/sessions', ({ res, query }) => {
@@ -21,11 +23,12 @@ export function registerSessionRoutes(router: Router): void {
     sendJson(res, 200, listSessions(projectId));
   });
 
-  router.post('/api/sessions', ({ res, body }) => {
+  router.post('/api/sessions', async ({ res, body }) => {
     const init = (body ?? {}) as {
       title?: string;
       projectId?: string | null;
       mode?: SessionMode;
+      provider?: ProviderId;
       modelId?: string;
       agentId?: string;
     };
@@ -33,7 +36,15 @@ export function registerSessionRoutes(router: Router): void {
       sendError(res, 400, 'Modo inválido (use ask, plan ou agent)');
       return;
     }
-    const session = createSession(init);
+    if (init.provider && !PROVIDERS.includes(init.provider)) {
+      sendError(res, 400, 'Provider inválido');
+      return;
+    }
+    const session = createSession({
+      ...init,
+      // sem motor pedido, usa o primeiro que funciona nesta máquina
+      provider: init.provider ?? (await defaultProviderId()),
+    });
     if (!session) {
       sendError(res, 404, 'Projeto não encontrado');
       return;
@@ -81,7 +92,14 @@ export function registerSessionRoutes(router: Router): void {
     const patch = (body ?? {}) as Partial<
       Pick<
         Session,
-        'title' | 'modelId' | 'agentId' | 'activeSkillIds' | 'enabledTools' | 'mode' | 'contextFiles'
+        | 'title'
+        | 'modelId'
+        | 'agentId'
+        | 'activeSkillIds'
+        | 'enabledTools'
+        | 'mode'
+        | 'provider'
+        | 'contextFiles'
       >
     >;
     if (patch.mode && !MODES.includes(patch.mode)) {
@@ -92,6 +110,12 @@ export function registerSessionRoutes(router: Router): void {
     if (patch.modelId !== undefined) session.modelId = patch.modelId || undefined;
     if (patch.agentId !== undefined) session.agentId = patch.agentId || undefined;
     if (patch.mode !== undefined) session.mode = patch.mode;
+    if (patch.provider !== undefined && PROVIDERS.includes(patch.provider)) {
+      // trocar de provider abandona o histórico do lado da CLI antiga: o id
+      // de lá não vale nada para o novo backend
+      if (patch.provider !== session.provider) session.providerSessionId = undefined;
+      session.provider = patch.provider;
+    }
     if (patch.activeSkillIds !== undefined) {
       session.activeSkillIds = Array.isArray(patch.activeSkillIds) ? patch.activeSkillIds : [];
     }

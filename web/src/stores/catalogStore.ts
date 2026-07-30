@@ -5,6 +5,7 @@ import type {
   HealthInfo,
   MeInfo,
   ModelInfo,
+  ProviderInfo,
   Skill,
   ToolInfo,
 } from '@aiportal/shared';
@@ -21,6 +22,8 @@ interface CatalogState {
   health?: HealthInfo;
   me?: MeInfo;
   models: ModelInfo[];
+  /** Motores detectados na máquina (Copilot, Claude Code, Devin). */
+  providers: ProviderInfo[];
   skills: Skill[];
   agents: AgentPreset[];
   tools: ToolInfo[];
@@ -39,6 +42,7 @@ interface CatalogState {
 
 export const useCatalog = create<CatalogState>((set) => ({
   models: [],
+  providers: [],
   skills: [],
   agents: [],
   tools: [],
@@ -55,15 +59,17 @@ export const useCatalog = create<CatalogState>((set) => ({
   },
 
   loadAll: async () => {
-    const [me, models, skills, agents] = await Promise.allSettled([
+    const [me, models, providers, skills, agents] = await Promise.allSettled([
       api.me(),
       api.models(),
+      api.providers(),
       api.listSkills(),
       api.listAgents(),
     ]);
     set({
       me: me.status === 'fulfilled' ? me.value : undefined,
       models: models.status === 'fulfilled' ? models.value : [],
+      providers: providers.status === 'fulfilled' ? providers.value : [],
       skills: skills.status === 'fulfilled' ? skills.value : [],
       agents: agents.status === 'fulfilled' ? agents.value : [],
     });

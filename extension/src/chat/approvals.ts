@@ -1,7 +1,7 @@
 import type * as vscode from 'vscode';
 
 /**
- * Aprovações de comando pendentes: o agentLoop emite o evento SSE
+ * Aprovações de comando pendentes: o loop do provider emite o evento SSE
  * approval_request e fica aguardando aqui até a UI responder via
  * POST /api/chat/:requestId/approval (ou timeout/cancelamento = negado).
  */

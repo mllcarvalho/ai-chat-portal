@@ -1,7 +1,13 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Session, SessionMode, SessionSummary } from '@aiportal/shared';
+import {
+  DEFAULT_PROVIDER,
+  type ProviderId,
+  type Session,
+  type SessionMode,
+  type SessionSummary,
+} from '@aiportal/shared';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
 import { PROJECT_META_DIR, sessionWorkspaceDir, sessionWorkspacesDir, sessionsDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
@@ -61,6 +67,7 @@ export function createSession(init: {
   title?: string;
   projectId?: string | null;
   mode?: SessionMode;
+  provider?: ProviderId;
   modelId?: string;
   agentId?: string;
 }): Session | undefined {
@@ -73,6 +80,7 @@ export function createSession(init: {
     title: init.title || 'Nova conversa',
     projectId,
     mode: init.mode ?? 'agent',
+    provider: init.provider ?? DEFAULT_PROVIDER,
     modelId: init.modelId,
     agentId: init.agentId,
     activeSkillIds: [],

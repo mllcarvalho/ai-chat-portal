@@ -1566,20 +1566,6 @@ select:focus {
   font-size: 11.5px;
   color: var(--text-faint);
 }
-/* badge de custo do modelo: credits por requisição (0x = incluído no plano) */
-.model-mult {
-  display: inline-block;
-  margin-left: 7px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--accent-strong);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-border);
-  vertical-align: 1px;
-}
 .model-mult--free {
   color: var(--text-faint);
   background: var(--bg-hover);
@@ -3004,6 +2990,17 @@ button .icon {
 .onboarding__card h1 em {
   font-style: normal;
   color: var(--accent);
+}
+/* motores listados como sub-itens do check "pelo menos um disponível" */
+.onboarding__providers {
+  margin: 2px 0 2px 30px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+}
+.onboarding__note {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
 }
 .onboarding__card > p {
   color: var(--text-dim);

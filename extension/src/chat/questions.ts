@@ -1,7 +1,7 @@
 import type * as vscode from 'vscode';
 
 /**
- * Perguntas do portal_ask_user pendentes: o agentLoop emite o evento SSE
+ * Perguntas do portal_ask_user pendentes: o loop do provider emite o evento SSE
  * user_question e fica aguardando aqui até a UI responder via
  * POST /api/chat/:requestId/question (ou timeout/cancelamento).
  */

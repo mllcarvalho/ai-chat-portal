@@ -18,6 +18,7 @@ import type {
   NetworkConfig,
   MeInfo,
   ModelInfo,
+  ProviderInfo,
   Project,
   Session,
   SessionMode,
@@ -154,6 +155,7 @@ export const api = {
   me: () => request<MeInfo>('GET', '/api/me'),
   warmup: () => request<{ ok: boolean; needsUserAction?: boolean }>('POST', '/api/warmup'),
   models: () => request<ModelInfo[]>('GET', '/api/models'),
+  providers: () => request<ProviderInfo[]>('GET', '/api/providers'),
 
   listSessions: (projectId?: string | null) =>
     request<SessionSummary[]>(

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Bot, Columns2, Diamond, Download, FileText, Mail, RefreshCw, Share2, Zap } from 'lucide-react';
+import { Bot, Columns2, Cpu, Diamond, Download, FileText, Mail, RefreshCw, Share2, Zap } from 'lucide-react';
 import { AgentIcon } from '../common/AgentIcon';
-import type { SessionMode, TokenUsage } from '@aiportal/shared';
+import type { ProviderId, SessionMode, TokenUsage } from '@aiportal/shared';
 import { slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
@@ -29,11 +29,28 @@ const MODE_COLOR: Record<SessionMode, string> = {
   agent: 'var(--mode-agent)',
 };
 
+/** Nome do motor exibido enquanto o servidor ainda não respondeu /api/providers. */
+const PROVIDER_LABEL: Record<ProviderId, string> = {
+  copilot: 'GitHub Copilot',
+  'claude-code': 'Claude Code',
+  devin: 'Devin',
+};
+
+const PROVIDER_ORDER: ProviderId[] = ['copilot', 'claude-code', 'devin'];
+
+/** Janela de contexto legível: "200k" até 1 milhão, "1M" daí para cima. */
+function formatContextWindow(tokens: number): string {
+  return tokens >= 1_000_000
+    ? `${Math.round((tokens / 1_000_000) * 10) / 10}M`
+    : `${Math.round(tokens / 1000)}k`;
+}
+
 export function ChatHeader() {
   const session = useSessions((s) => s.current);
   const patchCurrent = useSessions((s) => s.patchCurrent);
   const setMode = useSessions((s) => s.setMode);
   const models = useCatalog((s) => s.models);
+  const providers = useCatalog((s) => s.providers);
   const agents = useCatalog((s) => s.agents);
   const loadAgents = useCatalog((s) => s.loadAgents);
   const quota = useCatalog((s) => s.quota);
@@ -66,7 +83,26 @@ export function ChatHeader() {
 
   if (!session) return null;
 
-  const model = models.find((m) => m.id === session.modelId) ?? models[0];
+  // o motor decide o catálogo: "Claude Opus" pelo Copilot e pelo Claude Code
+  // são caminhos diferentes (cobrança, ferramentas, loop), então o id do
+  // modelo só é único dentro de um motor — a busca casa os dois campos
+  const sessionProvider = session.provider ?? 'copilot';
+  // servidor com build antiga devolve modelos sem `provider`: sem o fallback a
+  // lista fica vazia e o usuário perde o seletor de modelo até recarregar
+  const providerModels = models.filter((m) => (m.provider ?? 'copilot') === sessionProvider);
+  const model = providerModels.find((m) => m.id === session.modelId) ?? providerModels[0];
+  // sempre lista todos os motores conhecidos, mesmo os que a máquina não tem:
+  // ver "Claude Code — CLI não encontrada" explica mais do que a ausência dele
+  const providerList = PROVIDER_ORDER.map(
+    (id) =>
+      providers.find((p) => p.id === id) ?? {
+        id,
+        label: PROVIDER_LABEL[id],
+        available: false,
+        detail: 'Verificando…',
+      },
+  );
+  const currentProvider = providerList.find((p) => p.id === sessionProvider);
 
   // total da conversa: soma o usage de todas as respostas
   const totals = session.messages.reduce<TokenUsage>(
@@ -165,10 +201,56 @@ export function ChatHeader() {
         }
       </Dropdown>
 
-      {/* Modelo */}
+      {/* Motor: quem responde a conversa (define o catálogo de modelos abaixo) */}
       <Dropdown
         trigger={(_, toggle) => (
-          <button className="pill-btn" onClick={toggle} title="Modelo do Copilot">
+          <button
+            className="pill-btn"
+            onClick={toggle}
+            title={
+              currentProvider?.detail
+                ? `${currentProvider.label} — ${currentProvider.detail}`
+                : 'Motor que responde a conversa'
+            }
+          >
+            <Cpu className="icon icon--sm" aria-hidden style={{ color: '#7c3aed' }} />{' '}
+            {currentProvider?.label ?? 'motor'}
+          </button>
+        )}
+      >
+        {(close) =>
+          providerList.map((p) => (
+            <button
+              key={p.id}
+              className={`dropdown__item${p.id === sessionProvider ? ' dropdown__item--sel' : ''}${p.available ? '' : ' dropdown__item--disabled'}`}
+              disabled={!p.available}
+              title={p.detail}
+              onClick={() => {
+                if (p.id === sessionProvider) return close();
+                // catálogos são disjuntos: o modelo atual não existe no motor
+                // novo, então cai no primeiro dele em vez de virar um id inválido
+                const first = models.find((m) => m.provider === p.id);
+                void patchCurrent({
+                  provider: p.id,
+                  // string vazia limpa o campo no servidor (undefined some do JSON)
+                  modelId: first ? first.id : '',
+                });
+                close();
+              }}
+            >
+              <span>
+                {p.label}
+                <span className="dropdown__item-sub">{p.detail ?? ''}</span>
+              </span>
+            </button>
+          ))
+        }
+      </Dropdown>
+
+      {/* Modelo (só os do motor selecionado) */}
+      <Dropdown
+        trigger={(_, toggle) => (
+          <button className="pill-btn" onClick={toggle} title="Modelo do motor selecionado">
             <Diamond className="icon icon--sm" aria-hidden style={{ color: '#2563eb' }} />{' '}
             {model?.name ?? 'modelo'}
             {model?.multiplier !== undefined
@@ -180,10 +262,10 @@ export function ChatHeader() {
         )}
       >
         {(close) =>
-          models.map((m) => (
+          providerModels.map((m) => (
             <button
               key={m.id}
-              className={`dropdown__item${m.id === (session.modelId ?? model?.id) ? ' dropdown__item--sel' : ''}${m.canSend === false ? ' dropdown__item--disabled' : ''}`}
+              className={`dropdown__item${m.id === model?.id ? ' dropdown__item--sel' : ''}${m.canSend === false ? ' dropdown__item--disabled' : ''}`}
               disabled={m.canSend === false}
               title={
                 m.canSend === false
@@ -217,7 +299,7 @@ export function ChatHeader() {
                   </span>
                 ) : null}
                 <span className="dropdown__item-sub">
-                  {m.family} · {Math.round(m.maxInputTokens / 1000)}k tokens
+                  {m.family} · {formatContextWindow(m.maxInputTokens)} tokens
                 </span>
               </span>
             </button>

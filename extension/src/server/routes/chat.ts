@@ -3,7 +3,7 @@ import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import type { ChatAttachment, ChatRequestBody } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { SseStream } from '../sse';
-import { runChat } from '../../chat/agentLoop';
+import { runChat } from '../../chat/run';
 import { cancelRequest } from '../../chat/activeRequests';
 import { ChatStream, activeSessionIds, activeStream, registerStream } from '../../chat/streamHub';
 import { resolveApproval } from '../../chat/approvals';

@@ -186,15 +186,22 @@ ok(`Portal ativo em http://127.0.0.1:${portal.runtime.port}`);
 
 // ---------- 6. diagnóstico ----------
 
-if (!portal.health.copilotChatInstalled) {
+// o portal serve com QUALQUER motor pronto (Copilot, Claude Code, Devin) —
+// falta de Copilot só é bloqueio quando nenhum outro está disponível
+const providers = portal.health.providers ?? [];
+const ready = providers.filter((p) => p.available);
+if (ready.length) {
+  ok(`Motores prontos: ${ready.map((p) => p.label).join(', ')}`);
+  for (const p of providers.filter((p) => !p.available)) {
+    console.log(`  \x1b[90m· ${p.label}: ${p.detail ?? 'indisponível'}\x1b[0m`);
+  }
+} else {
   console.warn(
-    '\x1b[33m⚠ GitHub Copilot Chat ainda não está ativo nessa janela — o portal mostrará o checklist de configuração.\x1b[0m',
+    '\x1b[33m⚠ Nenhum motor de IA disponível — o portal mostrará o checklist de configuração:\x1b[0m',
   );
-}
-if (!portal.health.account) {
-  console.warn(
-    '\x1b[33m⚠ Nenhuma conta GitHub conectada no VS Code — entre pelo menu Accounts (canto inferior esquerdo).\x1b[0m',
-  );
+  for (const p of providers) {
+    console.warn(`\x1b[33m  · ${p.label}: ${p.detail ?? 'indisponível'}\x1b[0m`);
+  }
 }
 
 // ---------- 7. abrir o navegador ----------

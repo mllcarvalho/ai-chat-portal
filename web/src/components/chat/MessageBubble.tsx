@@ -231,8 +231,23 @@ export const MessageBubble = memo(function MessageBubble(props: {
             {' · '}
             {message.usage.requests} req
             {(() => {
-              // mesmo fallback do servidor: sem modelId gravado, vale o primeiro da lista
-              const model = models.find((m) => m.id === message.modelId) ?? models[0];
+              const known = models.find((m) => m.id === message.modelId);
+              // sem modelId gravado (mensagens antigas), vale o primeiro da lista
+              const model = known ?? (message.modelId ? undefined : models[0]);
+              // a CLI resolve o alias e devolve o modelo concreto que respondeu
+              // (ex.: "claude-opus-5[1m]"), que não está no catálogo de aliases
+              // — mostrar esse id cru é mais fiel do que cair no models[0]
+              const modelLabel = model?.name ?? message.modelId ?? 'modelo';
+              // motores com cobrança própria (CLI) reportam dólares, não
+              // credits da licença do Copilot — são unidades diferentes
+              if (message.usage.costUsd !== undefined) {
+                return (
+                  <>
+                    {' · '}
+                    {modelLabel} · US$ {message.usage.costUsd.toFixed(4)}
+                  </>
+                );
+              }
               // preferência: custo real medido na licença; senão, estimativa
               // pelo multiplicador (modelos antigos que ainda o expõem)
               const credits =
@@ -244,7 +259,7 @@ export const MessageBubble = memo(function MessageBubble(props: {
               return (
                 <>
                   {' · '}
-                  {model?.name ?? 'modelo'} · {formatCredits(credits)}{' '}
+                  {modelLabel} · {formatCredits(credits)}{' '}
                   {credits === 1 ? 'credit' : 'credits'}
                 </>
               );

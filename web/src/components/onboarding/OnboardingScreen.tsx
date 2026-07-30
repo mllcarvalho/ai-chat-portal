@@ -55,6 +55,11 @@ export function OnboardingScreen() {
     };
   }, [loadHealth, loadAll, loadProjects, loadSessions]);
 
+  const providers = health?.providers ?? [];
+  const anyReady = providers.some((p) => p.available);
+  // servidor de pé mas sem o campo `providers` = extensão rodando build antiga
+  const staleServer = !!serverUp && !!health && health.providers === undefined;
+
   return (
     <div className="onboarding">
       <div className="onboarding__card">
@@ -72,35 +77,38 @@ export function OnboardingScreen() {
               : undefined
           }
         />
+        {/*
+          Basta UM motor para entrar: quem só tem Claude Code não precisa do
+          Copilot, e vice-versa. Por isso os motores são listados como estado
+          informativo, e o único check que trava é "pelo menos um".
+
+          `providers` pode não existir: a extensão serve este bundle lendo do
+          disco, então uma instalação nova troca o web na hora enquanto o
+          servidor segue com o código antigo até a janela do VS Code
+          recarregar. Sem o `?? []` a tela inteira quebra em branco nessa
+          janela — justamente quando o usuário mais precisa da instrução.
+        */}
         <Check
-          ok={serverUp ? health?.copilotChatInstalled : undefined}
-          label="GitHub Copilot Chat instalado"
+          ok={staleServer ? false : serverUp && providers.length ? anyReady : undefined}
+          label="Pelo menos um motor de IA disponível"
           hint={
-            serverUp && health && !health.copilotChatInstalled
-              ? 'Instale a extensão "GitHub Copilot Chat" no VS Code.'
-              : undefined
-          }
-        />
-        <Check
-          ok={serverUp ? !!health?.account : undefined}
-          label="Conta GitHub conectada"
-          hint={
-            serverUp && health && !health.account
-              ? 'Entre com sua conta GitHub no VS Code (menu Accounts, canto inferior esquerdo).'
-              : health?.account
-                ? `Conectado como ${health.account.label}`
+            staleServer
+              ? 'O servidor do portal ainda está com a versão anterior. No VS Code: Cmd/Ctrl+Shift+P → "Developer: Reload Window".'
+              : serverUp && providers.length && !anyReady
+                ? 'Configure um dos motores abaixo — qualquer um já libera o portal.'
                 : undefined
           }
         />
-        <Check
-          ok={serverUp ? (health ? health.modelCount > 0 : undefined) : undefined}
-          label={`Modelos do Copilot disponíveis${health?.modelCount ? ` (${health.modelCount})` : ''}`}
-          hint={
-            serverUp && health && health.modelCount === 0
-              ? 'Abra o chat do Copilot no VS Code uma vez para ativar os modelos.'
-              : undefined
-          }
-        />
+        {providers.length > 0 && (
+          <div className="onboarding__providers">
+            {providers.map((p) => (
+              <Check key={p.id} ok={p.available} label={p.label} hint={p.detail} />
+            ))}
+          </div>
+        )}
+        {serverUp && health?.account && (
+          <p className="onboarding__note">Conta GitHub conectada: {health.account.label}</p>
+        )}
         {!hasToken && serverUp && (
           <p style={{ marginTop: 16 }}>
             <TriangleAlert className="icon" aria-hidden /> Sem token de acesso: abra o portal pelo

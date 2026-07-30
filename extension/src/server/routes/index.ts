@@ -33,7 +33,7 @@ export function buildRouter(deps: RouteDeps): Router {
   const router = new Router();
   registerHealthRoutes(router, deps);
   registerAuthRoutes(router, deps);
-  registerModelRoutes(router, deps);
+  registerModelRoutes(router);
   registerChatRoutes(router);
   registerSessionRoutes(router);
   registerProjectRoutes(router);
