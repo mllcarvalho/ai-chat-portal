@@ -16,7 +16,7 @@ import { findBin } from '../../tools/findBin';
 import { waitForApproval } from '../approvals';
 import { AcpClient, AcpProcessError } from './acpClient';
 import { portalMcpServer } from './portalMcp';
-import { skillCatalogBlock } from './skillCatalog';
+import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
 import type {
   ChatProvider,
   SubagentOutcome,
@@ -224,7 +224,8 @@ function buildPromptText(
   if (preamble) {
     parts.push(`<contexto-do-portal>\n${preamble}\n</contexto-do-portal>\n\n`);
   }
-  parts.push(ctx.text);
+  // idem Claude Code: o /comando do portal não pode ir cru para a CLI
+  parts.push(rewriteSlashCommand(ctx));
   for (const att of ctx.attachments) {
     parts.push(`\n\n--- Anexo: ${att.name} ---\n${clamp(att.content, ATTACHMENT_CLAMP)}`);
   }

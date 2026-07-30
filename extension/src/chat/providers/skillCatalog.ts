@@ -1,4 +1,4 @@
-import type { SkillWithContent } from '@aiportal/shared';
+import { slugifyCommand, type SkillWithContent } from '@aiportal/shared';
 import type { TurnContext } from './types';
 
 /**
@@ -38,4 +38,39 @@ export function skillCatalogBlock(ctx: TurnContext): string | undefined {
 function describe(skill: SkillWithContent, linked: boolean): string {
   const command = skill.command ? `/${skill.command}` : skill.name;
   return `- ${command} — ${skill.name}: ${skill.description}${linked ? ' [skill deste agente]' : ''}`;
+}
+
+/**
+ * Traduz o `/comando` do portal para uma instrução explícita.
+ *
+ * Necessário porque as CLIs agênticas têm namespace PRÓPRIO de barra: o
+ * `claude -p` com um prompt começando em "/" responde "Unknown command:
+ * /bmad-prd" e a mensagem nunca chega ao modelo. Como a barra é a forma que o
+ * usuário do portal conhece para invocar skills (e todos os workflows do BMAD
+ * são comandos), a tradução acontece aqui em vez de mudar o hábito dele.
+ */
+export function rewriteSlashCommand(ctx: TurnContext): string {
+  const text = ctx.text;
+  const match = /^\/([\w-]+)\s*([\s\S]*)$/.exec(text.trim());
+  if (!match) return text;
+
+  const [, command, rest] = match;
+  const skill = ctx.commandSkills.find((s) => commandOf(s) === command);
+  if (!skill) {
+    // comando desconhecido: um espaço à frente basta para a CLI não o engolir,
+    // e o catálogo no preâmbulo ainda pode fazer o modelo reconhecê-lo
+    return ` ${text}`;
+  }
+
+  return (
+    `O usuário invocou o comando /${command} do portal, que corresponde à skill "${skill.name}". ` +
+    `Carregue-a com a ferramenta portal_load_skill (command: "${command}"` +
+    (rest.trim() ? `, input: o pedido abaixo` : '') +
+    `) ANTES de responder, e então siga as instruções dela.` +
+    (rest.trim() ? `\n\nPedido do usuário para a skill:\n${rest.trim()}` : '')
+  );
+}
+
+function commandOf(skill: SkillWithContent): string {
+  return skill.command ?? slugifyCommand(skill.name);
 }

@@ -12,7 +12,7 @@ import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
 import { portalMcpServer } from './portalMcp';
-import { skillCatalogBlock } from './skillCatalog';
+import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
 import type {
   ChatProvider,
   SubagentOutcome,
@@ -261,7 +261,8 @@ function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | 
 
 /** Mensagem do usuário deste turno, com os anexos colados no fim. */
 function buildPrompt(ctx: TurnContext): string {
-  const parts = [ctx.text];
+  // a CLI tem namespace próprio de barra e engoliria o /comando do portal
+  const parts = [rewriteSlashCommand(ctx)];
   for (const att of ctx.attachments) {
     parts.push(`\n\n--- Anexo: ${att.name} ---\n${clamp(att.content, ATTACHMENT_CLAMP)}`);
   }
