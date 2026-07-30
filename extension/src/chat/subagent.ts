@@ -3,9 +3,9 @@ import { listAgents } from '../storage/agentStore';
 import { isBmadInstalled } from '../storage/paths';
 import {
   MODEL_RETRIES,
-  MODEL_RETRY_DELAY_MS,
   isTransientModelError,
   raceCancellation,
+  retryDelayMs,
   sleep,
 } from './retry';
 import {
@@ -20,10 +20,10 @@ import {
 
 /**
  * Subagente (portal_spawn_subagent): uma conversa independente com o modelo,
- * com persona e tarefa próprias, disparada de dentro do agentLoop. Não fala
+ * com persona e tarefa próprias, disparada de dentro do loop do Copilot. Não fala
  * com o usuário nem escreve arquivos — recebe só ferramentas de leitura — e a
  * resposta final volta ao agente principal como resultado da ferramenta.
- * Sempre RESOLVE (nunca rejeita): erros viram { ok: false }, para o agentLoop
+ * Sempre RESOLVE (nunca rejeita): erros viram { ok: false }, para o loop
  * poder disparar vários em paralelo sem risco de rejeição não tratada.
  */
 
@@ -191,8 +191,13 @@ export async function runSubagent(opts: {
             },
             opts.token,
           );
-          for await (const part of response.stream) {
-            if (opts.token.isCancellationRequested) break;
+          // iteração manual com corrida de cancelamento: um for await ficaria
+          // pendurado junto com o gateway e ignoraria o "Parar" do usuário
+          const iterator = response.stream[Symbol.asyncIterator]();
+          while (true) {
+            const next = await raceCancellation(iterator.next(), opts.token);
+            if (next.done || opts.token.isCancellationRequested) break;
+            const part = next.value;
             if (part instanceof vscode.LanguageModelTextPart) roundText += part.value;
             else if (part instanceof vscode.LanguageModelToolCallPart) roundCalls.push(part);
           }
@@ -205,7 +210,7 @@ export async function runSubagent(opts: {
           if (!canRetry) throw err;
           roundText = '';
           roundCalls = [];
-          await sleep(MODEL_RETRY_DELAY_MS * (attempt + 1));
+          await sleep(retryDelayMs(err, attempt));
         }
       }
       if (roundText) {

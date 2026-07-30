@@ -5,8 +5,12 @@ import { Router, sendError, sendJson } from '../router';
 import { getToolCatalog } from '../../tools/toolRegistry';
 import {
   addServer,
+  getMcpPromptText,
+  listMcpPrompts,
+  listMcpResources,
   listServers,
   listServerTools,
+  readMcpResource,
   removeServer,
   saveProxyServer,
   setServerEnabled,
@@ -83,6 +87,44 @@ export function registerToolRoutes(router: Router): void {
     const session = sessionId ? getSession(sessionId) : undefined;
     const agent = session?.agentId ? getAgent(session.agentId) : undefined;
     sendJson(res, 200, getToolCatalog(session, agent));
+  });
+
+  // prompts dos servidores ligados — aparecem no menu "/" do composer
+  router.get('/api/mcp/prompts', ({ res }) => {
+    sendJson(res, 200, { prompts: listMcpPrompts() });
+  });
+
+  router.post('/api/mcp/prompts/get', async ({ res, body }) => {
+    const input = (body ?? {}) as { server?: string; name?: string; args?: Record<string, string> };
+    if (!input.server || !input.name) {
+      sendError(res, 400, 'server e name são obrigatórios');
+      return;
+    }
+    try {
+      const text = await getMcpPromptText(input.server, input.name, input.args ?? {});
+      sendJson(res, 200, { text });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // resources dos servidores ligados — anexáveis como contexto da conversa
+  router.get('/api/mcp/resources', async ({ res }) => {
+    sendJson(res, 200, { resources: await listMcpResources() });
+  });
+
+  router.post('/api/mcp/resources/read', async ({ res, body }) => {
+    const input = (body ?? {}) as { server?: string; uri?: string };
+    if (!input.server || !input.uri) {
+      sendError(res, 400, 'server e uri são obrigatórios');
+      return;
+    }
+    try {
+      const content = await readMcpResource(input.server, input.uri);
+      sendJson(res, 200, { content });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   router.get('/api/mcp/servers', ({ res }) => {
@@ -196,10 +238,13 @@ export function registerToolRoutes(router: Router): void {
   });
 
   // detecção automática: lê os cookies do navegador e busca o X-UserToken,
-  // sem o usuário mexer no DevTools (macOS/Windows; cai no plano B se falhar)
-  router.post('/api/mcp/iuclick/autodetect', async ({ res }) => {
+  // sem o usuário mexer no DevTools (macOS/Windows; cai no plano B se falhar).
+  // via:'browser' pula a leitura do banco e captura pelo navegador via SSO
+  // (CDP) — obrigatório no Windows com App-Bound Encryption / EDR bloqueando.
+  router.post('/api/mcp/iuclick/autodetect', async ({ res, body }) => {
+    const via = (body as { via?: string } | undefined)?.via;
     try {
-      sendJson(res, 200, { ok: true, ...(await autoDetectIuclick()) });
+      sendJson(res, 200, { ok: true, ...(await autoDetectIuclick(via === 'browser')) });
     } catch (err) {
       sendError(res, 400, err instanceof Error ? err.message : String(err));
     }

@@ -7,6 +7,8 @@ import { withTimeout } from '../../util';
 import { getConfig } from '../../storage/configStore';
 import { getPortalRoot } from '../../storage/paths';
 import { envCheckDone, getEnvStatus } from '../../tools/envCheck';
+import { updateAvailable } from '../../updateCheck';
+import { describeProviders } from '../../chat/providers';
 import type { RouteDeps } from './index';
 
 export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
@@ -21,6 +23,10 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
       3000,
       [] as readonly vscode.LanguageModelChat[],
     );
+    // a entrada no portal não depende mais do Copilot: basta UM motor pronto
+    // (Copilot, Claude Code ou Devin). Cacheado no registry — esta rota é
+    // consultada a cada 3s na tela de entrada.
+    const providers = await describeProviders();
     let account: HealthInfo['account'];
     const accounts = authed
       ? await withTimeout(
@@ -36,17 +42,20 @@ export function registerHealthRoutes(router: Router, deps: RouteDeps): void {
         (m) => deps.context.languageModelAccessInformation.canSendRequest(m) === true,
       );
     const health: HealthInfo = {
-      ok: copilotChatInstalled && models.length > 0,
+      ok: providers.some((p) => p.available),
       version: deps.version,
       buildId: deps.buildId,
       hasPortalRoot: !!getPortalRoot(),
       copilotChatInstalled,
       modelCount: models.length,
+      providers,
       ...(authed ? { account } : {}),
       needsConsent,
       // omitido até a detecção da ativação terminar (evita aviso falso na UI)
       ...(envCheckDone() ? { env: getEnvStatus() } : {}),
     };
+    const update = updateAvailable(deps.version);
+    if (update) health.update = update;
     sendJson(res, 200, health);
   });
 

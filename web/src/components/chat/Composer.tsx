@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Code,
+  Database,
   FileText,
   Folder,
   Paperclip,
@@ -22,6 +23,22 @@ import {
   extractDocumentText,
   isConvertibleDocument,
 } from '../../lib/extractDocument';
+import { McpResourcePicker } from './McpResourcePicker';
+
+/** Item do menu "/": skill do portal ou prompt de servidor MCP. */
+type SlashItem =
+  | { kind: 'skill'; id: string; command: string; description: string }
+  | { kind: 'mcp'; id: string; command: string; description: string; server: string; name: string };
+
+interface McpPromptItem {
+  server: string;
+  name: string;
+  title?: string;
+  description: string;
+  args: Array<{ name: string; required: boolean; description?: string }>;
+}
+
+const slugify = (s: string) => s.toLowerCase().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '');
 
 /** Limite por arquivo anexado (o servidor recusa acima disso). */
 const MAX_ATTACHMENT_BYTES = UPLOAD_LIMITS.chatAttachmentChars;
@@ -79,6 +96,7 @@ export function Composer() {
   /** Arquivos da pasta de trabalho, carregados quando o menu # abre. */
   const [workFiles, setWorkFiles] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [resourcePickerOpen, setResourcePickerOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slashMenuRef = useRef<HTMLDivElement>(null);
@@ -113,13 +131,46 @@ export function Composer() {
     return text.startsWith('/') && match ? match[1] : undefined;
   }, [text]);
 
-  const slashMatches = useMemo(
-    () =>
-      slashQuery === undefined
-        ? []
-        : commandSkills.filter((s) => s.command?.startsWith(slashQuery)),
-    [slashQuery, commandSkills],
-  );
+  // prompts dos servidores MCP ligados: entram no menu "/" (como no Copilot);
+  // os que exigem argumentos ficam de fora — não há como preenchê-los aqui
+  const [mcpPrompts, setMcpPrompts] = useState<McpPromptItem[]>([]);
+  const slashOpen = slashQuery !== undefined;
+  useEffect(() => {
+    if (!slashOpen) return;
+    let alive = true;
+    api
+      .listMcpPrompts()
+      .then(({ prompts }) => {
+        if (alive) setMcpPrompts(prompts.filter((p) => !p.args.some((a) => a.required)));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [slashOpen]);
+
+  const slashMatches = useMemo<SlashItem[]>(() => {
+    if (slashQuery === undefined) return [];
+    const fromSkills = commandSkills
+      .filter((s) => s.command?.startsWith(slashQuery))
+      .map((s) => ({
+        kind: 'skill' as const,
+        id: s.id,
+        command: s.command!,
+        description: s.description || s.name,
+      }));
+    const fromMcp = mcpPrompts
+      .map((p) => ({
+        kind: 'mcp' as const,
+        id: `mcp:${p.server}:${p.name}`,
+        command: `mcp-${slugify(p.server)}-${slugify(p.name)}`,
+        description: `[MCP ${p.server}] ${p.description || p.title || p.name}`,
+        server: p.server,
+        name: p.name,
+      }))
+      .filter((p) => p.command.startsWith(slashQuery));
+    return [...fromSkills, ...fromMcp];
+  }, [slashQuery, commandSkills, mcpPrompts]);
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
 
@@ -259,9 +310,21 @@ export function Composer() {
     }
   };
 
-  const pickSlash = (command: string) => {
-    setText(`/${command} `);
-    textareaRef.current?.focus();
+  const pickSlash = (item: SlashItem) => {
+    if (item.kind === 'skill') {
+      setText(`/${item.command} `);
+      textareaRef.current?.focus();
+      return;
+    }
+    // prompt MCP: resolve no servidor e vira o texto da mensagem (editável)
+    setText('');
+    api.getMcpPrompt(item.server, item.name).then(
+      ({ text: promptText }) => {
+        setText(promptText);
+        textareaRef.current?.focus();
+      },
+      (err: Error) => toast(err.message, 'error'),
+    );
   };
 
   /** Fixa o arquivo no contexto da conversa e remove o "#nome" do texto. */
@@ -312,7 +375,7 @@ export function Composer() {
       }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
-        pickSlash(slashMatches[slashIndex].command!);
+        pickSlash(slashMatches[slashIndex]);
         return;
       }
     }
@@ -348,14 +411,14 @@ export function Composer() {
     >
       {slashMatches.length > 0 && (
         <div className="slash-menu" ref={slashMenuRef}>
-          {slashMatches.map((skill, i) => (
+          {slashMatches.map((item, i) => (
             <button
-              key={skill.id}
+              key={item.id}
               className={`slash-menu__item${i === slashIndex ? ' slash-menu__item--sel' : ''}`}
-              onClick={() => pickSlash(skill.command!)}
+              onClick={() => pickSlash(item)}
             >
-              <span className="slash-menu__cmd">/{skill.command}</span>
-              <span className="slash-menu__desc">{skill.description || skill.name}</span>
+              <span className="slash-menu__cmd">/{item.command}</span>
+              <span className="slash-menu__desc">{item.description}</span>
             </button>
           ))}
         </div>
@@ -486,6 +549,13 @@ export function Composer() {
         >
           <Code className="icon" aria-hidden />
         </button>
+        <button
+          className="composer__attach"
+          title="Anexar um recurso de servidor MCP como contexto"
+          onClick={() => setResourcePickerOpen(true)}
+        >
+          <Database className="icon" aria-hidden />
+        </button>
         <textarea
           ref={textareaRef}
           rows={1}
@@ -528,6 +598,17 @@ export function Composer() {
         <Paperclip className="icon icon--sm" aria-hidden /> anexa (até {ATTACHMENT_LIMIT_LABEL} de
         texto por arquivo)
       </div>
+      {resourcePickerOpen && (
+        <McpResourcePicker
+          onClose={() => setResourcePickerOpen(false)}
+          onPick={(name, content) => {
+            setAttachments((curr) =>
+              curr.some((a) => a.name === name) ? curr : [...curr, { name, content }],
+            );
+            setResourcePickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -45,7 +45,12 @@ export function getConfig(): Config {
 }
 
 export function patchConfig(
-  patch: Partial<Pick<Config, 'projectsRoot' | 'devOrigins' | 'network' | 'microsoft' | 'racfUser'>>,
+  patch: Partial<
+    Pick<
+      Config,
+      'projectsRoot' | 'devOrigins' | 'network' | 'microsoft' | 'racfUser' | 'commandAllowlist'
+    >
+  >,
 ): Config {
   const cfg = getConfig();
   cached = { ...cfg, ...patch };

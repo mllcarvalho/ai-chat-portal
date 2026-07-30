@@ -15,6 +15,7 @@ import {
 } from '../storage/knowledgeStore';
 import { createSkill, getSkill, listSkills, readSkillAsset } from '../storage/skillStore';
 import { normalizeSourceUrl } from '../storage/remoteFetch';
+import { backgroundOutput } from './runCommand';
 import { searchWeb } from './webSearch';
 
 export const READ_LIMIT = 256 * 1024;
@@ -37,9 +38,16 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
   {
     name: 'portal_write_file',
     description:
-      'Cria ou sobrescreve um arquivo de texto na pasta de trabalho da conversa ' +
+      'Cria ou sobrescreve um arquivo de TEXTO na pasta de trabalho da conversa ' +
       '(a pasta do projeto, ou o workspace próprio da conversa quando ela não está em um projeto). ' +
-      'Use caminhos relativos à raiz da pasta de trabalho.',
+      'Use caminhos relativos à raiz da pasta de trabalho. IMPORTANTE — arquivo longo (mais de ' +
+      '~150 linhas): grave em BLOCOS, nunca de uma vez — primeira chamada cria o início, as ' +
+      'seguintes continuam com append: true; blocos menores aparecem mais rápido e evitam timeout. ' +
+      'Para ALTERAR arquivo existente, use portal_edit_file (nunca reescreva o arquivo inteiro). ' +
+      'NUNCA use para formatos binários (.pptx, .xlsx, .docx, .pdf, imagens…) — o arquivo sairia ' +
+      'corrompido; gere-os com um script Python em .tmp/ via portal_run_command (python-pptx, ' +
+      'openpyxl, python-docx, reportlab). Arquivos em .tmp/ ficam ocultos do usuário — use essa ' +
+      'pasta para scripts auxiliares que ele não pediu.',
     inputSchema: {
       type: 'object',
       required: ['path', 'content'],
@@ -48,22 +56,39 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
           type: 'string',
           description: 'Caminho relativo à pasta de trabalho, ex: docs/resumo.md',
         },
-        content: { type: 'string', description: 'Conteúdo completo do arquivo' },
+        content: { type: 'string', description: 'Conteúdo do arquivo (ou do bloco, com append)' },
+        append: {
+          type: 'boolean',
+          description:
+            'Acrescenta o conteúdo ao FIM do arquivo existente em vez de sobrescrever — é como se ' +
+            'grava um arquivo longo em blocos (default false)',
+        },
         overwrite: {
           type: 'boolean',
-          description: 'Se false, falha caso o arquivo já exista (default true)',
+          description: 'Se false, falha caso o arquivo já exista (default true; ignorado com append)',
         },
       },
     },
   },
   {
     name: 'portal_read_file',
-    description: 'Lê um arquivo de texto da pasta de trabalho da conversa.',
+    description:
+      'Lê um arquivo de texto da pasta de trabalho da conversa. Em arquivo grande, leia por ' +
+      'FAIXAS com startLine/endLine (a resposta informa o total de linhas) em vez do arquivo ' +
+      'inteiro — economiza contexto e permite navegar por partes.',
     inputSchema: {
       type: 'object',
       required: ['path'],
       properties: {
         path: { type: 'string', description: 'Caminho relativo à pasta de trabalho' },
+        startLine: {
+          type: 'number',
+          description: 'Primeira linha a ler (1-indexada; default: início do arquivo)',
+        },
+        endLine: {
+          type: 'number',
+          description: 'Última linha a ler, inclusiva (default: fim do arquivo)',
+        },
       },
     },
   },
@@ -84,7 +109,9 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
       'Executa um comando de shell (sintaxe bash/POSIX) na pasta de trabalho da conversa. ' +
       'O usuário aprova cada comando na interface antes de ele rodar. Não-interativo: nada de ' +
       'comandos que esperam input. A saída (stdout+stderr) volta truncada quando longa. ' +
-      'Se o comando falhar ou for negado, não repita: siga pela alternativa manual quando existir.',
+      'Processo de longa duração (servidor, watch): use background: true e consulte a saída com ' +
+      'portal_command_output. Se o comando falhar ou for negado, não repita: siga pela ' +
+      'alternativa manual quando existir.',
     inputSchema: {
       type: 'object',
       required: ['command'],
@@ -94,19 +121,67 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
           type: 'number',
           description: 'Tempo máximo de execução em segundos (default 60, máximo 600)',
         },
+        background: {
+          type: 'boolean',
+          description:
+            'Roda em segundo plano e devolve um id na hora — para servidores e processos longos ' +
+            '(default false). Consulte/encerre com portal_command_output.',
+        },
+      },
+    },
+  },
+  {
+    name: 'portal_command_output',
+    description:
+      'Consulta a saída acumulada de um comando iniciado com portal_run_command background: true ' +
+      '(informa se ainda está rodando e o exit code quando termina). Com kill: true, encerra o processo.',
+    inputSchema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'string', description: 'Id devolvido ao iniciar o comando em background' },
+        kill: { type: 'boolean', description: 'Encerrar o processo (default false)' },
+      },
+    },
+  },
+  {
+    name: 'portal_todo',
+    description:
+      'Mantém um plano de trabalho visível para o usuário em tarefas com várias etapas (3+ passos ' +
+      'ou várias ferramentas). Envie SEMPRE a lista COMPLETA — ela substitui a anterior — com o ' +
+      'status de cada item: pending, in_progress (no máximo 1 por vez) ou done. Atualize assim ' +
+      'que concluir cada etapa, não acumule. Pule esta ferramenta em pedidos triviais de 1 passo.',
+    inputSchema: {
+      type: 'object',
+      required: ['todos'],
+      properties: {
+        todos: {
+          type: 'array',
+          description: 'A lista completa de etapas, na ordem de execução',
+          items: {
+            type: 'object',
+            required: ['title', 'status'],
+            properties: {
+              title: { type: 'string', description: 'A etapa, curta e específica' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'done'] },
+            },
+          },
+        },
       },
     },
   },
   {
     name: 'portal_edit_file',
     description:
-      'Edita um arquivo da pasta de trabalho substituindo um trecho exato por outro — prefira esta ' +
-      'ferramenta a portal_write_file para mudanças pontuais em arquivos existentes (não reescreve o arquivo ' +
-      'inteiro). O trecho buscado deve ser único no arquivo (inclua linhas vizinhas para desambiguar) ' +
-      'e bater exatamente, incluindo espaços e quebras de linha.',
+      'Edita um arquivo da pasta de trabalho substituindo trechos exatos — prefira esta ' +
+      'ferramenta a portal_write_file para mudanças em arquivos existentes (não reescreve o arquivo ' +
+      'inteiro). Cada trecho buscado deve ser único no arquivo (inclua linhas vizinhas para desambiguar) ' +
+      'e bater exatamente, incluindo espaços e quebras de linha. Para VÁRIAS mudanças no mesmo ' +
+      'arquivo, mande todas de uma vez no campo "edits" (aplicadas em ordem, tudo-ou-nada) em vez ' +
+      'de uma chamada por mudança.',
     inputSchema: {
       type: 'object',
-      required: ['path', 'find'],
+      required: ['path'],
       properties: {
         path: { type: 'string', description: 'Caminho relativo à pasta de trabalho' },
         find: { type: 'string', description: 'Trecho exato a localizar (único no arquivo)' },
@@ -114,6 +189,24 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
         replaceAll: {
           type: 'boolean',
           description: 'Substituir todas as ocorrências em vez de exigir trecho único (default false)',
+        },
+        edits: {
+          type: 'array',
+          description:
+            'Várias substituições numa chamada só, aplicadas em ordem (alternativa a find/replace). ' +
+            'Se qualquer uma falhar, nenhuma é gravada.',
+          items: {
+            type: 'object',
+            required: ['find'],
+            properties: {
+              find: { type: 'string', description: 'Trecho exato a localizar (único no arquivo)' },
+              replace: { type: 'string', description: 'Texto que substitui o trecho (vazio = remover)' },
+              replaceAll: {
+                type: 'boolean',
+                description: 'Substituir todas as ocorrências (default false)',
+              },
+            },
+          },
         },
       },
     },
@@ -508,6 +601,7 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
 
 export const BUILTIN_TOOL_NAMES = BUILTIN_TOOLS.map((t) => t.name);
 export const READONLY_BUILTIN_TOOL_NAMES = [
+  'portal_todo',
   'portal_read_file',
   'portal_list_files',
   'portal_search_files',
@@ -627,6 +721,20 @@ export function readFileClamped(file: string, label: string): string {
   }
 }
 
+/**
+ * Diff compacto de uma substituição (- removido / + adicionado), para o card
+ * da ferramenta na UI mostrar o que mudou — aproximação do diff do Copilot.
+ */
+function miniDiff(find: string, replace: string): string {
+  const clip = (s: string): string[] => {
+    const ls = s.split('\n');
+    return ls.length > 8 ? [...ls.slice(0, 8), `… (+${ls.length - 8} linhas)`] : ls;
+  };
+  const minus = clip(find).map((l) => `- ${l}`);
+  const plus = replace ? clip(replace).map((l) => `+ ${l}`) : [];
+  return [...minus, ...plus].join('\n');
+}
+
 /** Lê o arquivo inteiro para edição (sem clamp), recusando acima de EDIT_LIMIT. */
 function readFileForEdit(file: string, label: string): string {
   let stat: fs.Stats;
@@ -741,6 +849,18 @@ const BINARY_EXTENSIONS = new Set([
   '.xlsx', '.xlsm', '.xls', '.docx', '.doc', '.pptx', '.ppt', '.bin', '.exe', '.dylib', '.so',
   '.woff', '.woff2', '.ttf', '.mp3', '.mp4', '.mov', '.vsix',
 ]);
+
+/** Biblioteca Python sugerida no erro quando o modelo tenta gravar documento binário como texto. */
+const DOC_FORMAT_LIBS: Record<string, string> = {
+  '.pptx': 'python-pptx',
+  '.ppt': 'python-pptx (gere .pptx)',
+  '.xlsx': 'openpyxl',
+  '.xlsm': 'openpyxl',
+  '.xls': 'openpyxl (gere .xlsx)',
+  '.docx': 'python-docx',
+  '.doc': 'python-docx (gere .docx)',
+  '.pdf': 'reportlab ou fpdf2',
+};
 
 /** Arquivos de texto da pasta, em caminhos relativos (pula meta/node_modules/binários). */
 function walkTextFiles(dir: string, base: string, acc: string[], depth = 0): void {
@@ -944,28 +1064,91 @@ export async function dispatchBuiltinTool(
       }
       case 'portal_write_file': {
         const rel = asString(args.path, 'path');
+        // gravar um formato binário como texto UTF-8 sempre corrompe o arquivo
+        // (ex.: .pptx é um ZIP) — o erro redireciona o modelo para o caminho
+        // que funciona, na mesma rodada
+        const ext = path.extname(rel).toLowerCase();
+        if (BINARY_EXTENSIONS.has(ext)) {
+          const lib = DOC_FORMAT_LIBS[ext];
+          throw new Error(
+            `${rel}: ${ext} é um formato binário e esta ferramenta só grava texto — o arquivo sairia corrompido. ` +
+              (lib
+                ? `Escreva um script Python em .tmp/ (pasta oculta do usuário) que gere o arquivo com a ` +
+                  `biblioteca ${lib} e rode-o com portal_run_command seguindo as instruções do ambiente ` +
+                  `de execução (uv run --with, ou o venv compartilhado do portal — nunca pip no Python global).`
+                : `Gere o arquivo com um script via portal_run_command usando uma ferramenta adequada ao formato.`),
+          );
+        }
         const content = typeof args.content === 'string' ? args.content : '';
         if (Buffer.byteLength(content) > WRITE_LIMIT) {
           throw new Error(`Conteúdo excede o limite de ${WRITE_LIMIT / 1024 / 1024} MB`);
         }
         const file = resolveInProject(workRoot, rel);
-        if (args.overwrite === false && fs.existsSync(file)) {
+        const append = args.append === true;
+        if (!append && args.overwrite === false && fs.existsSync(file)) {
           throw new Error(`Arquivo já existe: ${rel}`);
         }
         const ck = tryCheckpoint(workRoot, name, 'write', [
           { absPath: file, relPath: path.relative(workRoot, file) },
         ]);
         fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, content, 'utf8');
+        if (append) fs.appendFileSync(file, content, 'utf8');
+        else fs.writeFileSync(file, content, 'utf8');
+        const size = fs.statSync(file).size;
         return {
           ok: true,
-          content: `Arquivo salvo: ${rel} (${Buffer.byteLength(content)} bytes)${checkpointNote(ck)}`,
+          content: append
+            ? `Bloco anexado a ${rel} (+${Buffer.byteLength(content)} bytes, total ${size})${checkpointNote(ck)}`
+            : `Arquivo salvo: ${rel} (${size} bytes)${checkpointNote(ck)}`,
         };
+      }
+      case 'portal_todo': {
+        const raw = Array.isArray(args.todos) ? (args.todos as unknown[]) : [];
+        if (!raw.length) throw new Error('Envie a lista completa de etapas em "todos"');
+        const icon = { pending: '☐', in_progress: '▶', done: '☑' } as const;
+        let done = 0;
+        const lines = raw.map((t, i) => {
+          const e = (t ?? {}) as { title?: unknown; status?: unknown };
+          const title = typeof e.title === 'string' && e.title ? e.title : `(etapa ${i + 1})`;
+          const status =
+            e.status === 'in_progress' || e.status === 'done' ? e.status : ('pending' as const);
+          if (status === 'done') done++;
+          return `${icon[status]} ${title}`;
+        });
+        return {
+          ok: true,
+          content: `Plano (${done}/${raw.length} concluídas)\n${lines.join('\n')}`,
+        };
+      }
+      case 'portal_command_output': {
+        const id = asString(args.id, 'id');
+        return backgroundOutput(id, args.kill === true);
       }
       case 'portal_read_file': {
         const rel = asString(args.path, 'path');
         const file = resolveInProject(workRoot, rel);
-        return { ok: true, content: readFileClamped(file, rel) };
+        const start =
+          typeof args.startLine === 'number' && args.startLine >= 1
+            ? Math.floor(args.startLine)
+            : undefined;
+        const end =
+          typeof args.endLine === 'number' && args.endLine >= 1
+            ? Math.floor(args.endLine)
+            : undefined;
+        const full = readFileClamped(file, rel);
+        if (start === undefined && end === undefined) return { ok: true, content: full };
+        const lines = full.split('\n');
+        const from = (start ?? 1) - 1;
+        const to = Math.min(end ?? lines.length, lines.length);
+        if (from >= lines.length) {
+          throw new Error(`${rel} tem ${lines.length} linhas — startLine ${start} está além do fim`);
+        }
+        return {
+          ok: true,
+          content:
+            `${rel} (linhas ${from + 1}–${to} de ${lines.length}):\n` +
+            lines.slice(from, to).join('\n'),
+        };
       }
       case 'portal_list_files': {
         const rel = typeof args.path === 'string' && args.path ? args.path : '.';
@@ -976,36 +1159,68 @@ export async function dispatchBuiltinTool(
       }
       case 'portal_edit_file': {
         const rel = asString(args.path, 'path');
-        const find = asString(args.find, 'find');
-        const replace = typeof args.replace === 'string' ? args.replace : '';
         const file = resolveInProject(workRoot, rel);
-        const content = readFileForEdit(file, rel);
-        let count = 0;
-        for (let i = content.indexOf(find); i >= 0; i = content.indexOf(find, i + find.length)) {
-          count++;
+        interface EditOp {
+          find: string;
+          replace: string;
+          replaceAll: boolean;
         }
-        if (!count) {
-          throw new Error(
-            `Trecho não encontrado em ${rel} — o campo "find" deve bater exatamente, incluindo espaços e quebras de linha`,
-          );
+        const ops: EditOp[] = [];
+        if (Array.isArray(args.edits) && args.edits.length) {
+          for (const [i, raw] of (args.edits as unknown[]).entries()) {
+            const e = (raw ?? {}) as { find?: unknown; replace?: unknown; replaceAll?: unknown };
+            if (typeof e.find !== 'string' || !e.find) {
+              throw new Error(`edits[${i}].find é obrigatório`);
+            }
+            ops.push({
+              find: e.find,
+              replace: typeof e.replace === 'string' ? e.replace : '',
+              replaceAll: e.replaceAll === true,
+            });
+          }
+        } else {
+          ops.push({
+            find: asString(args.find, 'find'),
+            replace: typeof args.replace === 'string' ? args.replace : '',
+            replaceAll: args.replaceAll === true,
+          });
         }
-        if (count > 1 && args.replaceAll !== true) {
-          throw new Error(
-            `O trecho aparece ${count} vezes em ${rel} — inclua linhas vizinhas para torná-lo único, ou use replaceAll: true`,
-          );
+        // aplica tudo em memória primeiro: erro em qualquer trecho não grava nada
+        let content = readFileForEdit(file, rel);
+        let total = 0;
+        for (const [i, op] of ops.entries()) {
+          const at = ops.length > 1 ? `edits[${i}]: ` : '';
+          let count = 0;
+          for (let j = content.indexOf(op.find); j >= 0; j = content.indexOf(op.find, j + op.find.length)) {
+            count++;
+          }
+          if (!count) {
+            throw new Error(
+              `${at}trecho não encontrado em ${rel} — o campo "find" deve bater exatamente, ` +
+                `incluindo espaços e quebras de linha (nenhuma alteração foi gravada)`,
+            );
+          }
+          if (count > 1 && !op.replaceAll) {
+            throw new Error(
+              `${at}o trecho aparece ${count} vezes em ${rel} — inclua linhas vizinhas para ` +
+                `torná-lo único, ou use replaceAll: true (nenhuma alteração foi gravada)`,
+            );
+          }
+          content = op.replaceAll
+            ? content.split(op.find).join(op.replace)
+            : content.replace(op.find, () => op.replace);
+          total += op.replaceAll ? count : 1;
         }
-        const updated =
-          args.replaceAll === true
-            ? content.split(find).join(replace)
-            : content.replace(find, () => replace);
         const ck = tryCheckpoint(workRoot, name, 'edit', [
           { absPath: file, relPath: path.relative(workRoot, file) },
         ]);
-        fs.writeFileSync(file, updated, 'utf8');
-        const n = args.replaceAll === true ? count : 1;
+        fs.writeFileSync(file, content, 'utf8');
+        const diff = ops.map((op) => miniDiff(op.find, op.replace)).join('\n\n');
         return {
           ok: true,
-          content: `${rel}: ${n} ocorrência${n === 1 ? '' : 's'} substituída${n === 1 ? '' : 's'}${checkpointNote(ck)}`,
+          content:
+            `${rel}: ${total} ocorrência${total === 1 ? '' : 's'} substituída${total === 1 ? '' : 's'}` +
+            `${checkpointNote(ck)}\n${diff}`,
         };
       }
       case 'portal_search_files': {
@@ -1075,6 +1290,16 @@ export async function dispatchBuiltinTool(
       case 'portal_move_file': {
         const fromRel = asString(args.from, 'from');
         const toRel = asString(args.to, 'to');
+        // renomear .py → .pptx não converte nada — e já destruiu documento
+        // gerado de verdade quando o modelo moveu o script por cima dele
+        const toExt = path.extname(toRel).toLowerCase();
+        if (BINARY_EXTENSIONS.has(toExt) && path.extname(fromRel).toLowerCase() !== toExt) {
+          throw new Error(
+            `Mover ${fromRel} para ${toExt} não converte o arquivo — a extensão não muda o ` +
+              `formato e o resultado não abriria. Se um script gerou o documento, ele já está ` +
+              `no caminho onde o script salvou; NÃO mova o script por cima dele.`,
+          );
+        }
         const from = resolveInProject(workRoot, fromRel);
         const to = resolveInProject(workRoot, toRel);
         if (!fs.existsSync(from)) throw new Error(`Não existe: ${fromRel}`);

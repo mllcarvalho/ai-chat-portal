@@ -91,7 +91,8 @@ export function buildPreamble(opts: {
     }
     if (session.mode !== 'ask') {
       blocks.push(
-        `Esta conversa pertence ao projeto "${project.name}". Os arquivos gerados devem ficar na pasta do projeto: use as ferramentas portal_write_file, portal_read_file e portal_list_files com caminhos relativos à raiz do projeto.`,
+        `Esta conversa pertence ao projeto "${project.name}". Os arquivos gerados devem ficar na pasta do projeto: use as ferramentas portal_write_file, portal_read_file e portal_list_files com caminhos relativos à raiz do projeto. ` +
+          'O usuário vê e baixa esses arquivos pelo painel Arquivos da conversa — você NÃO conhece URLs do portal, então NUNCA escreva links de download ("baixe aqui"): indique o nome do arquivo e o painel Arquivos.',
         'Quando o usuário pedir para criar uma skill, use a ferramenta portal_create_skill — skills do portal são markdown registradas no menu Skills, nunca arquivos soltos criados com portal_write_file.',
       );
     }
@@ -99,7 +100,8 @@ export function buildPreamble(opts: {
     blocks.push(
       'Esta conversa não pertence a um projeto, mas tem uma pasta de trabalho própria (o workspace da conversa): ' +
         'use portal_write_file, portal_read_file e portal_list_files com caminhos relativos a essa pasta. ' +
-        'O usuário vê e baixa esses arquivos pelo painel Arquivos da conversa.',
+        'O usuário vê e baixa esses arquivos pelo painel Arquivos da conversa — você NÃO conhece URLs do portal, ' +
+        'então NUNCA escreva links de download ("baixe aqui"): indique o nome do arquivo e o painel Arquivos.',
     );
   }
   if (session.mode !== 'ask') {

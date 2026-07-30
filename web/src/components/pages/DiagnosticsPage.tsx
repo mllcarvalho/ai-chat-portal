@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { Check, RefreshCw, Stethoscope, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, ClipboardCopy, RefreshCw, Stethoscope, X } from 'lucide-react';
 import type { DiagnosticCheck } from '@aiportal/shared';
+import { api } from '../../api/client';
 import { useDiagnostics } from '../../stores/diagnosticsStore';
 import { useUi } from '../../stores/uiStore';
 import { PageShell, Panel } from './PageShell';
@@ -31,6 +32,20 @@ export function DiagnosticsPage() {
     if (fixError) toast(fixError, 'error');
   }, [fixError, toast]);
 
+  const [copying, setCopying] = useState(false);
+  const copySupportReport = async () => {
+    setCopying(true);
+    try {
+      const { text } = await api.supportReport();
+      await navigator.clipboard.writeText(text);
+      toast('Relatório copiado — cole no chat de suporte.', 'ok');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Erro ao copiar o relatório', 'error');
+    } finally {
+      setCopying(false);
+    }
+  };
+
   const running = report?.running ?? false;
   const problems = report?.problemCount ?? 0;
   const warns = report?.checks.filter((c) => c.status === 'warn').length ?? 0;
@@ -48,9 +63,15 @@ export function DiagnosticsPage() {
       title="Diagnóstico do ambiente"
       subtitle="Verifica as ferramentas e a rede corporativa que o portal e os setups de MCP usam."
       actions={
-        <button className="btn" onClick={() => void start()} disabled={running}>
-          {running ? 'Verificando…' : <><RefreshCw className="icon" aria-hidden /> Verificar novamente</>}
-        </button>
+        <>
+          <button className="btn" onClick={() => void copySupportReport()} disabled={copying}>
+            <ClipboardCopy className="icon" aria-hidden />{' '}
+            {copying ? 'Copiando…' : 'Copiar relatório de suporte'}
+          </button>
+          <button className="btn" onClick={() => void start()} disabled={running}>
+            {running ? 'Verificando…' : <><RefreshCw className="icon" aria-hidden /> Verificar novamente</>}
+          </button>
+        </>
       }
     >
       <Panel title={summary} count={report?.checks.length}>

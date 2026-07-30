@@ -98,6 +98,8 @@ export interface ChatSseEvents {
    * só fecha depois deste evento (ou do timeout da medição).
    */
   usage_update: { messageId: string; usage: TokenUsage };
+  /** Metadados da sessão mudaram após o done (ex.: título gerado pelo modelo). */
+  session_update: { updatedSession: SessionSummary };
   error: { code: ChatErrorCode; message: string };
 }
 

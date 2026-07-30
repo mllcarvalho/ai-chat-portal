@@ -1,6 +1,53 @@
 /** Modo de operação da sessão, equivalente aos modos do Copilot. */
 export type SessionMode = 'ask' | 'plan' | 'agent';
 
+/**
+ * Quem responde a conversa. Dois formatos bem diferentes por baixo:
+ *
+ * - `copilot`: o portal é dono do loop agêntico (monta o prompt, chama o
+ *   modelo, executa as ferramentas, repete). Todos os recursos do portal
+ *   (skills, bases de conhecimento, MCPs, subagentes) valem.
+ * - `claude-code` / `devin`: a CLI é dona do loop. O portal vira UI +
+ *   transporte, traduzindo o stream da CLI para os eventos SSE do portal. Os
+ *   recursos do portal que valem são os que dá para projetar em arquivos e
+ *   flags da CLI (ver ProviderCapabilities).
+ */
+export type ProviderId = 'copilot' | 'claude-code' | 'devin';
+
+export const DEFAULT_PROVIDER: ProviderId = 'copilot';
+
+/** O que de fato funciona em cada provider — a UI esconde o resto. */
+export interface ProviderCapabilities {
+  /** Skills do portal entram no contexto da conversa. */
+  skills: boolean;
+  /** Bases de conhecimento entram no contexto. */
+  knowledge: boolean;
+  /** MCPs registrados no portal/VS Code são oferecidos como ferramentas. */
+  mcp: boolean;
+  /** Liga/desliga de ferramentas individuais pela UI do portal. */
+  toolToggles: boolean;
+  /** Presets de agente (instruções + modelo + modo). */
+  agents: boolean;
+  /** Modos ask/plan/agent por conversa. */
+  modes: boolean;
+  /** Arquivos fixados no contexto da sessão. */
+  contextFiles: boolean;
+  /** Custo da resposta é reportado (créditos ou dólares). */
+  cost: boolean;
+}
+
+/** Um provider disponível (ou não) nesta máquina — GET /api/providers. */
+export interface ProviderInfo {
+  id: ProviderId;
+  /** Nome exibido na UI (ex.: "GitHub Copilot", "Claude Code"). */
+  label: string;
+  /** Pronto para uso? Se false, `detail` diz o que falta. */
+  available: boolean;
+  /** Motivo da indisponibilidade, ou versão/conta detectada quando disponível. */
+  detail?: string;
+  capabilities: ProviderCapabilities;
+}
+
 export interface Config {
   version: 1;
   /** Porta preferida do servidor (default 4717; pode subir em 4718-4727 se ocupada). */
@@ -17,6 +64,11 @@ export interface Config {
   microsoft?: MicrosoftGraphConfig;
   /** Último usuário RACF informado no login (a senha nunca é persistida). */
   racfUser?: string;
+  /**
+   * Executáveis liberados sem aprovação no portal_run_command (primeiro token
+   * do comando, ex.: "python3") — preenchido pelo "sempre permitir" da UI.
+   */
+  commandAllowlist?: string[];
 }
 
 /**
@@ -60,6 +112,8 @@ export interface ModelInfo {
   vendor: string;
   version: string;
   maxInputTokens: number;
+  /** Quem oferece o modelo — o seletor da UI agrupa por aqui. */
+  provider: ProviderId;
   /** Se o consentimento do Copilot já foi dado para este modelo (undefined = desconhecido). */
   canSend?: boolean;
   /** Modelo premium: desconta AI credits por requisição (undefined = desconhecido). */
@@ -93,11 +147,26 @@ export interface HealthInfo {
   buildId?: number;
   /** Se a janela que serve tem o repo do portal aberto (dados em portal-data/). */
   hasPortalRoot?: boolean;
+  /** Copilot Chat presente no VS Code (informativo — não bloqueia a entrada). */
   copilotChatInstalled: boolean;
+  /** Modelos do Copilot (informativo — não bloqueia a entrada). */
   modelCount: number;
+  /**
+   * Motores detectados e o motivo de cada indisponibilidade. `ok` acima é
+   * verdadeiro quando ao menos um deles está disponível: o portal serve tanto
+   * quem tem só o Copilot quanto quem tem só o Claude Code.
+   *
+   * OPCIONAL de propósito: a extensão serve o bundle web lendo do disco a cada
+   * request, então instalar uma versão nova troca o web imediatamente enquanto
+   * o processo da extensão segue com o código antigo até a janela recarregar.
+   * Nessa janela o campo não existe — a UI precisa tolerar a ausência.
+   */
+  providers?: ProviderInfo[];
   account?: { id: string; label: string };
   needsConsent: boolean;
   env?: EnvStatus;
+  /** Presente quando há versão mais nova do portal publicada no npm. */
+  update?: { latest: string; command: string };
 }
 
 /** Arquivo/seleção ativos no editor do VS Code — vira anexo no chat (como o # do Copilot). */
@@ -140,6 +209,12 @@ export interface TokenUsage {
    * ex.: plano ilimitado, modelo incluído ou atraso na contabilização).
    */
   credits?: number;
+  /**
+   * Custo em dólares reportado pela própria CLI (providers que são donos do
+   * loop — o Claude Code devolve total_cost_usd no evento `result`). Não se
+   * mistura com `credits`: são unidades de cobrança diferentes.
+   */
+  costUsd?: number;
 }
 
 export type ChatFinishReason = 'stop' | 'cancelled' | 'max_rounds' | 'error';
@@ -163,8 +238,16 @@ export interface Session {
   /** null = sessão avulsa, fora de qualquer projeto. */
   projectId: string | null;
   mode: SessionMode;
+  /** Ausente nas conversas criadas antes dos providers — trate como 'copilot'. */
+  provider?: ProviderId;
   modelId?: string;
   agentId?: string;
+  /**
+   * Id da conversa do lado da CLI (providers que são donos do próprio loop),
+   * gravado na primeira resposta e reusado com --resume nas seguintes. É o que
+   * mantém o histórico do lado de lá sem o portal reenviar o contexto.
+   */
+  providerSessionId?: string;
   activeSkillIds: string[];
   /** null = todas as ferramentas habilitadas. */
   enabledTools: string[] | null;

@@ -73,6 +73,12 @@ function toolCallSummary(call: ToolCallPart, result: ToolResultPart | undefined)
     case 'portal_run_command':
       line = `💻 Executou o comando \`${oneLine(s('command') ?? '', 100) || '(vazio)'}\``;
       break;
+    case 'portal_command_output':
+      line = `💻 Consultou o processo em background ${s('id') ?? ''}`.trim();
+      break;
+    case 'portal_todo':
+      line = '📋 Atualizou o plano de trabalho';
+      break;
     case 'portal_search_files':
       line = `🔎 Buscou "${oneLine(s('query') ?? '', 80)}" nos arquivos`;
       break;

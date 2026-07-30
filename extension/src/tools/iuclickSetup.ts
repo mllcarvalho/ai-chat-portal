@@ -322,8 +322,8 @@ export async function reauthIuclick(
  * (captureIuclickCredentials cuida disso — rejeita a tela de login e usa o par
  * cookie+token consistente), depois instala/religa o MCP. Sem tocar no DevTools.
  */
-export async function autoDetectIuclick(): Promise<{ message: string }> {
-  const cap = await captureIuclickCredentials();
+export async function autoDetectIuclick(viaBrowser = false): Promise<{ message: string }> {
+  const cap = await captureIuclickCredentials({ viaBrowser });
   // servidor ainda não instalado: detecta E instala numa tacada só (o setup
   // roda em background com as credenciais; a UI acompanha pelo polling)
   if (!readMcpJson()[IUCLICK_SERVER_NAME]) {

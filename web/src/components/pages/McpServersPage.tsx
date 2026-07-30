@@ -498,11 +498,15 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
     }
   };
 
-  /** Detecção automática: portal lê os cookies do navegador e busca o X-UserToken. */
-  const autodetect = async () => {
+  /**
+   * Detecção automática. Sem argumento: lê os cookies do navegador (rápido).
+   * via='browser': abre o navegador e captura pelo SSO (CDP) — obrigatório no
+   * Windows com App-Bound Encryption / EDR bloqueando o PowerShell.
+   */
+  const autodetect = async (via?: 'browser') => {
     setBusy(true);
     try {
-      const result = await api.autodetectIuclick();
+      const result = await api.autodetectIuclick(via);
       toast(result.message, 'ok');
     } catch (err) {
       toast(`${(err as Error).message} — se persistir, use "Colar do DevTools" abaixo.`, 'error');
@@ -588,6 +592,16 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                   <BrushCleaning className="icon" aria-hidden /> Remover e limpar tudo
                 </button>
               )}
+            </div>
+            <p className="mcp-block__hint">
+              No Windows corporativo (Chrome/Edge 127+ com App-Bound Encryption, ou antivírus
+              bloqueando), a leitura direta pode falhar. Nesse caso, use a captura via SSO: o portal
+              abre o navegador, o login corporativo entra sozinho e ele lê a sessão.
+            </p>
+            <div className="mcp-block__actions">
+              <button className="btn" disabled={busy} onClick={() => void autodetect('browser')}>
+                <WandSparkles className="icon" aria-hidden /> Detectar via navegador (SSO)
+              </button>
             </div>
 
             <details className="mcp-fallback">

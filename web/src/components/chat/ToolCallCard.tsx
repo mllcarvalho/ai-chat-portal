@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   Drama,
+  ListChecks,
   MessagesSquare,
   Play,
   Settings,
@@ -31,6 +32,8 @@ const TOOL_LABELS: Record<string, string> = {
   portal_delete_file: 'Excluindo arquivo',
   portal_move_file: 'Movendo arquivo',
   portal_run_command: 'Executando comando',
+  portal_command_output: 'Consultando processo em background',
+  portal_todo: 'Plano de trabalho',
   portal_fetch_url: 'Consultando página',
   portal_web_search: 'Pesquisando na web',
   portal_spawn_subagent: 'Consultando subagente',
@@ -102,23 +105,93 @@ function parseCheckpoint(result?: ToolResultPart): { id?: string; content: strin
  * edições no VS Code), em vez do JSON cru com \n escapado.
  */
 function EditDiff(props: { input: Record<string, unknown> }) {
-  const find = typeof props.input.find === 'string' ? props.input.find : '';
-  const replace = typeof props.input.replace === 'string' ? props.input.replace : '';
-  if (!find && !replace) return null;
+  // aceita tanto find/replace único quanto a lista "edits" (várias mudanças)
+  const ops: Array<{ find: string; replace: string }> = [];
+  if (Array.isArray(props.input.edits)) {
+    for (const raw of props.input.edits as unknown[]) {
+      const e = (raw ?? {}) as { find?: unknown; replace?: unknown };
+      if (typeof e.find === 'string') {
+        ops.push({ find: e.find, replace: typeof e.replace === 'string' ? e.replace : '' });
+      }
+    }
+  } else if (typeof props.input.find === 'string') {
+    ops.push({
+      find: props.input.find,
+      replace: typeof props.input.replace === 'string' ? props.input.replace : '',
+    });
+  }
+  if (!ops.length) return null;
   return (
-    <div className="tool-diff">
-      {find.split('\n').map((line, i) => (
-        <div key={`d${i}`} className="tool-diff__line tool-diff__line--del">
-          <span className="tool-diff__sign">-</span>
-          {line}
+    <>
+      {ops.map((op, n) => (
+        <div key={n} className="tool-diff">
+          {op.find.split('\n').map((line, i) => (
+            <div key={`d${i}`} className="tool-diff__line tool-diff__line--del">
+              <span className="tool-diff__sign">-</span>
+              {line}
+            </div>
+          ))}
+          {op.replace.split('\n').map((line, i) => (
+            <div key={`a${i}`} className="tool-diff__line tool-diff__line--add">
+              <span className="tool-diff__sign">+</span>
+              {line}
+            </div>
+          ))}
         </div>
       ))}
-      {replace.split('\n').map((line, i) => (
-        <div key={`a${i}`} className="tool-diff__line tool-diff__line--add">
-          <span className="tool-diff__sign">+</span>
-          {line}
-        </div>
-      ))}
+    </>
+  );
+}
+
+interface TodoItem {
+  title: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
+function parseTodos(input: Record<string, unknown>): TodoItem[] {
+  if (!Array.isArray(input.todos)) return [];
+  return (input.todos as unknown[]).map((raw, i) => {
+    const e = (raw ?? {}) as { title?: unknown; status?: unknown };
+    return {
+      title: typeof e.title === 'string' && e.title ? e.title : `(etapa ${i + 1})`,
+      status: e.status === 'in_progress' || e.status === 'done' ? e.status : 'pending',
+    };
+  });
+}
+
+/**
+ * Plano de trabalho do agente (portal_todo) como checklist — é conteúdo para
+ * o usuário acompanhar (como no Copilot), não card técnico: sempre visível.
+ */
+function TodoCard(props: { call: ToolCallPart }) {
+  const todos = parseTodos((props.call.input ?? {}) as Record<string, unknown>);
+  if (!todos.length) return null;
+  const done = todos.filter((t) => t.status === 'done').length;
+  return (
+    <div className="tool-card todo-card">
+      <div className="tool-card__head" style={{ cursor: 'default' }}>
+        <span className="tool-card__icon">
+          <ListChecks className="icon" aria-hidden />
+        </span>
+        <span className="tool-card__name">Plano de trabalho</span>
+        <span className="tool-card__status">
+          {done}/{todos.length} concluídas
+        </span>
+      </div>
+      <ul className="todo-card__list">
+        {todos.map((t, i) => (
+          <li key={i} className={`todo-card__item todo-card__item--${t.status}`}>
+            {t.status === 'done' ? (
+              <Check className="icon icon--sm" aria-hidden />
+            ) : t.status === 'in_progress' ? (
+              <span className="spinner" />
+            ) : (
+              <span className="todo-card__bullet" />
+            )}
+            <span>{t.title}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -215,8 +288,8 @@ export function ToolCallCard(props: {
   const pendingQuestion = stream?.pendingQuestion;
   const doRespondApproval = useChat((s) => s.respondApproval);
   const doRespondQuestion = useChat((s) => s.respondQuestion);
-  const respondApproval = (approved: boolean) =>
-    sessionId && doRespondApproval(sessionId, approved);
+  const respondApproval = (approved: boolean, alwaysAllow?: string) =>
+    sessionId && doRespondApproval(sessionId, approved, alwaysAllow);
   const respondQuestion = (answer: string) => sessionId && doRespondQuestion(sessionId, answer);
   const hideToolCards = useUi((s) => s.hideToolCards);
   const awaitingApproval = !result && pendingApproval?.callId === call.callId;
@@ -224,6 +297,9 @@ export function ToolCallCard(props: {
 
   if (call.toolName === 'portal_spawn_subagent') {
     return <SubagentBubble call={call} result={result} running={running} />;
+  }
+  if (call.toolName === 'portal_todo') {
+    return <TodoCard call={call} />;
   }
 
   // preferência "ocultar detalhes técnicos": some com os cards, MAS pedidos de
@@ -341,6 +417,19 @@ export function ToolCallCard(props: {
             <button className="btn btn--sm btn--primary" onClick={() => respondApproval(true)}>
               <Play className="icon" aria-hidden /> Executar
             </button>
+            {(() => {
+              const bin = pendingApproval.command.trim().split(/\s+/)[0] ?? '';
+              if (!bin || bin.length > 64) return null;
+              return (
+                <button
+                  className="btn btn--sm"
+                  onClick={() => respondApproval(true, bin)}
+                  title={`Executa e libera comandos "${bin}" sem pedir aprovação (gerencie em Configurações)`}
+                >
+                  Sempre permitir {bin}
+                </button>
+              );
+            })()}
             <button className="btn btn--sm btn--ghost" onClick={() => respondApproval(false)}>
               Negar
             </button>
