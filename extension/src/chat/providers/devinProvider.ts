@@ -150,6 +150,31 @@ const MODELS: ModelInfo[] = [
   })),
 ];
 
+/**
+ * Servidor MCP no formato que o Devin aceita no session/new.
+ *
+ * Descoberto com scripts/probe-devin-mcp.mjs, testando quatro variantes contra
+ * a CLI real. Três detalhes que não estavam na especificação:
+ *
+ *  - `type: "stdio"` é OBRIGATÓRIO. Sem ele o pior acontece: o session/new
+ *    passa, a sessão sobe e o servidor é ignorado em SILÊNCIO — foi o que
+ *    produzia o "Server portal not found in configuration" mais adiante.
+ *  - `env` também é obrigatório (o Devin rejeita com "Invalid params" sem ele).
+ *  - `env` é ARRAY de {name, value}; objeto é recusado.
+ */
+function acpStdioServer(
+  name: string,
+  server: { command: string; args: string[]; env: Record<string, string> },
+): object {
+  return {
+    type: 'stdio',
+    name,
+    command: server.command,
+    args: server.args,
+    env: Object.entries(server.env).map(([k, value]) => ({ name: k, value })),
+  };
+}
+
 /** Ambiente do `devin acp`, com o modelo da conversa quando houver escolha. */
 function devinEnv(modelId?: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ...netProcessEnv() };
@@ -160,20 +185,18 @@ function devinEnv(modelId?: string): NodeJS.ProcessEnv {
 const CAPABILITIES = {
   skills: true,
   knowledge: true,
-  // TODO: o Devin recusa o servidor MCP declarado no session/new ("Server
-  // portal not found in configuration") — o formato correto está sendo
-  // levantado com scripts/probe-devin-mcp.mjs. Até lá ele roda com as
-  // ferramentas nativas dele, sem as do portal.
-  mcp: false,
-  toolToggles: false,
+  // os MCPs do portal chegam proxiados pelo servidor MCP do portal
+  mcp: true,
+  // mesmo catálogo do Copilot (getEnabledToolDefs), então o liga/desliga vale
+  toolToggles: true,
   agents: true,
   modes: true,
   contextFiles: true,
   // reporta ACU (unidade do Devin), não dólares nem credits do Copilot
   cost: false,
-  // depende do servidor MCP acima: sem ele o adaptador do BMAD manda usar
-  // ferramentas que não existem do lado do Devin
-  bmad: false,
+  // as ferramentas que o adaptador do BMAD invoca chegam pelo servidor MCP do
+  // portal, declarado no session/new
+  bmad: true,
 } as const;
 
 /** Modos do portal → modos da sessão ACP (vistos no availableModes do trace). */
@@ -497,16 +520,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   // ferramentas do portal para o agente (é o que faz o BMAD rodar aqui). O
   // formato de mcpServers no ACP é o do stdio: command/args/env.
   const portal = portalMcpServer(ctx.session.id);
-  const mcpServers = portal
-    ? [
-        {
-          name: 'portal',
-          command: portal.command,
-          args: portal.args,
-          env: Object.entries(portal.env).map(([name, value]) => ({ name, value })),
-        },
-      ]
-    : [];
+  const mcpServers = portal ? [acpStdioServer('portal', portal)] : [];
 
   try {
     // 1. handshake: declara que o portal sabe ler/escrever arquivos por ele
@@ -682,16 +696,7 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
     });
     const created = await client.request<{ sessionId?: string }>('session/new', {
       cwd: req.workRoot,
-      mcpServers: portal
-        ? [
-            {
-              name: 'portal',
-              command: portal.command,
-              args: portal.args,
-              env: Object.entries(portal.env).map(([name, value]) => ({ name, value })),
-            },
-          ]
-        : [],
+      mcpServers: portal ? [acpStdioServer('portal', portal)] : [],
     });
     if (!created?.sessionId) throw new Error('O Devin não devolveu um sessionId.');
 
