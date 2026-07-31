@@ -13,7 +13,7 @@ import type { TurnContext } from './types';
  */
 export function skillCatalogBlock(ctx: TurnContext): string | undefined {
   const activeIds = new Set(ctx.instructionSkills.map((s) => s.id));
-  const catalog = ctx.commandSkills.filter((s) => !activeIds.has(s.id));
+  const catalog = ctx.commandSkills.filter((s) => !activeIds.has(s.id) && !isDeprecated(s));
   if (!catalog.length) return undefined;
 
   const linkedIds = new Set(ctx.agent?.skillIds ?? []);
@@ -22,10 +22,15 @@ export function skillCatalogBlock(ctx: TurnContext): string | undefined {
   return (
     '# Catálogo de skills (não carregadas)\n\n' +
     'Estas skills existem no portal mas NÃO estão neste contexto — abaixo só comando, nome e ' +
-    'descrição. Sempre que o pedido do usuário corresponder à descrição de uma skill, carregue-a ' +
-    'com a ferramenta portal_load_skill ANTES de responder e siga as instruções dela. O usuário ' +
-    'também pode invocá-las escrevendo /comando. Se mais de uma servir, carregue a mais ' +
-    'específica. Não invente skills fora desta lista.' +
+    'descrição.\n\n' +
+    'REGRA: antes de responder QUALQUER pedido, confira esta lista. Se o pedido corresponder à ' +
+    'descrição de uma skill, carregue-a com a ferramenta portal_load_skill ANTES de responder e ' +
+    'siga as instruções dela — mesmo que o usuário não cite a skill nem escreva /comando, e mesmo ' +
+    'que você saiba produzir o resultado sozinho. A skill é que define o processo e o formato que ' +
+    'o portal espera: entregar o artefato de cabeça (PRD, épicos, histórias, revisão…) existindo ' +
+    'skill para ele conta como resposta ERRADA, por melhor que pareça. Na dúvida entre responder ' +
+    'direto e carregar a skill, carregue. Se mais de uma servir, carregue a mais específica. Não ' +
+    'invente skills fora desta lista.' +
     (hasLinked
       ? ' Skills marcadas com [skill deste agente] foram vinculadas ao agente desta conversa — ' +
         'dê preferência a elas em caso de empate.'
@@ -33,6 +38,16 @@ export function skillCatalogBlock(ctx: TurnContext): string | undefined {
     '\n\n' +
     catalog.map((s) => describe(s, linkedIds.has(s.id))).join('\n')
   );
+}
+
+/**
+ * Skills que só existem para redirecionar uma versão antiga do BMAD ficam fora
+ * do catálogo: elas competem pelo mesmo pedido que a skill viva (a
+ * `bmad-create-prd` e a `bmad-prd` casam ambas com "crie um PRD") e a hesitação
+ * entre as duas é justamente o que faz o modelo desistir e responder de cabeça.
+ */
+function isDeprecated(skill: SkillWithContent): boolean {
+  return /^\s*deprecated\b/i.test(skill.name) || /^\s*deprecated\b/i.test(skill.description ?? '');
 }
 
 function describe(skill: SkillWithContent, linked: boolean): string {

@@ -1,11 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as readline from 'node:readline';
-import type {
-  ChatErrorCode,
-  ChatFinishReason,
-  MessagePart,
-  ModelInfo,
-  ProviderInfo,
+import {
+  UPLOAD_LIMITS,
+  type ChatErrorCode,
+  type ChatFinishReason,
+  type MessagePart,
+  type ModelInfo,
+  type ProviderInfo,
 } from '@aiportal/shared';
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
@@ -38,8 +39,13 @@ const BIN = 'claude';
 const IDLE_TIMEOUT_MS = 300_000;
 /** Teto do preâmbulo que injetamos via --append-system-prompt. */
 const SYSTEM_PROMPT_CLAMP = 32 * 1024;
-/** Teto do conteúdo de um anexo colado no prompt. */
-const ATTACHMENT_CLAMP = 64 * 1024;
+/**
+ * Teto do conteúdo de um anexo colado no prompt: o mesmo que o portal aceita na
+ * entrada. Cortar aqui num valor menor faria o usuário mandar um arquivo aceito
+ * e receber resposta baseada só no começo dele. A mensagem vai por stdin, então
+ * o tamanho de argv não entra na conta.
+ */
+const ATTACHMENT_CLAMP = UPLOAD_LIMITS.chatAttachmentChars;
 const TOOL_RESULT_CLAMP = 64 * 1024;
 
 /** Erro com a saída de erro da CLI junto, para o mapError montar a mensagem. */

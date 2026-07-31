@@ -303,7 +303,9 @@ export function Composer() {
         toast(`"${name}" já está anexado.`, 'info');
         return;
       }
-      if (ctx.file.truncated) toast(`"${name}" passou de 512 KB e foi truncado.`, 'info');
+      if (ctx.file.truncated) {
+        toast(`"${name}" passou de ${ATTACHMENT_LIMIT_LABEL} e foi truncado.`, 'info');
+      }
       setAttachments((curr) => [...curr, { name, content: ctx.file!.content }]);
     } catch (err) {
       toast((err as Error).message, 'error');

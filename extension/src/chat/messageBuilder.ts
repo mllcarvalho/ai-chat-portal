@@ -220,14 +220,30 @@ function userText(message: ChatMessage): string {
     .join('\n');
 }
 
-/** Anexos da mensagem viram blocos <anexo> logo após o texto do usuário. */
-function attachmentBlocks(message: ChatMessage): string {
-  return message.parts
-    .filter((p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment')
+/**
+ * Anexos da mensagem viram blocos <anexo> logo após o texto do usuário.
+ *
+ * `limit` é o total que os anexos de UMA mensagem podem ocupar. Existe porque o
+ * portal aceita anexos maiores que a janela dos modelos do Copilot (as CLIs têm
+ * janela bem maior) e a mensagem atual é a única que a poda de histórico nunca
+ * descarta: sem o corte aqui, um anexo grande derrubaria o turno inteiro com
+ * erro de contexto em vez de responder com o que coube.
+ */
+function attachmentBlocks(message: ChatMessage, limit: number): string {
+  const attachments = message.parts.filter(
+    (p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment',
+  );
+  if (!attachments.length) return '';
+  const each = Math.max(4_000, Math.floor(limit / attachments.length));
+  return attachments
     .map((p) => {
       // um anexo contendo a tag literal quebraria a delimitação do bloco
       const safe = p.content.replaceAll('</anexo>', '<\\/anexo>');
-      return `<anexo nome="${p.name.replaceAll('"', "'")}">\n${safe}\n</anexo>`;
+      const body =
+        safe.length <= each
+          ? safe
+          : `${safe.slice(0, each)}\n\n… (anexo truncado: não cabe na janela deste modelo)`;
+      return `<anexo nome="${p.name.replaceAll('"', "'")}">\n${body}\n</anexo>`;
     })
     .join('\n\n');
 }
@@ -270,6 +286,9 @@ export function buildMessages(opts: {
 
   // poda: mantém as mensagens mais recentes que cabem no orçamento
   const budget = Math.max(8_000, windowChars - preamble.length);
+  // o que os anexos de uma mensagem podem ocupar: o resto da janela fica para o
+  // texto do usuário, o histórico próximo e a resposta
+  const attachmentLimit = Math.max(8_000, Math.floor(budget * 0.6));
   let used = 0;
   let startIdx = 0;
   for (let i = session.messages.length - 1; i >= 0; i--) {
@@ -325,7 +344,7 @@ export function buildMessages(opts: {
   for (const message of session.messages.slice(startIdx)) {
     if (message.role === 'user') {
       const text = expandSlashCommand(userText(message), commandSkills);
-      const attachments = attachmentBlocks(message);
+      const attachments = attachmentBlocks(message, attachmentLimit);
       const combined = [text, attachments].filter(Boolean).join('\n\n');
       if (combined) result.push(vscode.LanguageModelChatMessage.User(combined));
       continue;

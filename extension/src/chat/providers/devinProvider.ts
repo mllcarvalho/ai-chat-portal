@@ -2,13 +2,14 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type {
-  ChatErrorCode,
-  ChatFinishReason,
-  MessagePart,
-  ModelInfo,
-  ProviderInfo,
-  SessionMode,
+import {
+  UPLOAD_LIMITS,
+  type ChatErrorCode,
+  type ChatFinishReason,
+  type MessagePart,
+  type ModelInfo,
+  type ProviderInfo,
+  type SessionMode,
 } from '@aiportal/shared';
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
@@ -50,7 +51,13 @@ const BIN = 'devin';
 /** Sem nenhuma mensagem por este tempo, desiste do processo. */
 const IDLE_TIMEOUT_MS = 300_000;
 const SYSTEM_PROMPT_CLAMP = 32 * 1024;
-const ATTACHMENT_CLAMP = 64 * 1024;
+/**
+ * O anexo já foi validado contra o teto do portal na entrada; cortá-lo de novo
+ * aqui, num valor menor, só faria o usuário mandar um arquivo aceito e receber
+ * uma resposta baseada no começo dele. O prompt vai por stdin (JSON-RPC), então
+ * não há limite de argv no caminho.
+ */
+const ATTACHMENT_CLAMP = UPLOAD_LIMITS.chatAttachmentChars;
 const TOOL_RESULT_CLAMP = 64 * 1024;
 /** Teto de leitura quando o agente pede um arquivo pelo fs/read_text_file. */
 const FS_READ_CLAMP = 512 * 1024;
@@ -345,8 +352,15 @@ function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | 
 
 /**
  * O ACP não tem campo de system prompt: o preâmbulo do portal vai como um
- * bloco no início da PRIMEIRA mensagem. Nos turnos seguintes a sessão já
- * carrega esse contexto, então só o texto do usuário é enviado.
+ * bloco no início da PRIMEIRA mensagem.
+ *
+ * O catálogo de skills, porém, volta em TODO turno. Ele não é contexto, é
+ * regra de roteamento — e regra dita uma vez, dez turnos atrás, perde para o
+ * pedido que está na frente do modelo: era isso que fazia "crie um PRD" no
+ * meio da conversa ser respondido de cabeça, sem carregar a skill. Nos outros
+ * motores esse bloco vai no system prompt de cada requisição (o Claude Code
+ * remonta o --append-system-prompt a cada turno); aqui, repetir é o
+ * equivalente. Custa pouco: são só comando, nome e descrição.
  */
 function buildPromptText(
   ctx: TurnContext,
@@ -354,7 +368,11 @@ function buildPromptText(
   hasPortalTools: boolean,
 ): string {
   const parts: string[] = [];
-  const preamble = isFirstTurn ? buildSystemPrompt(ctx, hasPortalTools) : undefined;
+  const preamble = isFirstTurn
+    ? buildSystemPrompt(ctx, hasPortalTools)
+    : hasPortalTools
+      ? skillCatalogBlock(ctx)
+      : undefined;
   if (preamble) {
     parts.push(`<contexto-do-portal>\n${preamble}\n</contexto-do-portal>\n\n`);
   }
