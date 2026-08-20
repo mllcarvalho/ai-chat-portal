@@ -29,6 +29,7 @@ import type {
 import { api, type McpProxyInput } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
+import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 type McpTool = { name: string; description: string };
@@ -412,6 +413,8 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
   const [token, setToken] = useState('');
   const [curlBlob, setCurlBlob] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Navegador forçado na captura SSO ('' = automático). */
+  const [captureBrowser, setCaptureBrowser] = useState('');
   /** Só fecha o painel quando o done acontecer NESTA visita (não em setup antigo). */
   const sawInProgress = useRef(false);
   const doneNotified = useRef(false);
@@ -430,6 +433,13 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
       alive = false;
       clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    void api
+      .getConfig()
+      .then((c) => setCaptureBrowser(c.captureBrowser ?? ''))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -598,6 +608,38 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                   Forçar a captura pelo navegador: útil quando a leitura direta dos cookies falha
                   (Windows com App-Bound Encryption, ou antivírus bloqueando).
                 </p>
+                <div className="field">
+                  <label>Navegador da captura</label>
+                  <Select
+                    value={captureBrowser}
+                    onChange={(value) => {
+                      setCaptureBrowser(value);
+                      void api
+                        .patchConfig({ captureBrowser: value })
+                        .then(() =>
+                          toast(
+                            value
+                              ? `A captura vai abrir o ${value}.`
+                              : 'Captura de volta ao automático.',
+                            'ok',
+                          ),
+                        )
+                        .catch((err) => toast((err as Error).message, 'error'));
+                    }}
+                    options={[
+                      { value: '', label: 'Automático', hint: 'Onde você já está logado' },
+                      { value: 'Chrome', label: 'Chrome' },
+                      { value: 'Edge', label: 'Edge' },
+                      { value: 'Brave', label: 'Brave' },
+                    ]}
+                  />
+                  <span className="field__hint">
+                    No automático o portal abre o navegador que TEM cookie do ServiceNow e, na
+                    falta dele, o padrão do sistema. Fixe aqui se abrir o navegador errado — em
+                    máquina corporativa a política costuma deixar o Edge como padrão do Windows
+                    mesmo para quem navega no Chrome.
+                  </span>
+                </div>
                 <div className="mcp-block__actions">
                   <button className="btn" disabled={busy} onClick={() => void autodetect('browser')}>
                     <WandSparkles className="icon" aria-hidden /> Capturar pelo navegador (SSO)

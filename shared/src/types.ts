@@ -81,6 +81,13 @@ export interface Config {
   commandAllowlist?: string[];
   /** Pastas compartilhadas (rede) com skills, agentes e bases da equipe. */
   sharedLibraries?: SharedLibrary[];
+  /**
+   * Navegador usado na captura de sessão via SSO (IUClick/ServiceNow). Vazio =
+   * automático. Existe porque a política corporativa costuma fixar o Edge como
+   * padrão do Windows mesmo para quem navega no Chrome — e aí a janela do SSO
+   * abria no navegador errado.
+   */
+  captureBrowser?: 'Chrome' | 'Edge' | 'Brave';
 }
 
 /**
@@ -95,6 +102,20 @@ export interface SharedLibrary {
   name: string;
   /** Caminho da pasta no sistema de arquivos (UNC no Windows, montagem no macOS). */
   path: string;
+}
+
+/**
+ * Impressão digital das pastas compartilhadas, por tipo. O cliente compara
+ * entre um poll e outro para recarregar sozinho quando OUTRA pessoa mexeu.
+ */
+export interface SharedRevision {
+  skills: string;
+  agents: string;
+  knowledge: string;
+  /** Última varredura concluída (ISO); ausente = nenhuma ainda. */
+  checkedAt?: string;
+  /** Bibliotecas fora do ar na varredura. */
+  offline: string[];
 }
 
 /** Situação de uma biblioteca no momento da consulta (a rede pode estar fora). */

@@ -1,4 +1,5 @@
 import { collectCookieHits } from './browserCookies';
+import { getConfig } from '../storage/configStore';
 import { captureCookiesViaBrowser } from './cdpCapture';
 import { requestInitFor, resolveShellEnv } from './netEnv';
 import { saveIuclickCredentials } from '../storage/iuclickStore';
@@ -156,7 +157,9 @@ export async function captureIuclickCredentials(
 
   // passo 2: captura via navegador (SSO). Único caminho no Windows App-Bound.
   try {
-    const cap = await captureCookiesViaBrowser(SERVICENOW_DOMAIN, SERVICENOW_URL);
+    const cap = await captureCookiesViaBrowser(SERVICENOW_DOMAIN, SERVICENOW_URL, {
+      preferBrowser: getConfig().captureBrowser,
+    });
     return await sessionFromCookies(cap.cookieString, cap.browser, cap.profile);
   } catch (err) {
     failures.push(`Navegador (SSO): ${err instanceof Error ? err.message : err}`);

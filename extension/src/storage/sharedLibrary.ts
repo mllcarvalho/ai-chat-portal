@@ -145,6 +145,121 @@ function countEntries(dir: string): number {
   }
 }
 
+/* ---------- detecção de alteração feita por outra pessoa ---------- */
+
+/**
+ * Impressão digital das pastas compartilhadas, por tipo. A UI compara o valor
+ * entre um poll e outro: mudou, recarrega a lista sozinha.
+ *
+ * Por que POLLING e não fs.watch: biblioteca compartilhada é pasta de REDE. O
+ * FSEvents do macOS não enxerga montagem SMB, e o ReadDirectoryChangesW do
+ * Windows em caminho UNC é notoriamente instável (perde evento, morre quando a
+ * sessão SMB reconecta). Um hash de mtime+tamanho é chato, mas nunca mente.
+ */
+export interface SharedRevision {
+  skills: string;
+  agents: string;
+  knowledge: string;
+  /** Última varredura concluída (ISO). Ausente = ainda não rodou nenhuma. */
+  checkedAt?: string;
+  /** Bibliotecas que estavam fora do ar na varredura (a UI avisa sem alarmar). */
+  offline: string[];
+}
+
+/** Quanto tempo uma varredura vale antes de disparar a próxima. */
+const REVISION_TTL_MS = 12_000;
+/** Teto de entradas por varredura: pasta de rede grande não pode travar nada. */
+const REVISION_MAX_ENTRIES = 4_000;
+const REVISION_MAX_DEPTH = 3;
+
+const EMPTY_REVISION: SharedRevision = { skills: '', agents: '', knowledge: '', offline: [] };
+
+let revisionCache: SharedRevision = EMPTY_REVISION;
+let revisionAt = 0;
+let revisionScanning = false;
+
+/**
+ * Hash de nome+mtime+tamanho da árvore. Profundidade e número de entradas são
+ * limitados: o layout real é raso (skills/<slug>/SKILL.md, knowledge/<id>/doc)
+ * e um teto evita que alguém apontando a raiz de um servidor derrube a
+ * varredura.
+ */
+function fingerprint(dir: string, hash: crypto.Hash, budget: { left: number }, depth = 0): void {
+  if (depth > REVISION_MAX_DEPTH || budget.left <= 0) return;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    // pasta some ou nega acesso: entra no hash como "vazia" e a vida segue
+    return;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (budget.left <= 0) return;
+    if (entry.name.startsWith('.')) continue;
+    budget.left -= 1;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      hash.update(`d:${entry.name}\n`);
+      fingerprint(full, hash, budget, depth + 1);
+      continue;
+    }
+    try {
+      const stat = fs.statSync(full);
+      hash.update(`f:${entry.name}:${stat.mtimeMs}:${stat.size}\n`);
+    } catch {
+      hash.update(`f:${entry.name}:?\n`);
+    }
+  }
+}
+
+function fingerprintKind(
+  kind: typeof SHARED_SKILLS_DIR | typeof SHARED_KNOWLEDGE_DIR | typeof SHARED_AGENTS_DIR,
+): string {
+  const hash = crypto.createHash('sha1');
+  const budget = { left: REVISION_MAX_ENTRIES };
+  for (const { lib, dir } of libraryDirs(kind)) {
+    hash.update(`lib:${lib.id}\n`);
+    fingerprint(dir, hash, budget);
+  }
+  return hash.digest('hex').slice(0, 16);
+}
+
+function scanRevision(): void {
+  if (revisionScanning) return;
+  revisionScanning = true;
+  // fora da thread do request: uma pasta de rede lenta não pode segurar a API
+  setImmediate(() => {
+    try {
+      const offline = listLibraries()
+        .filter((lib) => !isAvailable(lib))
+        .map((lib) => lib.name);
+      revisionCache = {
+        skills: fingerprintKind(SHARED_SKILLS_DIR),
+        agents: fingerprintKind(SHARED_AGENTS_DIR),
+        knowledge: fingerprintKind(SHARED_KNOWLEDGE_DIR),
+        checkedAt: new Date().toISOString(),
+        offline,
+      };
+      revisionAt = Date.now();
+    } catch {
+      revisionAt = Date.now(); // erro não vira varredura em loop
+    } finally {
+      revisionScanning = false;
+    }
+  });
+}
+
+/**
+ * Revisão atual (do cache) e, se estiver velha, agenda a próxima varredura.
+ * É movida por DEMANDA e não por timer: portal aberto sem ninguém olhando as
+ * telas de gestão não fica batendo na rede à toa.
+ */
+export function sharedRevision(): SharedRevision {
+  if (!listLibraries().length) return { ...EMPTY_REVISION, checkedAt: new Date().toISOString() };
+  if (Date.now() - revisionAt > REVISION_TTL_MS) scanRevision();
+  return revisionCache;
+}
+
 /**
  * Preferências LOCAIS sobre itens compartilhados. O toggle "usar no contexto"
  * de uma base compartilhada é de cada pessoa: gravá-lo no base.json da pasta

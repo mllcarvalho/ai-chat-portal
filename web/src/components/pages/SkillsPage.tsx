@@ -24,6 +24,7 @@ import { useUi } from '../../stores/uiStore';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { parseSkillZip } from '../../lib/skillZipImport';
 import { Select } from '../common/Select';
+import { useSharedRevision } from '../../lib/useSharedRevision';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 interface Draft {
@@ -155,6 +156,9 @@ export function SkillsPage() {
   useEffect(() => {
     void loadSkills();
   }, [loadSkills]);
+
+  // skill salva por outra pessoa na pasta da equipe entra na lista sozinha
+  useSharedRevision('skills', () => void loadSkills());
 
   const hasBmad = useMemo(() => skills.some((s) => isBmadAsset(s.id)), [skills]);
 

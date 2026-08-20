@@ -55,6 +55,7 @@ export function patchConfig(
       | 'racfUser'
       | 'commandAllowlist'
       | 'sharedLibraries'
+      | 'captureBrowser'
     >
   >,
 ): Config {

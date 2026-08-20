@@ -26,6 +26,7 @@ import type {
   SessionMode,
   SharedLibrary,
   SharedLibraryStatus,
+  SharedRevision,
   SessionSummary,
   Skill,
   SkillWithContent,
@@ -524,11 +525,15 @@ export const api = {
       {},
     ),
 
+  /** Hash das pastas compartilhadas por tipo — muda quando outra pessoa mexe. */
+  sharedRevision: () => request<SharedRevision>('GET', '/api/shared-libraries/revision'),
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: {
     projectsRoot?: string;
     network?: NetworkConfig;
     microsoft?: MicrosoftGraphConfig;
     commandAllowlist?: string[];
+    /** '' volta ao automático. */
+    captureBrowser?: string;
   }) => request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

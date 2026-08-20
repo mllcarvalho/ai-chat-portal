@@ -45,6 +45,7 @@ import { Dropdown } from '../common/Dropdown';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
+import { useSharedRevision } from '../../lib/useSharedRevision';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 /** Hostname de uma URL para exibição — URL inválida não pode quebrar a lista. */
@@ -196,6 +197,19 @@ export function KnowledgePage() {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  /*
+   * Base mexida por outra pessoa na pasta da equipe entra sozinha. Silencioso
+   * de propósito: NÃO mexe em `busy` (piscaria os botões) nem no documento
+   * aberto no editor — recarregar por baixo de quem está digitando seria pior
+   * que o problema.
+   */
+  useSharedRevision('knowledge', () => {
+    void (async () => {
+      await reload();
+      if (selected) setDocs(await api.listKnowledgeDocs(selected.id).catch(() => docs));
+    })();
+  });
 
   /**
    * Recarrega bases e documentos sob demanda — capturas do navegador chegam

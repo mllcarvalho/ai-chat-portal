@@ -37,6 +37,7 @@ import { AgentIcon } from '../common/AgentIcon';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
+import { useSharedRevision } from '../../lib/useSharedRevision';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 interface Draft {
@@ -197,6 +198,12 @@ export function AgentsPage() {
   useEffect(() => {
     loadLinks();
   }, [loadLinks]);
+
+  // agente/skill/base alterado por outra pessoa na pasta da equipe: a lista e
+  // as opções de vínculo se atualizam sozinhas
+  useSharedRevision('agents', () => void loadAgents());
+  useSharedRevision('skills', loadLinks);
+  useSharedRevision('knowledge', loadLinks);
 
   const toggleDraftLink = (key: 'skillIds' | 'knowledgeBaseIds', id: string) => {
     setDraft((d) => {

@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
 import type { SharedLibrary } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
-import { libraryStatus, listLibraries, saveLibraries } from '../../storage/sharedLibrary';
+import {
+  libraryStatus,
+  listLibraries,
+  saveLibraries,
+  sharedRevision,
+} from '../../storage/sharedLibrary';
 import { getConfig, patchConfig } from '../../storage/configStore';
 import {
   applyNpmrcSettings,
@@ -13,6 +18,16 @@ import {
 
 export function registerConfigRoutes(router: Router): void {
   // bibliotecas compartilhadas (pastas de rede com skills/agentes/bases)
+  /**
+   * Impressão digital das pastas compartilhadas. A UI faz poll aqui (barato: o
+   * valor sai de cache) e recarrega a lista quando o hash do tipo muda — é
+   * assim que a alteração feita por OUTRA pessoa aparece sem ninguém apertar
+   * "atualizar".
+   */
+  router.get('/api/shared-libraries/revision', ({ res }) => {
+    sendJson(res, 200, sharedRevision());
+  });
+
   router.get('/api/shared-libraries', ({ res }) => {
     sendJson(res, 200, listLibraries().map(libraryStatus));
   });
@@ -70,7 +85,18 @@ export function registerConfigRoutes(router: Router): void {
       };
       microsoft?: { clientId?: string; tenant?: string };
       commandAllowlist?: string[];
+      captureBrowser?: string;
     };
+    // navegador da captura SSO: só os que falam CDP (Firefox não fala)
+    const CAPTURE_BROWSERS = ['Chrome', 'Edge', 'Brave'] as const;
+    type CaptureBrowser = (typeof CAPTURE_BROWSERS)[number];
+    const captureBrowser =
+      patch.captureBrowser === undefined
+        ? undefined
+        : ((CAPTURE_BROWSERS as readonly string[]).includes(patch.captureBrowser)
+            ? (patch.captureBrowser as CaptureBrowser)
+            : // string vazia (ou lixo) volta ao automático
+              null);
     // lista de executáveis liberados sem aprovação: só tokens simples
     const commandAllowlist =
       patch.commandAllowlist !== undefined
@@ -137,6 +163,7 @@ export function registerConfigRoutes(router: Router): void {
       ...(network ? { network } : {}),
       ...(microsoft ? { microsoft } : {}),
       ...(commandAllowlist !== undefined ? { commandAllowlist } : {}),
+      ...(captureBrowser !== undefined ? { captureBrowser: captureBrowser ?? undefined } : {}),
     });
     const { token: _token, ...safe } = updated;
     sendJson(res, 200, safe);

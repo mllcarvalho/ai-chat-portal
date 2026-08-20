@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { browsersWithDomainCookies } from './browserCookies';
 import { spawnCwd } from './winPowerShell';
 
 /**
@@ -138,18 +139,31 @@ function runQuiet(command: string, args: string[], timeoutMs = 4000): string {
  * eu uso o Chrome": a captura precisa acontecer no navegador onde a pessoa já
  * está logada no ServiceNow, não no que a gente acha melhor.
  */
+/** reg.exe pelo caminho absoluto: PATH sanitizado não pode zerar a detecção. */
+function regExe(): string {
+  const root = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+  return path.join(root, 'System32', 'reg.exe');
+}
+
+function labelForProgId(out: string): string | undefined {
+  if (/Chrome/i.test(out)) return 'Chrome';
+  if (/MSEdge/i.test(out)) return 'Edge';
+  if (/Brave/i.test(out)) return 'Brave';
+  if (/Firefox/i.test(out)) return 'Firefox';
+  return undefined;
+}
+
 function defaultBrowserLabel(): string | undefined {
   if (process.platform === 'win32') {
-    const out = runQuiet('reg', [
-      'query',
-      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Shell\\Associations\\UrlAssociations\\https\\UserChoice',
-      '/v',
-      'ProgId',
-    ]);
-    if (/Chrome/i.test(out)) return 'Chrome';
-    if (/MSEdge/i.test(out)) return 'Edge';
-    if (/Brave/i.test(out)) return 'Brave';
-    if (/Firefox/i.test(out)) return 'Firefox';
+    // https primeiro; http como reserva, porque dá para ter associação só num
+    const base =
+      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Shell\\Associations\\UrlAssociations';
+    for (const scheme of ['https', 'http']) {
+      const label = labelForProgId(
+        runQuiet(regExe(), ['query', `${base}\\${scheme}\\UserChoice`, '/v', 'ProgId']),
+      );
+      if (label) return label;
+    }
     return undefined;
   }
   if (process.platform === 'darwin') {
@@ -179,17 +193,24 @@ function remoteDebuggingBlocked(label: string): boolean {
     label === 'Edge'
       ? 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge'
       : 'HKLM\\SOFTWARE\\Policies\\Google\\Chrome';
-  const out = runQuiet('reg', ['query', key, '/v', 'RemoteDebuggingAllowed']);
+  const out = runQuiet(regExe(), ['query', key, '/v', 'RemoteDebuggingAllowed']);
   return /RemoteDebuggingAllowed\s+REG_DWORD\s+0x0/i.test(out);
 }
 
 /**
- * Navegadores candidatos por SO, do mais indicado para o menos — com o
- * NAVEGADOR PADRÃO do usuário sempre no topo. Caminhos absolutos são filtrados
- * por existsSync; no Linux (fora de escopo, mas cobrimos) deixamos o nome nu
- * para o PATH.
+ * Navegadores candidatos por SO, do mais indicado para o menos. A ordem de
+ * preferência (a primeira que casar vence) é:
+ *
+ *   1. escolha explícita da pessoa (Configurações → navegador da captura);
+ *   2. navegador que TEM cookie do domínio — onde ela está logada de verdade;
+ *   3. navegador padrão do sistema;
+ *   4. a ordem embutida abaixo.
+ *
+ * O passo 2 existe porque em máquina corporativa a política costuma fixar o
+ * Edge como padrão mesmo para quem navega no Chrome: sozinho, o passo 3 abria
+ * o Edge na cara de quem só usa Chrome.
  */
-function browserCandidates(): Array<{ label: string; exe: string }> {
+function browserCandidates(prefer: string[] = []): Array<{ label: string; exe: string }> {
   const out: Array<{ label: string; exe: string }> = [];
   const add = (label: string, exe: string | undefined | false) => {
     if (exe && fileExists(exe)) out.push({ label, exe });
@@ -218,11 +239,18 @@ function browserCandidates(): Array<{ label: string; exe: string }> {
       out.push({ label, exe });
     }
   }
-  // o navegador padrão vai para a frente da fila (o Firefox não fala CDP, então
-  // não vira candidato — mas também não deve empurrar o resto para trás)
-  const preferred = defaultBrowserLabel();
-  if (preferred && preferred !== 'Firefox') {
-    out.sort((a, b) => Number(b.label === preferred) - Number(a.label === preferred));
+  // o Firefox não fala CDP: nunca é candidato, e também não pode empurrar o
+  // resto da fila para trás quando é ele o preferido
+  const ranking = [...prefer, defaultBrowserLabel()].filter(
+    (label): label is string => !!label && label !== 'Firefox',
+  );
+  if (ranking.length) {
+    const rank = (label: string) => {
+      const at = ranking.indexOf(label);
+      return at === -1 ? ranking.length : at;
+    };
+    // sort estável: dentro do mesmo rank, a ordem embutida se mantém
+    out.sort((a, b) => rank(a.label) - rank(b.label));
   }
   return out;
 }
@@ -430,9 +458,18 @@ async function launchAndCapture(
 export async function captureCookiesViaBrowser(
   domain: string,
   startUrl: string,
-  opts: { timeoutMs?: number; sessionCookie?: RegExp; authExpression?: string } = {},
+  opts: {
+    timeoutMs?: number;
+    sessionCookie?: RegExp;
+    authExpression?: string;
+    /** Força um navegador (Configurações) — vence a detecção automática. */
+    preferBrowser?: string;
+  } = {},
 ): Promise<BrowserCapture> {
-  const candidates = browserCandidates();
+  const candidates = browserCandidates([
+    ...(opts.preferBrowser ? [opts.preferBrowser] : []),
+    ...browsersWithDomainCookies(domain),
+  ]);
   if (!candidates.length) {
     throw new Error('Nenhum navegador (Edge/Chrome) encontrado para a captura via SSO.');
   }
