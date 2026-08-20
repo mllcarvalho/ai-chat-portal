@@ -5,6 +5,7 @@ import type { Skill, SkillWithContent } from '@aiportal/shared';
 import { slugifyCommand } from '@aiportal/shared';
 import { readJson, writeFileAtomic, writeJsonAtomic, deleteFile } from './jsonStore';
 import { PROJECT_META_DIR, skillsDir, ensureDir } from './paths';
+import { SHARED_SKILLS_DIR, getLibrary, libraryDir, libraryDirs } from './sharedLibrary';
 import { getProject, listProjects, projectDir } from './projectStore';
 
 /**
@@ -31,20 +32,35 @@ function normalizeSkill(skill: Skill): Skill {
   return { ...skill, command: skill.command || slugifyCommand(skill.name) };
 }
 
-function skillsDirFor(scope: 'global' | 'project', projectId?: string): string | undefined {
+function skillsDirFor(
+  scope: 'global' | 'project' | 'shared',
+  projectId?: string,
+  libraryId?: string,
+): string | undefined {
   if (scope === 'global') return skillsDir();
+  if (scope === 'shared') {
+    if (!libraryId) return undefined;
+    const lib = getLibrary(libraryId);
+    return lib ? libraryDir(lib, SHARED_SKILLS_DIR) : undefined;
+  }
   if (!projectId) return undefined;
   const project = getProject(projectId);
   if (!project) return undefined;
   return path.join(projectDir(project), PROJECT_META_DIR, 'skills');
 }
 
-/** Bases onde skills podem morar: global + a de cada projeto. */
+/** Bases das bibliotecas compartilhadas que respondem agora. */
+function sharedSkillBases(): string[] {
+  return libraryDirs(SHARED_SKILLS_DIR).map((entry) => entry.dir);
+}
+
+/** Bases onde skills podem morar: global + a de cada projeto + as compartilhadas. */
 function allSkillBases(): string[] {
   const bases = [skillsDir()];
   for (const project of listProjects()) {
     bases.push(path.join(projectDir(project), PROJECT_META_DIR, 'skills'));
   }
+  bases.push(...sharedSkillBases());
   return bases;
 }
 
@@ -123,13 +139,22 @@ export function listSkills(projectId?: string): Skill[] {
     const dir = skillsDirFor('project', projectId);
     if (dir) skills.push(...readSkillsIn(dir));
   }
+  // as compartilhadas valem em qualquer conversa (é o ponto de compartilhar)
+  for (const { lib, dir } of libraryDirs(SHARED_SKILLS_DIR)) {
+    skills.push(...readSkillsIn(dir).map((s) => ({ ...s, scope: 'shared' as const, libraryId: lib.id })));
+  }
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Todas as skills: globais + as de todos os projetos (catálogo completo do portal). */
 export function listAllSkills(): Skill[] {
   const skills: Skill[] = [];
-  for (const base of allSkillBases()) skills.push(...readSkillsIn(base));
+  for (const base of [skillsDir(), ...listProjects().map((p) => path.join(projectDir(p), PROJECT_META_DIR, 'skills'))]) {
+    skills.push(...readSkillsIn(base));
+  }
+  for (const { lib, dir } of libraryDirs(SHARED_SKILLS_DIR)) {
+    skills.push(...readSkillsIn(dir).map((s) => ({ ...s, scope: 'shared' as const, libraryId: lib.id })));
+  }
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -173,10 +198,26 @@ function listAssetsIn(folder: string): string[] {
   return files.sort();
 }
 
+/**
+ * Corrige scope/libraryId pela PASTA onde a skill está. Vale para skills que
+ * alguém simplesmente copiou para dentro da pasta compartilhada (o skill.json
+ * ainda diria "global") — no portal ela precisa aparecer como compartilhada.
+ */
+function withFolderScope(meta: Skill, folder: string): Skill {
+  const parent = path.resolve(path.dirname(folder));
+  for (const { lib, dir } of libraryDirs(SHARED_SKILLS_DIR)) {
+    if (path.resolve(dir) === parent) {
+      return { ...meta, scope: 'shared', projectId: undefined, libraryId: lib.id };
+    }
+  }
+  return meta;
+}
+
 export function getSkill(id: string): SkillWithContent | undefined {
   const folder = findSkillFolder(id);
   if (!folder) return undefined;
-  const meta = readJson<Skill>(path.join(folder, META_FILE));
+  const raw = readJson<Skill>(path.join(folder, META_FILE));
+  const meta = raw ? withFolderScope(raw, folder) : undefined;
   if (!meta) return undefined;
   let content = '';
   try {
@@ -196,15 +237,16 @@ function writeSkillTo(base: string, skill: Skill, content: string): void {
 }
 
 export function createSkill(input: {
-  scope: 'global' | 'project';
+  scope: 'global' | 'project' | 'shared';
   projectId?: string;
+  libraryId?: string;
   name: string;
   description: string;
   command?: string;
   content: string;
   importedFrom?: string;
 }): SkillWithContent | undefined {
-  const base = skillsDirFor(input.scope, input.projectId);
+  const base = skillsDirFor(input.scope, input.projectId, input.libraryId);
   if (!base) return undefined;
   ensureDir(base);
   const now = new Date().toISOString();
@@ -212,6 +254,7 @@ export function createSkill(input: {
     id: crypto.randomUUID(),
     scope: input.scope,
     projectId: input.scope === 'project' ? input.projectId : undefined,
+    libraryId: input.scope === 'shared' ? input.libraryId : undefined,
     name: input.name,
     description: input.description,
     command: input.command || slugifyCommand(input.name),
@@ -226,7 +269,10 @@ export function createSkill(input: {
 export function updateSkill(
   id: string,
   patch: Partial<
-    Pick<SkillWithContent, 'name' | 'description' | 'command' | 'content' | 'scope' | 'projectId'>
+    Pick<
+      SkillWithContent,
+      'name' | 'description' | 'command' | 'content' | 'scope' | 'projectId' | 'libraryId'
+    >
   >,
 ): SkillWithContent | undefined {
   const folder = findSkillFolder(id);
@@ -236,16 +282,24 @@ export function updateSkill(
   const { content, ...metaPatch } = patch;
   const updated: Skill = { ...existing, ...metaPatch, updatedAt: new Date().toISOString() };
   if (!updated.command) updated.command = slugifyCommand(updated.name);
-  if (updated.scope === 'global') updated.projectId = undefined;
-  // mudança de escopo (global↔projeto): a pasta inteira da skill (com anexos)
-  // é movida para a base do novo escopo
+  if (updated.scope !== 'project') updated.projectId = undefined;
+  if (updated.scope !== 'shared') updated.libraryId = undefined;
+  // mudança de escopo (global↔projeto↔compartilhada): a pasta inteira da skill
+  // (com anexos) é movida para a base do novo escopo
   let targetFolder = folder;
-  const targetBase = skillsDirFor(updated.scope, updated.projectId);
+  const targetBase = skillsDirFor(updated.scope, updated.projectId, updated.libraryId);
   if (!targetBase) return undefined; // projeto do novo escopo não existe
   if (path.resolve(targetBase) !== path.resolve(path.dirname(folder))) {
     ensureDir(targetBase);
     targetFolder = uniqueFolderFor(targetBase, updated);
-    fs.renameSync(folder, targetFolder);
+    try {
+      fs.renameSync(folder, targetFolder);
+    } catch (err) {
+      // volumes diferentes (disco local → pasta de rede) não aceitam rename
+      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+      fs.cpSync(folder, targetFolder, { recursive: true });
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
   }
   // a pasta mantém o nome original mesmo se o comando mudar: renomear
   // quebraria referências externas e o nome da pasta é só cosmético

@@ -1,4 +1,7 @@
+import * as vscode from 'vscode';
+import type { SharedLibrary } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
+import { libraryStatus, listLibraries, saveLibraries } from '../../storage/sharedLibrary';
 import { getConfig, patchConfig } from '../../storage/configStore';
 import {
   applyNpmrcSettings,
@@ -9,6 +12,42 @@ import {
 } from '../../tools/proxySetup';
 
 export function registerConfigRoutes(router: Router): void {
+  // bibliotecas compartilhadas (pastas de rede com skills/agentes/bases)
+  router.get('/api/shared-libraries', ({ res }) => {
+    sendJson(res, 200, listLibraries().map(libraryStatus));
+  });
+
+  router.put('/api/shared-libraries', ({ res, body }) => {
+    const input = (body ?? {}) as { libraries?: Array<Partial<SharedLibrary>> };
+    if (!Array.isArray(input.libraries)) {
+      sendError(res, 400, 'Informe a lista de bibliotecas');
+      return;
+    }
+    try {
+      const saved = saveLibraries(input.libraries);
+      sendJson(res, 200, saved.map(libraryStatus));
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // abre o seletor nativo de pastas na janela do VS Code (caminho de rede
+  // digitado à mão também vale — o PUT aceita qualquer string)
+  router.post('/api/shared-libraries/pick', async ({ res }) => {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: 'Usar esta pasta',
+      title: 'Escolha a pasta compartilhada da equipe',
+    });
+    if (!picked?.length) {
+      sendJson(res, 200, { ok: false, cancelled: true });
+      return;
+    }
+    sendJson(res, 200, { ok: true, path: picked[0].fsPath });
+  });
+
   router.get('/api/config', ({ res }) => {
     const { token: _token, ...safe } = getConfig();
     // se há um cafile no ~/.npmrc mas o campo "CA interna" nunca foi preenchido

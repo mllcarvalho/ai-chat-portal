@@ -61,7 +61,7 @@ export function getToolCatalog(session?: Session, agent?: AgentPreset): ToolInfo
 }
 
 /** Teto da API do Copilot: requests com mais de 128 tools são rejeitadas. */
-const MAX_MODEL_TOOLS = 128;
+export const MAX_MODEL_TOOLS = 128;
 
 /**
  * Ferramentas efetivamente enviadas ao modelo, conforme o modo da sessão:

@@ -298,8 +298,10 @@ export function ProjectHome() {
                   void selectSession(session.id);
                 }}
               >
-                <span className="item-card__name">
-                  <MessagesSquare className="icon" aria-hidden /> {session.title}
+                <span className="page-list-item__row">
+                  <span className="item-card__name" title={session.title}>
+                    <MessagesSquare className="icon" aria-hidden /> {session.title}
+                  </span>
                 </span>
                 <span className="item-card__desc">
                   {session.messageCount} mensagen{session.messageCount === 1 ? '' : 's'}

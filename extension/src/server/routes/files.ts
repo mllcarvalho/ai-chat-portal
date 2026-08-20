@@ -5,7 +5,14 @@ import * as vscode from 'vscode';
 import type { FileEntry } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import { resolveInProject, READ_LIMIT, LIST_LIMIT, WRITE_LIMIT } from '../../tools/builtinTools';
-import { addLink, removeLinkEntry, renameLinkEntry } from '../../storage/linkStore';
+import {
+  addFileLink,
+  addLink,
+  linkedFilePath,
+  listFileLinks,
+  removeLinkEntry,
+  renameLinkEntry,
+} from '../../storage/linkStore';
 
 function buildTree(dir: string, base: string, depth: number, count: { n: number }): FileEntry[] {
   if (depth > 8 || count.n >= LIST_LIMIT) return [];
@@ -60,6 +67,31 @@ function buildTree(dir: string, base: string, depth: number, count: { n: number 
 }
 
 /**
+ * Arquivos referenciados da máquina: não existem dentro da pasta de trabalho
+ * (não há symlink), então entram na árvore a partir do registro. Alvo fora do
+ * ar (pasta de rede desconectada) simplesmente não aparece.
+ */
+function linkedFileEntries(root: string): FileEntry[] {
+  const entries: FileEntry[] = [];
+  for (const link of listFileLinks(root)) {
+    try {
+      const stat = fs.statSync(link.target);
+      entries.push({
+        name: link.name,
+        path: link.name,
+        type: 'file',
+        size: stat.size,
+        mtime: stat.mtime.toISOString(),
+        linked: true,
+      });
+    } catch {
+      // alvo indisponível agora — volta a aparecer quando voltar
+    }
+  }
+  return entries;
+}
+
+/**
  * Rotas de arquivo sobre uma pasta de trabalho resolvida por id — usadas tanto
  * para a pasta do projeto quanto para o workspace de uma conversa avulsa (que
  * pode ainda não existir no disco: GET responde árvore vazia; PUT cria).
@@ -88,7 +120,9 @@ export function registerFileRoutes(
       sendError(res, 400, err instanceof Error ? err.message : 'Caminho inválido');
       return;
     }
-    sendJson(res, 200, buildTree(dir, rel === '.' ? '' : rel, 0, { n: 0 }));
+    const tree = buildTree(dir, rel === '.' ? '' : rel, 0, { n: 0 });
+    if (rel === '.') tree.push(...linkedFileEntries(root));
+    sendJson(res, 200, tree);
   });
 
   router.put(base, ({ res, params, body }) => {
@@ -136,6 +170,13 @@ export function registerFileRoutes(
       return;
     }
     try {
+      // arquivo referenciado: excluir tira só a REFERÊNCIA — o arquivo
+      // original, que está fora da pasta de trabalho, não é tocado
+      if (linkedFilePath(root, rel)) {
+        removeLinkEntry(root, rel);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
       if (!fs.existsSync(root)) {
         sendError(res, 404, 'Arquivo não encontrado');
         return;
@@ -182,6 +223,18 @@ export function registerFileRoutes(
       return;
     }
     try {
+      // arquivo referenciado: renomear vale só para o apelido na árvore, o
+      // arquivo original mantém o nome dele
+      if (linkedFilePath(root, input.path.trim())) {
+        const newName = input.newPath.trim();
+        if (newName.includes('/')) {
+          sendError(res, 400, 'Arquivo referenciado só pode ser renomeado na raiz');
+          return;
+        }
+        renameLinkEntry(root, input.path.trim(), newName);
+        sendJson(res, 200, { ok: true, path: newName });
+        return;
+      }
       const from = resolveInProject(root, input.path.trim());
       const to = resolveInProject(root, input.newPath.trim());
       if (from === path.resolve(root)) {
@@ -219,14 +272,19 @@ export function registerFileRoutes(
       sendError(res, 404, ownerNotFound);
       return;
     }
-    let target = ((body ?? {}) as { target?: string }).target?.trim();
+    const input = (body ?? {}) as { target?: string; kind?: 'dir' | 'file' };
+    const kind = input.kind === 'file' ? 'file' : 'dir';
+    let target = input.target?.trim();
     if (!target) {
       const picked = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
+        canSelectFiles: kind === 'file',
+        canSelectFolders: kind === 'dir',
         canSelectMany: false,
-        openLabel: 'Referenciar pasta',
-        title: 'Escolha a pasta a referenciar no portal',
+        openLabel: kind === 'file' ? 'Referenciar arquivo' : 'Referenciar pasta',
+        title:
+          kind === 'file'
+            ? 'Escolha o arquivo a referenciar no portal'
+            : 'Escolha a pasta a referenciar no portal',
       });
       if (!picked?.length) {
         sendJson(res, 200, { ok: false, cancelled: true });
@@ -235,10 +293,16 @@ export function registerFileRoutes(
       target = picked[0].fsPath;
     }
     try {
-      const link = addLink(root, target);
-      sendJson(res, 200, { ok: true, name: link.name, target: link.target });
+      const link = kind === 'file' ? addFileLink(root, target) : addLink(root, target);
+      sendJson(res, 200, { ok: true, name: link.name, target: link.target, kind });
     } catch (err) {
-      sendError(res, 400, err instanceof Error ? err.message : 'Erro ao referenciar a pasta');
+      sendError(
+        res,
+        400,
+        err instanceof Error
+          ? err.message
+          : `Erro ao referenciar ${kind === 'file' ? 'o arquivo' : 'a pasta'}`,
+      );
     }
   });
 

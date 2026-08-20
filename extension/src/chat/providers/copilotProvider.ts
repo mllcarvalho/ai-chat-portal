@@ -27,6 +27,8 @@ import { buildMessages, type ContextFile } from '../messageBuilder';
 import { waitForApproval } from '../approvals';
 import { waitForAnswer } from '../questions';
 import {
+  IDLE_RETRIES,
+  IDLE_RETRY_HINT,
   MODEL_RETRIES,
   ModelIdleTimeoutError,
   isRateLimitError,
@@ -35,6 +37,7 @@ import {
   raceCancellation,
   retryDelayMs,
   sleep,
+  withIdleTimeout,
 } from '../retry';
 import { runSubagent, type SubagentOutcome } from '../subagent';
 import {
@@ -260,34 +263,6 @@ function clamp(text: string, limit: number): string {
 /** Teto de parede para builtins (leituras de FS/knowledge não têm timeout próprio). */
 const BUILTIN_TOOL_TIMEOUT_MS = 120_000;
 
-/**
- * O gateway do Copilot pode pendurar sem erro e sem tokens; como o heartbeat
- * mantém o SSE "vivo", sem este teto de progresso a resposta ficaria em
- * "digitando" para sempre. Vale entre um evento e o próximo, não para a
- * resposta inteira. IMPORTANTE: um tool call chega INTEIRO no fim da geração
- * — modelo escrevendo um portal_write_file com um HTML grande fica MINUTOS
- * sem emitir parte nenhuma, saudável; 120s matava essas gerações (e o retry
- * recomeçava a mesma geração condenada, queimando créditos).
- */
-const MODEL_IDLE_TIMEOUT_MS = 300_000;
-
-/** Depois deste silêncio, avisa a UI que a demora é esperada (geração longa). */
-const MODEL_SLOW_NOTICE_MS = 60_000;
-
-function withIdleTimeout<T>(promise: PromiseLike<T>, onSlow?: () => void): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  let slowTimer: NodeJS.Timeout | undefined;
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => {
-      if (onSlow) slowTimer = setTimeout(onSlow, MODEL_SLOW_NOTICE_MS);
-      timer = setTimeout(() => reject(new ModelIdleTimeoutError(MODEL_IDLE_TIMEOUT_MS)), MODEL_IDLE_TIMEOUT_MS);
-    }),
-  ]).finally(() => {
-    clearTimeout(timer);
-    clearTimeout(slowTimer);
-  }) as Promise<T>;
-}
 
 /**
  * Turno do Copilot: o portal é dono do loop. Monta o prompt (histórico +
@@ -403,14 +378,19 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     let roundText = '';
     const roundCalls: vscode.LanguageModelToolCallPart[] = [];
     // um tool call grande (ex.: gravar um HTML inteiro) chega de uma vez só
-    // no fim — avisa a UI UMA vez por rodada que o silêncio é esperado
-    let slowNoticeSent = false;
-    const notifySlow = (): void => {
-      if (slowNoticeSent) return;
-      slowNoticeSent = true;
+    // no fim — a UI recebe avisos escalonados para o silêncio não parecer
+    // travamento (cada aviso vale uma vez por rodada)
+    const slowNoticesSent = new Set<number>();
+    const notifySlow = (elapsedMs: number): void => {
+      if (slowNoticesSent.has(elapsedMs)) return;
+      slowNoticesSent.add(elapsedMs);
+      const minutes = Math.round(elapsedMs / 60_000);
       sse.send('notice', {
         message:
-          'O modelo está gerando uma resposta longa (ex.: um arquivo inteiro) — isso pode levar alguns minutos, siga aguardando…',
+          elapsedMs <= 60_000
+            ? 'O modelo está gerando uma resposta longa (ex.: um arquivo inteiro) — isso pode levar alguns minutos, siga aguardando…'
+            : `Já são ${minutes} min sem retorno do modelo. Um arquivo grande só chega de uma vez ` +
+              'no fim da geração, então isso ainda é esperado — seguimos aguardando (dá para parar a qualquer momento).',
       });
     };
     // 502/503 transitórios do gateway do Copilot: retenta — mas só enquanto
@@ -458,10 +438,14 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
         }
         break;
       } catch (err) {
+        // silêncio estourado tem retry PRÓPRIO: uma tentativa só, e diferente
+        // — vai com a instrução de gravar em blocos (senão o modelo repete a
+        // mesma geração que não coube no tempo)
+        const idleTimeout = err instanceof ModelIdleTimeoutError;
         const canRetry =
           !roundText &&
           !roundCalls.length &&
-          attempt < MODEL_RETRIES &&
+          attempt < (idleTimeout ? IDLE_RETRIES : MODEL_RETRIES) &&
           !token.isCancellationRequested &&
           isTransientModelError(err);
         if (!canRetry) {
@@ -479,11 +463,22 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
           }
           throw err;
         }
-        sse.send('notice', {
-          message: isTokenExpiredError(err)
-            ? `A sessão do Copilot expirou — aguardando a renovação automática e tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`
-            : `O Copilot respondeu um erro transitório — tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`,
-        });
+        if (idleTimeout) {
+          // a dica entra no contexto desta resposta (não vai para o histórico
+          // salvo da conversa) e vale também para as rodadas seguintes dela
+          messages.push(vscode.LanguageModelChatMessage.User(IDLE_RETRY_HINT));
+          sse.send('notice', {
+            message:
+              'A geração passou do tempo limite sem retornar nada — pedindo ao modelo que grave o ' +
+              'conteúdo em partes e tentando de novo…',
+          });
+        } else {
+          sse.send('notice', {
+            message: isTokenExpiredError(err)
+              ? `A sessão do Copilot expirou — aguardando a renovação automática e tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`
+              : `O Copilot respondeu um erro transitório — tentando de novo (${attempt + 2}ª de ${MODEL_RETRIES + 1} tentativas)…`,
+          });
+        }
         await sleep(retryDelayMs(err, attempt));
       }
     }

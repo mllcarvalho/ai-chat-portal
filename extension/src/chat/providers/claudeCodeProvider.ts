@@ -12,7 +12,7 @@ import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
 import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
-import { portalMcpServer } from './portalMcp';
+import { mcpStderrHint, portalMcpServer, warnDroppedMcpServers, watchPortalMcp } from './portalMcp';
 import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
 import { historyReplayBlock } from './history';
 import type {
@@ -35,8 +35,12 @@ import type {
  */
 
 const BIN = 'claude';
-/** Sem resposta nem evento nenhum por este tempo, desistimos do processo. */
-const IDLE_TIMEOUT_MS = 300_000;
+/**
+ * Sem resposta nem evento nenhum por este tempo, desistimos do processo. Dez
+ * minutos: uma ferramenta gerando arquivo grande fica muito tempo em silêncio,
+ * e matar o processo aí perde a resposta inteira.
+ */
+const IDLE_TIMEOUT_MS = 600_000;
 /** Teto do preâmbulo que injetamos via --append-system-prompt. */
 const SYSTEM_PROMPT_CLAMP = 32 * 1024;
 /**
@@ -398,6 +402,8 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   // a CLI roda com a pasta da conversa como cwd — é assim que Read/Write/Bash
   // dela caem exatamente onde as ferramentas portal_* do Copilot cairiam
   ensureDir(ctx.workRoot);
+  warnDroppedMcpServers(ctx);
+  const reportPortalMcp = watchPortalMcp(ctx, () => mcpStderrHint(stderr));
 
   const args = buildArgs(ctx);
   // caminho absoluto: o PATH do host da extensão pode não ter o binário
@@ -618,6 +624,9 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     clearInterval(idleTimer);
     cancelSub.dispose();
     rl.close();
+    // a CLI é quem spawna o servidor MCP do portal: falha de spawn morre no log
+    // dela, então quem conta ao usuário é o portal
+    reportPortalMcp();
   }
 
   if (state.finishReason === 'error') {
@@ -702,7 +711,7 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
   if (modelId && modelId !== CLI_DEFAULT_MODEL && MODELS.some((m) => m.id === modelId)) {
     args.push('--model', modelId);
   }
-  const portal = portalMcpServer(req.sessionId, 'subagent');
+  const portal = portalMcpServer(req.sessionId, { scope: 'subagent' });
   if (portal) {
     args.push(
       '--mcp-config',

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -116,10 +116,78 @@ function fileExists(p: string): boolean {
 }
 
 /**
- * Navegadores candidatos por SO, do mais indicado para o menos. No Windows o
- * Edge vem primeiro: está sempre presente e é o que melhor integra com o SSO
- * (IWA/Kerberos) do domínio. Caminhos absolutos são filtrados por existsSync;
- * no Linux (fora de escopo, mas cobrimos) deixamos o nome nu para o PATH.
+ * Executa um comando curto e devolve a saída (vazia em qualquer falha). Usado
+ * só para consultar o registro do Windows / LaunchServices do macOS.
+ */
+function runQuiet(command: string, args: string[], timeoutMs = 4000): string {
+  try {
+    const result = spawnSync(command, args, {
+      timeout: timeoutMs,
+      encoding: 'utf8',
+      cwd: spawnCwd(),
+      windowsHide: true,
+    });
+    return result.stdout ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Navegador PADRÃO da pessoa. É o que resolve o "cliquei e abriu o Edge, mas
+ * eu uso o Chrome": a captura precisa acontecer no navegador onde a pessoa já
+ * está logada no ServiceNow, não no que a gente acha melhor.
+ */
+function defaultBrowserLabel(): string | undefined {
+  if (process.platform === 'win32') {
+    const out = runQuiet('reg', [
+      'query',
+      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Shell\\Associations\\UrlAssociations\\https\\UserChoice',
+      '/v',
+      'ProgId',
+    ]);
+    if (/Chrome/i.test(out)) return 'Chrome';
+    if (/MSEdge/i.test(out)) return 'Edge';
+    if (/Brave/i.test(out)) return 'Brave';
+    if (/Firefox/i.test(out)) return 'Firefox';
+    return undefined;
+  }
+  if (process.platform === 'darwin') {
+    const out = runQuiet('defaults', [
+      'read',
+      'com.apple.LaunchServices/com.apple.launchservices.secure',
+      'LSHandlers',
+    ]);
+    // o bloco do https traz o bundle id do handler logo depois do esquema
+    const block = /LSHandlerURLScheme = https;[\s\S]{0,400}?}/.exec(out)?.[0] ?? out;
+    if (/com\.google\.chrome/i.test(block)) return 'Chrome';
+    if (/com\.microsoft\.edgemac/i.test(block)) return 'Edge';
+    if (/com\.brave\.browser/i.test(block)) return 'Brave';
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * A política corporativa proíbe depuração remota neste navegador? É a causa
+ * silenciosa do "a janela abre e fecha na hora": o Chrome/Edge sobe, recusa o
+ * --remote-debugging-pipe e sai. Só o Windows publica isso no registro.
+ */
+function remoteDebuggingBlocked(label: string): boolean {
+  if (process.platform !== 'win32') return false;
+  const key =
+    label === 'Edge'
+      ? 'HKLM\\SOFTWARE\\Policies\\Microsoft\\Edge'
+      : 'HKLM\\SOFTWARE\\Policies\\Google\\Chrome';
+  const out = runQuiet('reg', ['query', key, '/v', 'RemoteDebuggingAllowed']);
+  return /RemoteDebuggingAllowed\s+REG_DWORD\s+0x0/i.test(out);
+}
+
+/**
+ * Navegadores candidatos por SO, do mais indicado para o menos — com o
+ * NAVEGADOR PADRÃO do usuário sempre no topo. Caminhos absolutos são filtrados
+ * por existsSync; no Linux (fora de escopo, mas cobrimos) deixamos o nome nu
+ * para o PATH.
  */
 function browserCandidates(): Array<{ label: string; exe: string }> {
   const out: Array<{ label: string; exe: string }> = [];
@@ -150,6 +218,12 @@ function browserCandidates(): Array<{ label: string; exe: string }> {
       out.push({ label, exe });
     }
   }
+  // o navegador padrão vai para a frente da fila (o Firefox não fala CDP, então
+  // não vira candidato — mas também não deve empurrar o resto para trás)
+  const preferred = defaultBrowserLabel();
+  if (preferred && preferred !== 'Firefox') {
+    out.sort((a, b) => Number(b.label === preferred) - Number(a.label === preferred));
+  }
   return out;
 }
 
@@ -164,6 +238,21 @@ const LAUNCH_FLAGS = [
   '--disable-features=Translate,MediaRouter',
   '--window-size=520,640',
 ];
+
+/**
+ * Hosts que podem responder o SSO transparente (Kerberos/IWA) sem prompt. Num
+ * perfil temporário o Chrome/Edge NÃO herda a allowlist da política, então sem
+ * estas flags o login corporativo não completa sozinho — era metade do "abre e
+ * não autentica". A lista cobre o ServiceNow e os domínios internos do Itaú.
+ */
+const SSO_HOSTS = '*.service-now.com,*.itau.com.br,*.itau,*.cloud.ihf';
+
+function ssoFlags(): string[] {
+  return [
+    `--auth-server-allowlist=${SSO_HOSTS}`,
+    `--auth-negotiate-delegate-allowlist=${SSO_HOSTS}`,
+  ];
+}
 
 function domainMatches(cookieDomain: string, domain: string): boolean {
   const d = cookieDomain.replace(/^\./, '');
@@ -198,11 +287,16 @@ async function launchAndCapture(
   authExpression: string,
 ): Promise<BrowserCapture> {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiportal-cdp-'));
-  const child = spawn(cand.exe, [...LAUNCH_FLAGS, `--user-data-dir=${userDataDir}`, 'about:blank'], {
-    // fds 3/4 = pipe CDP; a janela aparece (sem windowsHide) para o SSO/MFA
-    stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
-    cwd: spawnCwd(),
-  });
+  const child = spawn(
+    cand.exe,
+    [...LAUNCH_FLAGS, ...ssoFlags(), `--user-data-dir=${userDataDir}`, 'about:blank'],
+    {
+      // fds 3/4 = pipe CDP; a janela aparece (sem windowsHide) para o SSO/MFA
+      stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'],
+      cwd: spawnCwd(),
+    },
+  );
+  const startedAt = Date.now();
   const cdp = new PipeCdp(child.stdio[3] as Writable, child.stdio[4] as Readable);
   let stderr = '';
   child.stderr?.on('data', (c: Buffer) => {
@@ -253,9 +347,19 @@ async function launchAndCapture(
       const fail = (msg: string): void => finish(() => reject(new Error(msg)));
 
       child.on('error', (err) => fail(`falha ao abrir o ${cand.label} (${err.message})`));
-      child.on('exit', (code) =>
-        fail(`o ${cand.label} fechou antes de autenticar (código ${code}). ${stderr.slice(-160)}`),
-      );
+      child.on('exit', (code) => {
+        // saída em poucos segundos = o navegador recusou subir com depuração
+        // remota. A política corporativa é a causa mais comum e o usuário só
+        // via a janela piscar — agora o motivo aparece no erro.
+        const blocked = Date.now() - startedAt < 5000 && remoteDebuggingBlocked(cand.label);
+        fail(
+          blocked
+            ? `a política corporativa deste ambiente bloqueia a depuração remota no ${cand.label} ` +
+                '(RemoteDebuggingAllowed=0), então a janela abre e fecha na hora. ' +
+                'Use o caminho manual "Colar do DevTools".'
+            : `o ${cand.label} fechou antes de autenticar (código ${code}). ${stderr.slice(-160)}`,
+        );
+      });
 
       const deadline = setTimeout(
         () =>

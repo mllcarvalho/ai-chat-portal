@@ -4,7 +4,9 @@ import {
   Bookmark,
   BookOpen,
   ChevronDown,
+  Download,
   FileText,
+  FileType,
   Folder,
   Globe,
   Import,
@@ -18,6 +20,9 @@ import {
   RotateCw,
   Search,
   SquarePen,
+  FolderInput,
+  Trash2,
+  Users,
   TriangleAlert,
   Upload,
   X,
@@ -27,10 +32,13 @@ import {
   PORT_RANGE,
   slugifyCommand,
   type KnowledgeBase,
+  type KnowledgeCollection,
+  type KnowledgeCollectionSync,
   type KnowledgeDoc,
 } from '@aiportal/shared';
 import { api, getToken } from '../../api/client';
-import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
+import { isConvertibleDocument } from '../../lib/extractDocument';
+import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { Dropdown } from '../common/Dropdown';
@@ -48,12 +56,27 @@ function hostnameOf(url: string): string {
   }
 }
 
+/** Teto do arquivo original guardado numa base (o upload vai em base64). */
+const MAX_DOC_BYTES = 7 * 1024 * 1024;
+const DOC_LIMIT_LABEL = '7 MB';
+
+/** Lê o arquivo como base64 puro (sem o prefixo data:…;base64,). */
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function KnowledgePage() {
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
   const session = useSessions((s) => s.current);
   const viewProjectId = useSessions((s) => s.viewProjectId);
   const projects = useSessions((s) => s.projects);
+  const libraries = useCatalog((s) => s.libraries);
 
   const projectId = session?.projectId ?? viewProjectId ?? undefined;
   const projectName = projects.find((p) => p.id === projectId)?.name;
@@ -65,13 +88,18 @@ export function KnowledgePage() {
   const [docName, setDocName] = useState('');
   const [docContent, setDocContent] = useState('');
   const [newBaseName, setNewBaseName] = useState('');
-  const [newBaseScope, setNewBaseScope] = useState<'global' | 'project'>('global');
+  const [newBaseScope, setNewBaseScope] = useState<'global' | 'project' | 'shared'>('global');
+  const [newBaseLibraryId, setNewBaseLibraryId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [baseModal, setBaseModal] = useState(false);
   const [expandDoc, setExpandDoc] = useState(false);
   const [urlFormOpen, setUrlFormOpen] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState('');
   const [remoteName, setRemoteName] = useState('');
+  /** "Varrer o site": a URL vira um GRUPO de páginas em vez de um documento só. */
+  const [crawlMode, setCrawlMode] = useState(false);
+  const [crawlMaxPages, setCrawlMaxPages] = useState(25);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [captureModal, setCaptureModal] = useState(false);
   const [movingDoc, setMovingDoc] = useState<KnowledgeDoc | undefined>();
 
@@ -126,9 +154,33 @@ export function KnowledgePage() {
 
   // busca por nome nos documentos da base aberta
   const docNeedle = docQuery.trim().toLowerCase();
+  /** Documento aberto é um arquivo original (PDF/Word/Excel/PPT)? */
+  const openedIsBinary = !!docs.find((d) => d.name === docName)?.binary;
   const shownDocs = docNeedle
-    ? docs.filter((d) => d.name.toLowerCase().includes(docNeedle))
+    ? docs.filter(
+        (d) =>
+          d.name.toLowerCase().includes(docNeedle) ||
+          (d.title ?? '').toLowerCase().includes(docNeedle),
+      )
     : docs;
+
+  /*
+   * Um site varrido traz dezenas de páginas. Soltas na lista, elas afogam os
+   * documentos avulsos da base — então cada site vira um grupo recolhível e
+   * só os avulsos ficam no nível de cima.
+   */
+  const collections = selected?.collections ?? [];
+  const docsByCollection = new Map<string, KnowledgeDoc[]>();
+  const looseDocs: KnowledgeDoc[] = [];
+  for (const doc of shownDocs) {
+    const group = doc.collection && collections.some((c) => c.id === doc.collection)
+      ? doc.collection
+      : undefined;
+    if (group) docsByCollection.set(group, [...(docsByCollection.get(group) ?? []), doc]);
+    else looseDocs.push(doc);
+  }
+  // durante uma busca os grupos abrem sozinhos: esconder o que casou seria pior
+  const groupOpen = (id: string) => !!docNeedle || !collapsedGroups[id];
 
   const reload = async () => {
     const list = await api.listKnowledge(projectId).catch(() => [] as KnowledgeBase[]);
@@ -176,12 +228,70 @@ export function KnowledgePage() {
         name: newBaseName.trim(),
         scope: newBaseScope,
         projectId: newBaseScope === 'project' ? projectId : undefined,
+        libraryId: newBaseScope === 'shared' ? newBaseLibraryId ?? libraries[0]?.id : undefined,
       });
       setNewBaseName('');
       setBaseModal(false);
       await reload();
       await select(base);
       toast('Base criada.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Move a base para uma biblioteca compartilhada: a pasta inteira (documentos
+   * e fontes) vai para a rede e todo mundo que aponta para ela passa a ver.
+   */
+  const shareBase = async (base: KnowledgeBase) => {
+    const target = libraries.find((lib) => lib.available);
+    if (!target) return;
+    const ok = await confirm({
+      title: 'Compartilhar com a equipe',
+      message:
+        `Mover a base "${base.name}" (${base.docCount} documento${base.docCount === 1 ? '' : 's'}) ` +
+        `para a biblioteca "${target.name}"? Ela sai da sua área e passa a valer para todos que ` +
+        'usam essa pasta — inclusive as edições daqui para a frente.',
+      confirmLabel: 'Mover para a biblioteca',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.patchKnowledgeBase(base.id, { scope: 'shared', libraryId: target.id });
+      await reload();
+      toast(`"${base.name}" agora é compartilhada (${target.name}).`, 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Caminho de volta do "Compartilhar": tira a base da pasta da equipe e a
+   * traz para a área local de quem clica. Sem isto, compartilhar era um
+   * caminho só de ida — o escopo da base não é editável em lugar nenhum.
+   */
+  const unshareBase = async (base: KnowledgeBase) => {
+    const libName = libraries.find((lib) => lib.id === base.libraryId)?.name ?? 'equipe';
+    const ok = await confirm({
+      title: 'Trazer de volta para esta máquina',
+      message:
+        `Tirar a base "${base.name}" (${base.docCount} documento${base.docCount === 1 ? '' : 's'}) ` +
+        `da biblioteca "${libName}"? Os arquivos voltam para a sua área e a base SOME para todas ` +
+        'as pessoas que usam essa pasta compartilhada.',
+      confirmLabel: 'Trazer de volta',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.patchKnowledgeBase(base.id, { scope: 'global' });
+      await reload();
+      toast(`"${base.name}" voltou a ser só desta máquina.`, 'ok');
     } catch (err) {
       toast((err as Error).message, 'error');
     } finally {
@@ -214,16 +324,12 @@ export function KnowledgePage() {
   const importBase = async (file: File) => {
     setBusy(true);
     try {
-      const zipBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-        reader.onerror = () => reject(new Error('Falha ao ler o arquivo'));
-        reader.readAsDataURL(file);
-      });
+      const zipBase64 = await toBase64(file);
       const base = await api.importKnowledgeBase(zipBase64, {
         name: file.name.replace(/\.zip$/i, ''),
         scope: newBaseScope,
         projectId: newBaseScope === 'project' ? projectId : undefined,
+        libraryId: newBaseScope === 'shared' ? newBaseLibraryId ?? libraries[0]?.id : undefined,
       });
       setBaseModal(false);
       await reload();
@@ -296,19 +402,26 @@ export function KnowledgePage() {
     let okCount = 0;
     for (const file of Array.from(files)) {
       try {
-        let name = file.name;
-        let content: string;
+        const name = file.name;
         if (isConvertibleDocument(name)) {
-          content = await extractDocumentText(file);
-          // o servidor só armazena .md/.txt — o documento vira markdown
-          name = name.replace(/\.[^.]+$/, '.md');
+          // sobe o ARQUIVO ORIGINAL: o portal guarda o PDF/planilha como veio e
+          // extrai o texto no servidor (antes o binário era descartado e só
+          // sobrava um .md, sem como abrir o documento de novo)
+          if (file.size > MAX_DOC_BYTES) {
+            toast(
+              `"${name}" tem ${(file.size / 1024 / 1024).toFixed(1)} MB e o limite é ${DOC_LIMIT_LABEL} — ` +
+                'anexe só a parte relevante ou referencie a pasta na conversa.',
+              'error',
+            );
+            continue;
+          }
+          await api.uploadKnowledgeDoc(selected.id, name, await toBase64(file));
         } else if (/\.(md|txt)$/i.test(name)) {
-          content = await file.text();
+          await api.writeKnowledgeDoc(selected.id, name, await file.text());
         } else {
-          toast(`"${name}" ignorado — use .md, .txt, Excel, Word ou PDF.`, 'info');
+          toast(`"${name}" ignorado — use .md, .txt, PDF, Word, Excel ou PowerPoint.`, 'info');
           continue;
         }
-        await api.writeKnowledgeDoc(selected.id, name, content);
         okCount++;
       } catch (err) {
         toast(`"${file.name}": ${(err as Error).message}`, 'error');
@@ -343,6 +456,156 @@ export function KnowledgePage() {
       setBusy(false);
     }
   };
+
+  /** Resumo humano do que a varredura fez — o toast precisa dizer algo útil. */
+  const crawlSummary = (r: KnowledgeCollectionSync): string => {
+    const parts = [`${r.docs.filter((d) => d.collection === r.collection.id).length} páginas`];
+    if (r.added) parts.push(`${r.added} nova(s)`);
+    if (r.updated) parts.push(`${r.updated} atualizada(s)`);
+    if (r.removed) parts.push(`${r.removed} removida(s)`);
+    if (r.errors.length) parts.push(`${r.errors.length} falhou(ram)`);
+    if (r.truncated) parts.push('teto de páginas atingido');
+    return parts.join(' · ');
+  };
+
+  const crawlSite = async () => {
+    if (!selected || !remoteUrl.trim()) return;
+    setBusy(true);
+    try {
+      const result = await api.crawlKnowledgeSite(selected.id, remoteUrl.trim(), {
+        maxPages: crawlMaxPages,
+      });
+      setRemoteUrl('');
+      setRemoteName('');
+      setUrlFormOpen(false);
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+      toast(`"${result.collection.name}" varrido: ${crawlSummary(result)}.`, 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const syncCollectionNow = async (collection: KnowledgeCollection) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      const result = await api.syncKnowledgeCollection(selected.id, collection.id);
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+      toast(`"${collection.name}" sincronizado: ${crawlSummary(result)}.`, 'ok');
+    } catch (err) {
+      await reload();
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeCollection = async (collection: KnowledgeCollection) => {
+    if (!selected) return;
+    const pages = docs.filter((d) => d.collection === collection.id).length;
+    const ok = await confirm({
+      title: 'Remover site da base',
+      message:
+        `Remover "${collection.name}" e as ${pages} página${pages === 1 ? '' : 's'} que vieram ` +
+        'dele? O site continua no ar — só sai desta base de conhecimento.',
+      confirmLabel: 'Remover',
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await api.deleteKnowledgeCollection(selected.id, collection.id);
+      setDocs(await api.listKnowledgeDocs(selected.id));
+      await reload();
+      toast(`"${collection.name}" removido da base.`, 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Linha de um documento — reusada solta e dentro do grupo de um site. */
+  const renderDoc = (doc: KnowledgeDoc) => (
+    <div
+      className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
+      key={doc.name}
+      onClick={() => void openDoc(doc)}
+      role="button"
+      title={doc.sourceUrl ?? doc.name}
+    >
+      <span className="page-list-item__row">
+        <span className="item-card__name" title={doc.name}>
+          {doc.sourceUrl ? (
+            <Link className="icon" aria-hidden />
+          ) : doc.binary ? (
+            <FileType className="icon" aria-hidden />
+          ) : (
+            <FileText className="icon" aria-hidden />
+          )}{' '}
+          {/* página de site se apresenta pelo título; o nome do arquivo é ruído */}
+          {doc.title ?? doc.name}
+        </span>
+      </span>
+      <span className="item-card__desc">
+        {(doc.size / 1024).toFixed(1)} KB
+        {doc.binary ? ' · arquivo original + texto extraído' : ''}
+        {doc.title ? ` · ${doc.name}` : doc.sourceUrl ? ` · ${hostnameOf(doc.sourceUrl)}` : ''}
+        {doc.syncError ? (
+          <>
+            {' · '}
+            <TriangleAlert className="icon icon--sm" aria-hidden /> erro no último sync
+          </>
+        ) : (
+          ''
+        )}
+      </span>
+      <span className="page-list-item__actions">
+        {doc.sourceUrl && (
+          <span
+            role="button"
+            className="mini-btn"
+            title="Sincronizar com a fonte remota"
+            aria-label="Sincronizar documento"
+            onClick={(e) => {
+              e.stopPropagation();
+              void syncDocs(doc.name);
+            }}
+          >
+            <RefreshCw className="icon" aria-hidden />
+          </span>
+        )}
+        <span
+          role="button"
+          className="mini-btn"
+          title="Mover para outra base de conhecimento"
+          aria-label="Mover documento"
+          onClick={(e) => {
+            e.stopPropagation();
+            setMovingDoc(doc);
+          }}
+        >
+          <FolderInput className="icon" aria-hidden />
+        </span>
+        <span
+          role="button"
+          className="mini-btn mini-btn--danger"
+          title="Excluir documento"
+          aria-label="Excluir documento"
+          onClick={(e) => {
+            e.stopPropagation();
+            void removeDoc(doc);
+          }}
+        >
+          <Trash2 className="icon" aria-hidden />
+        </span>
+      </span>
+    </div>
+  );
 
   const syncDocs = async (name?: string) => {
     if (!selected) return;
@@ -454,15 +717,9 @@ export function KnowledgePage() {
               onClick={() => void select(base)}
               role="button"
             >
-              <span className="item-card__name" style={{ justifyContent: 'space-between' }}>
-                <span>
-                  {base.scope === 'project' ? (
-                    <Folder className="icon" aria-hidden />
-                  ) : (
-                    <Globe className="icon" aria-hidden />
-                  )}{' '}
-                  {base.name}
-                </span>
+              {/* o toggle fica à ESQUERDA (como nas linhas de MCP): a direita
+                  da linha é onde a barra de ações flutua no hover */}
+              <span className="page-list-item__row">
                 <button
                   className={`switch${base.enabled ? ' switch--on' : ''}`}
                   onClick={(e) => {
@@ -472,27 +729,71 @@ export function KnowledgePage() {
                   title={base.enabled ? 'Ativa no contexto' : 'Inativa'}
                   aria-label={`Alternar ${base.name}`}
                 />
+                <span className="item-card__name" title={base.name}>
+                  {base.scope === 'project' ? (
+                    <Folder className="icon" aria-hidden />
+                  ) : base.scope === 'shared' ? (
+                    <Users className="icon" aria-hidden />
+                  ) : (
+                    <Globe className="icon" aria-hidden />
+                  )}{' '}
+                  {base.name}
+                </span>
               </span>
               <span className="item-card__desc">
                 {base.docCount} documento{base.docCount === 1 ? '' : 's'}
+                {base.scope === 'shared'
+                  ? ` · compartilhada (${libraries.find((l) => l.id === base.libraryId)?.name ?? 'equipe'})`
+                  : ''}
                 {base.description ? ` · ${base.description}` : ''}
               </span>
               <span className="page-list-item__actions">
+                {base.scope === 'shared' ? (
+                  <span
+                    role="button"
+                    className="mini-btn"
+                    title="Tirar da biblioteca da equipe e trazer de volta para esta máquina"
+                    aria-label="Descompartilhar base"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void unshareBase(base);
+                    }}
+                  >
+                    <Globe className="icon" aria-hidden />
+                  </span>
+                ) : (
+                  libraries.some((lib) => lib.available) && (
+                    <span
+                      role="button"
+                      className="mini-btn"
+                      title="Mover esta base para uma pasta compartilhada da equipe"
+                      aria-label="Compartilhar base com a equipe"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void shareBase(base);
+                      }}
+                    >
+                      <Users className="icon" aria-hidden />
+                    </span>
+                  )
+                )}
                 <span
                   role="button"
                   className="mini-btn"
                   title="Baixar a base como .zip para compartilhar"
+                  aria-label="Exportar base"
                   onClick={(e) => {
                     e.stopPropagation();
                     void exportBase(base);
                   }}
                 >
-                  Exportar
+                  <Download className="icon" aria-hidden />
                 </span>
                 <span
                   role="button"
                   className="mini-btn"
                   title="Enviar por email (abre o cliente com o .zip anexado)"
+                  aria-label="Enviar base por email"
                   onClick={(e) => {
                     e.stopPropagation();
                     void emailShare('knowledge', base.id);
@@ -503,12 +804,14 @@ export function KnowledgePage() {
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
+                  title="Excluir base"
+                  aria-label="Excluir base"
                   onClick={(e) => {
                     e.stopPropagation();
                     void removeBase(base);
                   }}
                 >
-                  Excluir
+                  <Trash2 className="icon" aria-hidden />
                 </span>
               </span>
             </div>
@@ -547,7 +850,7 @@ export function KnowledgePage() {
                   ref={uploadInputRef}
                   type="file"
                   multiple
-                  accept=".md,.txt,.xlsx,.xlsm,.xls,.docx,.pdf"
+                  accept=".md,.txt,.xlsx,.xlsm,.xls,.docx,.pptx,.pdf"
                   hidden
                   onChange={(e) => {
                     if (e.target.files?.length) void uploadDocs(e.target.files);
@@ -598,7 +901,8 @@ export function KnowledgePage() {
                           uploadInputRef.current?.click();
                         }}
                       >
-                        <Upload className="icon icon--sm" aria-hidden /> Upload de arquivos…
+                        <Upload className="icon icon--sm" aria-hidden /> Upload de arquivos (PDF,
+                        Word, Excel, PPT, .md)…
                       </button>
                       <button
                         className="dropdown__item"
@@ -645,7 +949,7 @@ export function KnowledgePage() {
               {urlFormOpen && (
                 <div className="panel__form-block">
                   <div className="field">
-                    <label>URL do documento</label>
+                    <label>{crawlMode ? 'URL inicial do site' : 'URL do documento'}</label>
                     <input
                       value={remoteUrl}
                       onChange={(e) => setRemoteUrl(e.target.value)}
@@ -653,87 +957,123 @@ export function KnowledgePage() {
                     />
                   </div>
                   <div className="field">
-                    <label>Nome do documento (opcional)</label>
-                    <input
-                      value={remoteName}
-                      onChange={(e) => setRemoteName(e.target.value)}
-                      placeholder="derivado da URL se vazio"
-                    />
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={crawlMode}
+                        onChange={(e) => setCrawlMode(e.target.checked)}
+                      />
+                      Varrer o site inteiro a partir dessa URL
+                    </label>
+                    <span className="field__hint">
+                      Traz uma página por documento, agrupadas num só item da lista. A varredura
+                      segue o <code>sitemap.xml</code> do site (ou os links, se não houver) e fica
+                      presa ao mesmo endereço e à mesma pasta da URL informada.
+                    </span>
                   </div>
+                  {crawlMode && (
+                    <div className="field">
+                      <label>Máximo de páginas</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={crawlMaxPages}
+                        onChange={(e) =>
+                          setCrawlMaxPages(Math.max(1, Math.min(100, Number(e.target.value) || 1)))
+                        }
+                      />
+                    </div>
+                  )}
+                  {/* na varredura o nome vem do título de cada página */}
+                  {!crawlMode && (
+                    <div className="field">
+                      <label>Nome do documento (opcional)</label>
+                      <input
+                        value={remoteName}
+                        onChange={(e) => setRemoteName(e.target.value)}
+                        placeholder="derivado da URL se vazio"
+                      />
+                    </div>
+                  )}
                   <button
                     className="btn btn--primary"
                     disabled={busy || !remoteUrl.trim()}
-                    onClick={() => void addRemoteDoc()}
+                    onClick={() => void (crawlMode ? crawlSite() : addRemoteDoc())}
                   >
-                    <Plus className="icon" aria-hidden /> Adicionar da URL
+                    <Plus className="icon" aria-hidden />{' '}
+                    {crawlMode ? 'Varrer o site' : 'Adicionar da URL'}
                   </button>
                 </div>
               )}
-              {shownDocs.map((doc) => (
-                <div
-                  className={`page-list-item${docName === doc.name ? ' page-list-item--active' : ''}`}
-                  key={doc.name}
-                  onClick={() => void openDoc(doc)}
-                  role="button"
-                  title={doc.sourceUrl}
-                >
-                  <span className="item-card__name">
-                    {doc.sourceUrl ? (
-                      <Link className="icon" aria-hidden />
-                    ) : (
-                      <FileText className="icon" aria-hidden />
-                    )}{' '}
-                    {doc.name}
-                  </span>
-                  <span className="item-card__desc">
-                    {(doc.size / 1024).toFixed(1)} KB
-                    {doc.sourceUrl ? ` · ${hostnameOf(doc.sourceUrl)}` : ''}
-                    {doc.syncError ? (
-                      <>
-                        {' · '}
-                        <TriangleAlert className="icon icon--sm" aria-hidden /> erro no último sync
-                      </>
-                    ) : (
-                      ''
-                    )}
-                  </span>
-                  <span className="page-list-item__actions">
-                    {doc.sourceUrl && (
-                      <span
-                        role="button"
-                        className="mini-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void syncDocs(doc.name);
-                        }}
+              {looseDocs.map(renderDoc)}
+              {collections.map((collection) => {
+                const pages = docsByCollection.get(collection.id) ?? [];
+                if (docNeedle && pages.length === 0) return null;
+                const open = groupOpen(collection.id);
+                return (
+                  <div className="doc-group" key={collection.id}>
+                    <div className="doc-group__head">
+                      <button
+                        className="doc-group__toggle"
+                        onClick={() =>
+                          setCollapsedGroups((s) => ({ ...s, [collection.id]: open }))
+                        }
+                        aria-expanded={open}
+                        title={open ? 'Recolher' : 'Expandir'}
                       >
-                        Sincronizar
+                        <ChevronDown
+                          className={`icon doc-group__chevron${open ? ' doc-group__chevron--open' : ''}`}
+                          aria-hidden
+                        />
+                        <Globe className="icon" aria-hidden />
+                        <span className="doc-group__name" title={collection.rootUrl}>
+                          {collection.name}
+                        </span>
+                        <span className="doc-group__count">
+                          {pages.length} pág{pages.length === 1 ? '' : 's'}
+                        </span>
+                      </button>
+                      <span className="doc-group__actions">
+                        <button
+                          className="icon-btn"
+                          disabled={busy}
+                          title={`Re-varrer o site (até ${collection.maxPages} páginas) e atualizar as páginas`}
+                          aria-label="Sincronizar site"
+                          onClick={() => void syncCollectionNow(collection)}
+                        >
+                          <RotateCw className="icon" aria-hidden />
+                        </button>
+                        <button
+                          className="icon-btn icon-btn--danger"
+                          disabled={busy}
+                          title="Remover o site e suas páginas desta base"
+                          aria-label="Remover site"
+                          onClick={() => void removeCollection(collection)}
+                        >
+                          <Trash2 className="icon" aria-hidden />
+                        </button>
                       </span>
+                    </div>
+                    {collection.syncError && (
+                      <p className="doc-group__error">
+                        <TriangleAlert className="icon icon--sm" aria-hidden />{' '}
+                        {collection.syncError}
+                      </p>
                     )}
-                    <span
-                      role="button"
-                      className="mini-btn"
-                      title="Mover para outra base de conhecimento"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMovingDoc(doc);
-                      }}
-                    >
-                      Mover
-                    </span>
-                    <span
-                      role="button"
-                      className="mini-btn mini-btn--danger"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void removeDoc(doc);
-                      }}
-                    >
-                      Excluir
-                    </span>
-                  </span>
-                </div>
-              ))}
+                    {open && (
+                      <div className="doc-group__docs">
+                        {pages.map(renderDoc)}
+                        {pages.length === 0 && (
+                          <p className="doc-group__empty">
+                            Nenhuma página — sincronize para trazer de novo.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {docs.length === 0 && (
                 <EmptyState
                   icon={<FileText className="icon icon--lg" aria-hidden />}
@@ -759,7 +1099,7 @@ export function KnowledgePage() {
         </Panel>
 
         {selected && docName ? (
-          <Panel title="Editor" className="panel--form">
+          <Panel title={openedIsBinary ? 'Documento' : 'Editor'} className="panel--form">
             {(() => {
               const opened = docs.find((d) => d.name === docName);
               if (!opened?.sourceUrl) return null;
@@ -783,35 +1123,55 @@ export function KnowledgePage() {
             })()}
             <div className="field">
               <label>Nome do documento</label>
-              <input value={docName} onChange={(e) => setDocName(e.target.value)} />
+              <input value={docName} onChange={(e) => setDocName(e.target.value)} disabled={openedIsBinary} />
             </div>
             <div className="field page-card__grow">
               <div className="field__label-row">
-                <label>Conteúdo (markdown)</label>
-                <button
-                  className="btn btn--sm btn--ghost"
-                  onClick={() => setExpandDoc(true)}
-                  title="Editar em tela cheia (com visualização do markdown)"
-                >
-                  <Maximize2 className="icon" aria-hidden /> Expandir
-                </button>
+                <label>{openedIsBinary ? 'Texto extraído (somente leitura)' : 'Conteúdo (markdown)'}</label>
+                <span className="field__label-row__actions">
+                  {openedIsBinary && (
+                    <button
+                      className="btn btn--sm btn--ghost"
+                      title="Baixar o arquivo original para abrir no aplicativo de sempre"
+                      onClick={() => void api.downloadKnowledgeDoc(selected.id, docName)}
+                    >
+                      <Download className="icon" aria-hidden /> Baixar original
+                    </button>
+                  )}
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => setExpandDoc(true)}
+                    title="Ver em tela cheia (com visualização do markdown)"
+                  >
+                    <Maximize2 className="icon" aria-hidden /> Expandir
+                  </button>
+                </span>
               </div>
               <textarea
                 className="page-card__editor"
                 value={docContent}
                 onChange={(e) => setDocContent(e.target.value)}
+                readOnly={openedIsBinary}
                 placeholder="Cole aqui o conteúdo que o assistente deve conhecer…"
               />
+              {openedIsBinary && (
+                <p className="field__hint">
+                  O arquivo original fica guardado na base; este é o texto que o assistente lê. Para
+                  alterar o conteúdo, edite o documento na origem e envie de novo.
+                </p>
+              )}
             </div>
-            <div className="form-actions">
-              <button
-                className="btn btn--primary"
-                disabled={busy || !docName.trim()}
-                onClick={() => void saveDoc()}
-              >
-                Salvar documento
-              </button>
-            </div>
+            {!openedIsBinary && (
+              <div className="form-actions">
+                <button
+                  className="btn btn--primary"
+                  disabled={busy || !docName.trim()}
+                  onClick={() => void saveDoc()}
+                >
+                  Salvar documento
+                </button>
+              </div>
+            )}
           </Panel>
         ) : (
           <Panel className="panel--placeholder">
@@ -852,7 +1212,13 @@ export function KnowledgePage() {
             <label>Escopo</label>
             <Select
               value={newBaseScope}
-              onChange={(value) => setNewBaseScope(value as 'global' | 'project')}
+              onChange={(value) => {
+                const scope = value as 'global' | 'project' | 'shared';
+                setNewBaseScope(scope);
+                if (scope === 'shared' && !newBaseLibraryId) {
+                  setNewBaseLibraryId(libraries.find((lib) => lib.available)?.id);
+                }
+              }}
               options={[
                 {
                   value: 'global',
@@ -870,9 +1236,32 @@ export function KnowledgePage() {
                   hint: projectId ? undefined : 'Abra um projeto primeiro',
                   disabled: !projectId,
                 },
+                {
+                  value: 'shared',
+                  label: <><Users className="icon" aria-hidden /> Compartilhada</>,
+                  hint: libraries.length
+                    ? 'Fica na pasta da equipe — todo mundo vê'
+                    : 'Configure uma biblioteca em Configurações',
+                  disabled: libraries.length === 0,
+                },
               ]}
             />
           </div>
+          {newBaseScope === 'shared' && (
+            <div className="field">
+              <label>Biblioteca</label>
+              <Select
+                value={newBaseLibraryId ?? libraries[0]?.id ?? ''}
+                onChange={setNewBaseLibraryId}
+                options={libraries.map((lib) => ({
+                  value: lib.id,
+                  label: <><Users className="icon" aria-hidden /> {lib.name}</>,
+                  hint: lib.available ? lib.path : 'indisponível agora',
+                  disabled: !lib.available,
+                }))}
+              />
+            </div>
+          )}
           <button
             className="btn btn--primary"
             disabled={busy || !newBaseName.trim()}

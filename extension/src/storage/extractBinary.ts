@@ -1,3 +1,4 @@
+import * as fsp from 'node:fs/promises';
 import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
@@ -130,4 +131,86 @@ async function extractPdf(data: Buffer): Promise<string> {
     throw new Error('O PDF não tem texto extraível (provavelmente é digitalizado/imagem).');
   }
   return cleaned;
+}
+
+/** Acima disso nem tentamos converter: ler o binário inteiro na memória sai caro. */
+const EXTRACT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Rótulo humano do formato, para o modelo saber que leu uma conversão. */
+const KIND_LABEL: Record<BinaryKind, string> = {
+  word: 'Word',
+  sheet: 'Excel',
+  slides: 'PowerPoint',
+  pdf: 'PDF',
+};
+
+/**
+ * Lê um arquivo do disco convertendo-o em texto quando for um formato binário
+ * conhecido (Word/Excel/PowerPoint/PDF). Devolve `undefined` para qualquer
+ * outro arquivo, para quem chamou seguir com a leitura de texto normal.
+ *
+ * É o que permite anexar um PDF/planilha em qualquer lugar do portal e o
+ * modelo simplesmente LER — antes o conteúdo precisava ser convertido em .md
+ * na hora do upload e o arquivo original se perdia.
+ */
+export async function readBinaryAsText(
+  file: string,
+  label: string,
+): Promise<string | undefined> {
+  const kind = binaryKindFor('', file);
+  if (!kind) return undefined;
+  let data: Buffer;
+  try {
+    const stat = await fsp.stat(file);
+    if (stat.size > EXTRACT_MAX_BYTES) {
+      return (
+        `${label}: arquivo ${KIND_LABEL[kind]} de ${Math.round(stat.size / 1024 / 1024)} MB — ` +
+        `grande demais para converter em texto (teto de ${EXTRACT_MAX_BYTES / 1024 / 1024} MB).`
+      );
+    }
+    data = await fsp.readFile(file);
+  } catch (err) {
+    throw new Error(`Não consegui ler ${label}: ${err instanceof Error ? err.message : err}`);
+  }
+  return extractedNote(kind, label, await extractBinaryTextSafe(kind, data, label));
+}
+
+/** Mesma conversão, a partir dos bytes (upload, anexo de skill, doc de base). */
+export async function bufferAsText(
+  data: Buffer,
+  fileName: string,
+  label = fileName,
+): Promise<string | undefined> {
+  const kind = binaryKindFor('', fileName);
+  if (!kind) return undefined;
+  if (data.length > EXTRACT_MAX_BYTES) {
+    return (
+      `${label}: arquivo ${KIND_LABEL[kind]} de ${Math.round(data.length / 1024 / 1024)} MB — ` +
+      `grande demais para converter em texto (teto de ${EXTRACT_MAX_BYTES / 1024 / 1024} MB).`
+    );
+  }
+  return extractedNote(kind, label, await extractBinaryTextSafe(kind, data, label));
+}
+
+async function extractBinaryTextSafe(
+  kind: BinaryKind,
+  data: Buffer,
+  label: string,
+): Promise<string> {
+  try {
+    return await extractBinaryText(kind, data);
+  } catch (err) {
+    throw new Error(
+      `Não consegui extrair o texto de ${label} (${KIND_LABEL[kind]}): ` +
+        `${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+/** Deixa explícito que o conteúdo é uma conversão, não o arquivo como está. */
+function extractedNote(kind: BinaryKind, label: string, text: string): string {
+  return (
+    `[texto extraído de ${label} (${KIND_LABEL[kind]}) — formatação, imagens e layout não são ` +
+    `preservados]\n\n${text}`
+  );
 }

@@ -17,7 +17,12 @@ export function PageShell(props: {
         {props.icon && <span className="page__icon">{props.icon}</span>}
         <div className="page__head-text">
           <h1 className="page__title">{props.title}</h1>
-          {props.subtitle && <p className="page__subtitle">{props.subtitle}</p>}
+          {/* uma linha só: o texto completo fica no title, para a tela curta */}
+          {props.subtitle && (
+            <p className="page__subtitle" title={props.subtitle}>
+              {props.subtitle}
+            </p>
+          )}
         </div>
         <div className="page__actions">
           {props.actions}

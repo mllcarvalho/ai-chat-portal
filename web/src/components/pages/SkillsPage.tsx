@@ -9,7 +9,9 @@ import {
   Pencil,
   Plus,
   Search,
+  Trash2,
   Upload,
+  Users,
   X,
   Zap,
 } from 'lucide-react';
@@ -26,8 +28,10 @@ import { EmptyState, PageShell, Panel } from './PageShell';
 
 interface Draft {
   id?: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'project' | 'shared';
   projectId?: string;
+  /** Biblioteca compartilhada de destino (escopo 'shared'). */
+  libraryId?: string;
   name: string;
   description: string;
   command: string;
@@ -88,6 +92,7 @@ export function SkillsPage() {
   const session = useSessions((s) => s.current);
   const viewProjectId = useSessions((s) => s.viewProjectId);
   const projects = useSessions((s) => s.projects);
+  const libraries = useCatalog((s) => s.libraries);
   const toast = useUi((s) => s.toast);
   const confirm = useUi((s) => s.confirm);
   const [filter, setFilter] = useState<ScopeFilter>('all');
@@ -138,9 +143,14 @@ export function SkillsPage() {
 
   const contextProjectId = session?.projectId ?? viewProjectId ?? undefined;
   const projectName = (id?: string) => projects.find((p) => p.id === id)?.name ?? 'projeto';
-  // quando o filtro aponta para um projeto (não é um dos agregadores fixos)
+  const libraryName = (id?: string) =>
+    libraries.find((lib) => lib.id === id)?.name ?? 'Compartilhada';
+  // quando o filtro aponta para um projeto (não é um dos agregadores fixos
+  // nem uma biblioteca compartilhada, que vem como "lib:<id>")
   const filterProjectId =
-    filter !== 'all' && filter !== 'global' && filter !== 'bmad' ? filter : undefined;
+    filter !== 'all' && filter !== 'global' && filter !== 'bmad' && !filter.startsWith('lib:')
+      ? filter
+      : undefined;
 
   useEffect(() => {
     void loadSkills();
@@ -155,6 +165,10 @@ export function SkillsPage() {
     const own = skills.filter((s) => !isBmadAsset(s.id));
     if (filter === 'all') return own;
     if (filter === 'global') return own.filter((s) => s.scope === 'global');
+    if (filter.startsWith('lib:')) {
+      const libraryId = filter.slice(4);
+      return own.filter((s) => s.scope === 'shared' && s.libraryId === libraryId);
+    }
     return own.filter((s) => s.projectId === filter);
   }, [skills, filter]);
 
@@ -316,6 +330,7 @@ export function SkillsPage() {
         id: full.id,
         scope: full.scope,
         projectId: full.projectId,
+        libraryId: full.libraryId,
         name: full.name,
         description: full.description,
         command: full.command ?? '',
@@ -330,7 +345,11 @@ export function SkillsPage() {
   const remove = async (skill: Skill) => {
     const ok = await confirm({
       title: 'Excluir skill',
-      message: `Excluir a skill "${skill.name}"?`,
+      message:
+        skill.scope === 'shared'
+          ? `Excluir a skill "${skill.name}" da biblioteca "${libraryName(skill.libraryId)}"? ` +
+            'Ela sai para TODAS as pessoas que usam essa pasta compartilhada.'
+          : `Excluir a skill "${skill.name}"?`,
       confirmLabel: 'Excluir',
       danger: true,
     });
@@ -342,11 +361,23 @@ export function SkillsPage() {
 
   const save = async () => {
     if (!draft) return;
+    // gravar numa biblioteca compartilhada muda o que a equipe inteira usa
+    if (draft.scope === 'shared') {
+      const ok = await confirm({
+        title: 'Salvar na biblioteca compartilhada',
+        message:
+          `Esta skill vai para a biblioteca "${libraryName(draft.libraryId)}" — ` +
+          'todo mundo que usa essa pasta passa a ver a nova versão. Confirma?',
+        confirmLabel: 'Salvar para a equipe',
+      });
+      if (!ok) return;
+    }
     setBusy(true);
     try {
       const payload = {
         scope: draft.scope,
         projectId: draft.scope === 'project' ? draft.projectId : undefined,
+        libraryId: draft.scope === 'shared' ? draft.libraryId : undefined,
         name: draft.name.trim(),
         description: draft.description.trim(),
         command: draft.command.trim().replace(/^\//, '') || undefined,
@@ -437,6 +468,10 @@ export function SkillsPage() {
               options={[
                 { value: 'all', label: hasBmad ? 'Todos (sem BMAD)' : 'Todos os escopos' },
                 { value: 'global', label: <><Globe className="icon" aria-hidden /> Globais</> },
+                ...libraries.map((lib) => ({
+                  value: `lib:${lib.id}`,
+                  label: <><Users className="icon" aria-hidden /> {lib.name}</>,
+                })),
                 ...(hasBmad ? [{ value: 'bmad', label: 'BMAD' }] : []),
                 ...projects.map((p) => ({
                   value: p.id,
@@ -473,7 +508,8 @@ export function SkillsPage() {
           )}
           {draft && !draft.id && (
             <div className="page-list-item page-list-item--active page-list-item--draft">
-              <span className="page-list-item__meta">
+              <span className="page-list-item__row">
+                <span className="item-card__name">{draft.name.trim() || 'Nova skill'}</span>
                 <span
                   className={`scope-badge${draft.scope === 'project' ? ' scope-badge--project' : ''}`}
                 >
@@ -490,13 +526,18 @@ export function SkillsPage() {
                 </span>
                 <span className="mcp-status">rascunho</span>
               </span>
-              <span className="item-card__name">{draft.name.trim() || 'Nova skill'}</span>
               <span className="item-card__desc">
                 {draft.description.trim() || 'Preencha ao lado e salve.'}
               </span>
               <span className="page-list-item__actions">
-                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
-                  Descartar
+                <span
+                  role="button"
+                  className="mini-btn"
+                  title="Descartar rascunho"
+                  aria-label="Descartar rascunho"
+                  onClick={() => setDraft(undefined)}
+                >
+                  <X className="icon" aria-hidden />
                 </span>
               </span>
             </div>
@@ -507,12 +548,22 @@ export function SkillsPage() {
               key={skill.id}
               onClick={() => void edit(skill)}
             >
-              <span className="page-list-item__meta">
-                <span className="item-card__tag item-card__tag--cmd">
+              <span className="page-list-item__row">
+                <span className="item-card__name">{skill.name}</span>
+                <span
+                  className="item-card__tag item-card__tag--cmd"
+                  title={`Invoque no chat com /${skill.command ?? slugifyCommand(skill.name)}`}
+                >
                   /{skill.command ?? slugifyCommand(skill.name)}
                 </span>
                 <span
-                  className={`scope-badge${skill.scope === 'project' ? ' scope-badge--project' : ''}`}
+                  className={`scope-badge${
+                    skill.scope === 'project'
+                      ? ' scope-badge--project'
+                      : skill.scope === 'shared'
+                        ? ' scope-badge--shared'
+                        : ''
+                  }`}
                 >
                   {isBmadAsset(skill.id) ? (
                     'BMAD'
@@ -521,6 +572,10 @@ export function SkillsPage() {
                       <Folder className="icon icon--sm" aria-hidden />{' '}
                       {projectName(skill.projectId)}
                     </>
+                  ) : skill.scope === 'shared' ? (
+                    <>
+                      <Users className="icon icon--sm" aria-hidden /> {libraryName(skill.libraryId)}
+                    </>
                   ) : (
                     <>
                       <Globe className="icon icon--sm" aria-hidden /> Global
@@ -528,24 +583,26 @@ export function SkillsPage() {
                   )}
                 </span>
               </span>
-              <span className="item-card__name">{skill.name}</span>
               <span className="item-card__desc">{skill.description || '—'}</span>
               <span className="page-list-item__actions">
                 <span
                   role="button"
                   className="mini-btn"
+                  title="Baixar a skill (.md ou .skill.zip com os anexos)"
+                  aria-label="Baixar skill"
                   onClick={(e) => {
                     e.stopPropagation();
                     void download(skill);
                   }}
                 >
-                  <Download className="icon icon--sm" aria-hidden /> Baixar
+                  <Download className="icon" aria-hidden />
                 </span>
                 {!isBmadAsset(skill.id) && (
                   <span
                     role="button"
                     className="mini-btn"
                     title="Enviar por email (abre o cliente com o .md anexado — re-importável pelo botão Importar)"
+                    aria-label="Enviar skill por email"
                     onClick={(e) => {
                       e.stopPropagation();
                       void emailShare(skill.id);
@@ -557,12 +614,14 @@ export function SkillsPage() {
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
+                  title="Excluir skill"
+                  aria-label="Excluir skill"
                   onClick={(e) => {
                     e.stopPropagation();
                     void remove(skill);
                   }}
                 >
-                  Excluir
+                  <Trash2 className="icon" aria-hidden />
                 </span>
               </span>
             </button>
@@ -606,6 +665,10 @@ export function SkillsPage() {
                         scope === 'project'
                           ? draft.projectId ?? contextProjectId ?? projects[0]?.id
                           : draft.projectId,
+                      libraryId:
+                        scope === 'shared'
+                          ? draft.libraryId ?? libraries.find((l) => l.available)?.id
+                          : draft.libraryId,
                     });
                   }}
                   options={[
@@ -620,9 +683,32 @@ export function SkillsPage() {
                       hint: 'Só nas conversas do projeto',
                       disabled: projects.length === 0,
                     },
+                    {
+                      value: 'shared',
+                      label: <><Users className="icon" aria-hidden /> Compartilhada</>,
+                      hint: libraries.length
+                        ? 'Fica na pasta da equipe — vale para todo mundo'
+                        : 'Configure uma biblioteca em Configurações',
+                      disabled: libraries.length === 0,
+                    },
                   ]}
                 />
               </div>
+              {draft.scope === 'shared' && (
+                <div className="field">
+                  <label>Biblioteca</label>
+                  <Select
+                    value={draft.libraryId ?? libraries[0]?.id ?? ''}
+                    onChange={(value) => setDraft({ ...draft, libraryId: value })}
+                    options={libraries.map((lib) => ({
+                      value: lib.id,
+                      label: <><Users className="icon" aria-hidden /> {lib.name}</>,
+                      hint: lib.available ? lib.path : 'indisponível agora',
+                      disabled: !lib.available,
+                    }))}
+                  />
+                </div>
+              )}
               {draft.scope === 'project' && (
                 <div className="field">
                   <label>Projeto</label>
@@ -648,7 +734,7 @@ export function SkillsPage() {
             </div>
             <div className="field page-card__grow">
               <div className="field__label-row">
-                <label>Conteúdo (markdown — use {'{{input}}'} para o texto digitado após o /comando)</label>
+                <label>Conteúdo (markdown)</label>
                 <button
                   className="btn btn--sm btn--ghost"
                   onClick={() => setExpandContent(true)}
@@ -663,17 +749,19 @@ export function SkillsPage() {
                 onChange={(e) => setDraft({ ...draft, content: e.target.value })}
                 placeholder={'Resuma o texto a seguir em 5 bullets:\n\n{{input}}'}
               />
+              <p className="field__hint">
+                Use <code>{'{{input}}'}</code> para o texto digitado depois do /comando.
+              </p>
             </div>
             <div className="field">
               <div className="field__label-row">
                 <label>
                   Anexos
                   {(draft.files?.length ?? 0) + (draft.pendingFiles?.length ?? 0) > 0 &&
-                    ` (${(draft.files?.length ?? 0) + (draft.pendingFiles?.length ?? 0)})`}{' '}
-                  — referências e templates que o modelo lê sob demanda
+                    ` (${(draft.files?.length ?? 0) + (draft.pendingFiles?.length ?? 0)})`}
                 </label>
                 {draft.id && (
-                  <span style={{ display: 'flex', gap: 6 }}>
+                  <span className="field__label-row__actions">
                     <button
                       className="btn btn--sm btn--ghost"
                       title="Abrir a pasta da skill no gerenciador de arquivos — os anexos ficam lá"
@@ -705,8 +793,8 @@ export function SkillsPage() {
               <p className="page-hint" style={{ margin: 0 }} title={[...(draft.files ?? []), ...(draft.pendingFiles ?? []).map((f) => f.path)].join('\n') || undefined}>
                 {draft.id
                   ? (draft.files?.length ?? 0) > 0
-                    ? `Esta skill tem ${draft.files!.length} arquivo(s) de apoio (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
-                    : 'Nenhum anexo — esta skill é só o markdown acima.'
+                    ? `Referências e templates que o modelo lê sob demanda: ${draft.files!.length} arquivo(s) (${assetSummary(draft.files!)}). Use "Abrir pasta" para ver, editar ou remover.`
+                    : 'Nenhum anexo — esta skill é só o markdown acima. Anexe referências e templates para o modelo ler sob demanda.'
                   : (draft.pendingFiles?.length ?? 0) > 0
                     ? `${draft.pendingFiles!.length} arquivo(s) vieram do import (${assetSummary(draft.pendingFiles!.map((f) => f.path))}) e serão gravados na pasta da skill quando você salvar.`
                     : 'Salve a skill primeiro — depois dá para anexar arquivos à pasta dela.'}

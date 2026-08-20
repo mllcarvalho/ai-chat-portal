@@ -14,6 +14,7 @@ import {
 import { getEnabledToolDefs } from '../../tools/toolRegistry';
 import { callMcpTool } from '../../tools/mcpManager';
 import { executeCommand, startBackgroundCommand } from '../../tools/runCommand';
+import { markPortalToolsFetched } from '../../chat/portalMcpPing';
 import { activeStream } from '../../chat/streamHub';
 import { tokenFor } from '../../chat/activeRequests';
 import { waitForApproval } from '../../chat/approvals';
@@ -96,11 +97,14 @@ function toolsFor(r: Resolved, scope?: string): PublishedTool[] {
 export function registerPortalToolRoutes(router: Router): void {
   // catálogo que o servidor MCP publica para a CLI
   router.get('/api/portal-tools', ({ res, query }) => {
-    const r = resolveSession(query.get('sessionId') ?? '');
+    const sessionId = query.get('sessionId') ?? '';
+    const r = resolveSession(sessionId);
     if (!r) {
       sendError(res, 404, 'Sessão não encontrada');
       return;
     }
+    // sinal de vida: é assim que o provider descobre que o processo subiu
+    markPortalToolsFetched(sessionId);
     sendJson(res, 200, toolsFor(r, query.get('scope') ?? undefined));
   });
 

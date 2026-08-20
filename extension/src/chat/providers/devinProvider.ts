@@ -17,7 +17,13 @@ import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
 import { waitForApproval } from '../approvals';
 import { AcpClient, AcpProcessError } from './acpClient';
-import { portalMcpServer } from './portalMcp';
+import {
+  mcpStderrHint,
+  plainNodeBin,
+  portalMcpServer,
+  warnDroppedMcpServers,
+  watchPortalMcp,
+} from './portalMcp';
 import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
 import { historyReplayBlock } from './history';
 import type {
@@ -48,8 +54,12 @@ import type {
  */
 
 const BIN = 'devin';
-/** Sem nenhuma mensagem por este tempo, desiste do processo. */
-const IDLE_TIMEOUT_MS = 300_000;
+/**
+ * Sem nenhuma mensagem por este tempo, desiste do processo. Dez minutos: uma
+ * ferramenta gerando arquivo grande fica muito tempo em silêncio, e derrubar o
+ * processo aí perde a resposta inteira.
+ */
+const IDLE_TIMEOUT_MS = 600_000;
 const SYSTEM_PROMPT_CLAMP = 32 * 1024;
 /**
  * O anexo já foi validado contra o teto do portal na entrada; cortá-lo de novo
@@ -433,6 +443,10 @@ interface SessionUpdate {
 async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   const { sse, token, parts, usage, requestId } = ctx;
   ensureDir(ctx.workRoot);
+  warnDroppedMcpServers(ctx);
+  // a CLI é quem spawna o servidor MCP do portal: falha de spawn morre no log
+  // dela, então quem conta ao usuário é o portal
+  const reportPortalMcp = watchPortalMcp(ctx, () => mcpStderrHint(client.stderrTail));
 
   const state = {
     sessionId: ctx.session.providerSessionId,
@@ -612,7 +626,8 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   // ferramentas do portal para o agente (é o que faz o BMAD rodar aqui). O
   // formato de mcpServers no ACP é o do stdio: command/args/env.
-  const portal = portalMcpServer(ctx.session.id);
+  // nodeBin: o Devin não engole um `command` com espaços — ver plainNodeBin().
+  const portal = portalMcpServer(ctx.session.id, { nodeBin: await plainNodeBin() });
   const mcpServers = portal ? [acpStdioServer('portal', portal)] : [];
 
   try {
@@ -690,7 +705,9 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     flushText();
     clearInterval(idleTimer);
     cancelSub.dispose();
+    // depois do dispose: o stderr do Devin só está completo com o processo fora
     await client.dispose();
+    reportPortalMcp();
   }
 
   return {
@@ -763,7 +780,10 @@ export const devinProvider: ChatProvider = {
  */
 async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
   const usage = { inputTokens: 0, outputTokens: 0, requests: 0 };
-  const portal = portalMcpServer(req.sessionId, 'subagent');
+  const portal = portalMcpServer(req.sessionId, {
+    scope: 'subagent',
+    nodeBin: await plainNodeBin(),
+  });
   let text = '';
 
   const client = new AcpClient({

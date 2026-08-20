@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
+import { requireLibrary } from '../../storage/sharedLibrary';
 import { Router, sendError, sendJson } from '../router';
 import { exportSkillFile } from '../../storage/skillZip';
 import {
@@ -53,8 +54,9 @@ export function registerSkillRoutes(router: Router): void {
 
   router.post('/api/skills', ({ res, body }) => {
     const input = (body ?? {}) as {
-      scope?: 'global' | 'project';
+      scope?: 'global' | 'project' | 'shared';
       projectId?: string;
+      libraryId?: string;
       name?: string;
       description?: string;
       command?: string;
@@ -68,9 +70,18 @@ export function registerSkillRoutes(router: Router): void {
       sendError(res, 400, 'Skills de projeto precisam de projectId');
       return;
     }
+    if (input.scope === 'shared') {
+      try {
+        requireLibrary(input.libraryId ?? '');
+      } catch (err) {
+        sendError(res, 400, err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
     const skill = createSkill({
       scope: input.scope,
       projectId: input.projectId,
+      libraryId: input.libraryId,
       name: input.name.trim(),
       description: input.description?.trim() ?? '',
       command: input.command?.trim().replace(/^\//, '') || undefined,
@@ -89,13 +100,22 @@ export function registerSkillRoutes(router: Router): void {
       description?: string;
       command?: string;
       content?: string;
-      scope?: 'global' | 'project';
+      scope?: 'global' | 'project' | 'shared';
       projectId?: string;
+      libraryId?: string;
     };
     if (patch.command) patch.command = patch.command.trim().replace(/^\//, '');
-    if (patch.scope && patch.scope !== 'global' && patch.scope !== 'project') {
-      sendError(res, 400, 'scope deve ser "global" ou "project"');
+    if (patch.scope && !['global', 'project', 'shared'].includes(patch.scope)) {
+      sendError(res, 400, 'scope deve ser "global", "project" ou "shared"');
       return;
+    }
+    if (patch.scope === 'shared') {
+      try {
+        requireLibrary(patch.libraryId ?? getSkill(params.id)?.libraryId ?? '');
+      } catch (err) {
+        sendError(res, 400, err instanceof Error ? err.message : String(err));
+        return;
+      }
     }
     if (patch.scope === 'project' && !patch.projectId && !getSkill(params.id)?.projectId) {
       sendError(res, 400, 'Skills de projeto precisam de projectId');

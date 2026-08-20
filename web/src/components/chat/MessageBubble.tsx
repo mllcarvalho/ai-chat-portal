@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, History, Paperclip, Pencil, Play, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { ChatMessage, MessagePart } from '@aiportal/shared';
 import { api } from '../../api/client';
@@ -10,6 +10,36 @@ import { Markdown } from '../common/Markdown';
 import { ToolCallCard } from './ToolCallCard';
 
 type ToolResultPart = Extract<MessagePart, { type: 'tool_result' }>;
+
+/**
+ * "pensando…" com o tempo decorrido: uma tool call grande (um arquivo inteiro)
+ * chega de uma vez só no fim da geração, então a tela fica minutos parada. Ver
+ * o cronômetro andando é a diferença entre "está trabalhando" e "travou".
+ */
+function ThinkingRow() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = setInterval(() => setSeconds(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const label =
+    seconds < 10
+      ? 'pensando…'
+      : seconds < 60
+        ? `pensando… (${seconds}s)`
+        : `pensando… (${Math.floor(seconds / 60)}min${seconds % 60 ? ` ${seconds % 60}s` : ''})`;
+  return (
+    <span className="thinking-row">
+      <span className="thinking">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="thinking-row__label">{label}</span>
+    </span>
+  );
+}
 
 export function formatTokens(n: number): string {
   if (n < 1000) return String(n);
@@ -164,16 +194,7 @@ export const MessageBubble = memo(function MessageBubble(props: {
       <span className="msg__role">Assistente</span>
       <div className="msg__body">
         {rendered}
-        {modelThinking && (
-          <span className="thinking-row">
-            <span className="thinking">
-              <span />
-              <span />
-              <span />
-            </span>
-            <span className="thinking-row__label">pensando…</span>
-          </span>
-        )}
+        {modelThinking && <ThinkingRow />}
         {message.error && (
           <div className="msg__error">
             <TriangleAlert className="icon" aria-hidden /> {message.error.message}

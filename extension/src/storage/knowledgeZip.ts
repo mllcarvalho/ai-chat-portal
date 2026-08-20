@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import JSZip from 'jszip';
-import type { KnowledgeBase } from '@aiportal/shared';
+import type { KnowledgeBase, KnowledgeCollection } from '@aiportal/shared';
 import {
   createBase,
   deleteBase,
@@ -11,8 +11,11 @@ import {
   listDocs,
   patchBase,
   readDoc,
+  readDocRaw,
   setDocSources,
+  writeBinaryDoc,
   writeDoc,
+  isBinaryDoc,
   type DocSource,
 } from './knowledgeStore';
 
@@ -23,6 +26,13 @@ interface ZipMeta {
   exportedAt: string;
   /** Identidade de origem: reimports atualizam a base existente em vez de duplicar. */
   originId?: string;
+  /**
+   * Sites varridos. Sem isto, quem importasse receberia as páginas soltas: o
+   * sources.json até diz a que coleção cada doc pertence, mas sem a coleção
+   * correspondente no destino o grupo (e o botão de re-sincronizar o site)
+   * não existiria.
+   */
+  collections?: KnowledgeCollection[];
 }
 
 /** Empacota a base (documentos + metadados + fontes remotas) para compartilhar. */
@@ -35,6 +45,7 @@ export async function exportBaseZip(baseId: string): Promise<Buffer> {
     description: base.description,
     exportedAt: new Date().toISOString(),
     originId: base.importedFrom ?? base.id,
+    collections: base.collections?.length ? base.collections : undefined,
   };
   zip.file('base.json', JSON.stringify(meta, null, 2));
   const sources = getDocSources(baseId);
@@ -42,6 +53,13 @@ export async function exportBaseZip(baseId: string): Promise<Buffer> {
     zip.file('sources.json', JSON.stringify(sources, null, 2));
   }
   for (const doc of listDocs(baseId)) {
+    // binário vai no zip como o arquivo original (a conversão em texto é
+    // regenerada no destino, e o PDF/planilha continua abrindo lá)
+    if (isBinaryDoc(doc.name)) {
+      const raw = readDocRaw(baseId, doc.name);
+      if (raw) zip.file(doc.name, raw);
+      continue;
+    }
     const content = readDoc(baseId, doc.name);
     if (content !== undefined) zip.file(doc.name, content);
   }
@@ -56,8 +74,9 @@ export async function exportBaseZip(baseId: string): Promise<Buffer> {
 export async function importBaseZip(
   zipData: Buffer,
   input: {
-    scope: 'global' | 'project';
+    scope: 'global' | 'project' | 'shared';
     projectId?: string;
+    libraryId?: string;
     fallbackName?: string;
     /** enabled da base quando o import CRIA (updates preservam o toggle atual). */
     enabledOnCreate?: boolean;
@@ -80,20 +99,24 @@ export async function importBaseZip(
 
   const metaEntry = entries.find((f) => nameOf(f) === 'base.json');
   const sourcesEntry = entries.find((f) => nameOf(f) === 'sources.json');
-  const docEntries = entries.filter((f) => /\.(md|txt)$/i.test(nameOf(f)));
+  const docEntries = entries.filter((f) =>
+    /\.(md|txt|pdf|docx|xlsx|xlsm|xls|pptx)$/i.test(nameOf(f)),
+  );
   if (docEntries.length === 0) {
-    throw new Error('O zip não contém documentos .md ou .txt');
+    throw new Error('O zip não contém documentos (.md, .txt, .pdf, .docx, .xlsx, .xls ou .pptx)');
   }
 
   let name = input.fallbackName?.trim() || 'Base importada';
   let description: string | undefined;
   let originId: string | undefined;
+  let collections: KnowledgeCollection[] = [];
   if (metaEntry) {
     try {
       const meta = JSON.parse(await metaEntry.async('string')) as Partial<ZipMeta>;
       if (meta.name?.trim()) name = meta.name.trim();
       if (meta.description?.trim()) description = meta.description.trim();
       if (typeof meta.originId === 'string') originId = meta.originId;
+      if (Array.isArray(meta.collections)) collections = meta.collections;
     } catch {
       // base.json ilegível — segue com o nome de fallback
     }
@@ -112,6 +135,7 @@ export async function importBaseZip(
       description,
       scope: input.scope,
       projectId: input.projectId,
+      libraryId: input.libraryId,
       enabled: input.enabledOnCreate,
       importedFrom: originId,
     });
@@ -122,7 +146,11 @@ export async function importBaseZip(
   for (const entry of docEntries) {
     const docName = nameOf(entry);
     try {
-      writeDoc(base.id, docName, await entry.async('string'));
+      if (isBinaryDoc(docName)) {
+        await writeBinaryDoc(base.id, docName, await entry.async('nodebuffer'));
+      } else {
+        writeDoc(base.id, docName, await entry.async('string'));
+      }
       imported.add(docName);
     } catch (err) {
       errors.push(`"${docName}": ${err instanceof Error ? err.message : String(err)}`);
@@ -157,6 +185,12 @@ export async function importBaseZip(
   }
   // update substitui o mapeamento inteiro (inclusive limpando-o se a nova versão não tem fontes)
   if (existing || Object.keys(sources).length > 0) setDocSources(base.id, sources);
+
+  // só entram as coleções que de fato têm páginas importadas — coleção vazia
+  // vira um grupo fantasma na lista
+  const used = new Set(Object.values(sources).map((s) => s.collection).filter(Boolean));
+  const kept = collections.filter((c) => used.has(c.id));
+  if (existing || kept.length > 0) patchBase(base.id, { collections: kept });
 
   return getBase(base.id) ?? base;
 }

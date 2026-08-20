@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionMode } from '@aiportal/shared';
 import { PROJECT_META_DIR, bmadRootDir } from '../storage/paths';
-import { linkedRealTargets } from '../storage/linkStore';
+import { linkedFilePath, linkedRealTargets, listFileLinks } from '../storage/linkStore';
 import { createCheckpoint, type CheckpointOperation } from '../storage/checkpointStore';
 import { createAgent } from '../storage/agentStore';
 import {
@@ -13,7 +13,8 @@ import {
   searchKnowledge,
   writeDoc,
 } from '../storage/knowledgeStore';
-import { createSkill, getSkill, listSkills, readSkillAsset } from '../storage/skillStore';
+import { createSkill, getSkill, listSkills, readSkillAsset, readSkillAssetRaw } from '../storage/skillStore';
+import { bufferAsText, readBinaryAsText } from '../storage/extractBinary';
 import { normalizeSourceUrl } from '../storage/remoteFetch';
 import { backgroundOutput } from './runCommand';
 import { searchWeb } from './webSearch';
@@ -73,9 +74,11 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
   {
     name: 'portal_read_file',
     description:
-      'Lê um arquivo de texto da pasta de trabalho da conversa. Em arquivo grande, leia por ' +
-      'FAIXAS com startLine/endLine (a resposta informa o total de linhas) em vez do arquivo ' +
-      'inteiro — economiza contexto e permite navegar por partes.',
+      'Lê um arquivo da pasta de trabalho da conversa. PDF, Word (.docx), Excel (.xlsx/.xls) e ' +
+      'PowerPoint (.pptx) são convertidos em texto automaticamente — leia-os por aqui, sem tentar ' +
+      'converter antes. Em arquivo grande, leia por FAIXAS com startLine/endLine (a resposta ' +
+      'informa o total de linhas) em vez do arquivo inteiro — economiza contexto e permite ' +
+      'navegar por partes.',
     inputSchema: {
       type: 'object',
       required: ['path'],
@@ -439,7 +442,8 @@ export const BUILTIN_TOOLS: BuiltinToolDef[] = [
     description:
       'Lê um arquivo ANEXO da pasta de uma skill do portal (referências, templates, exemplos). ' +
       'Os anexos disponíveis são listados junto do conteúdo da skill (ativa, carregada ou por /comando). ' +
-      'Use quando as instruções da skill citarem um desses arquivos.',
+      'Use quando as instruções da skill citarem um desses arquivos. Anexo em PDF, Word, Excel ou ' +
+      'PowerPoint vem convertido em texto automaticamente.',
     inputSchema: {
       type: 'object',
       required: ['command', 'path'],
@@ -653,6 +657,10 @@ export function isBuiltinTool(name: string): boolean {
  * o conteúdo deles vive fora da raiz por definição.
  */
 export function resolveInProject(workRoot: string, relPath: string): string {
+  // arquivo referenciado (registro em links.json, sem symlink no disco):
+  // "contrato.xlsx" na pasta de trabalho aponta para o arquivo original
+  const linked = linkedFilePath(workRoot, relPath);
+  if (linked) return linked;
   const resolved = path.resolve(workRoot, relPath);
   const rel = path.relative(workRoot, resolved);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -1053,7 +1061,9 @@ export async function dispatchBuiltinTool(
         const visible = listSkills(projectId || undefined);
         const meta = visible.find((s) => s.command === command);
         if (!meta) throw new Error(`Skill "${command}" não encontrada.`);
-        const text = readSkillAsset(meta.id, rel);
+        const raw = readSkillAssetRaw(meta.id, rel);
+        const converted = raw ? await bufferAsText(raw, rel) : undefined;
+        const text = converted ?? readSkillAsset(meta.id, rel);
         if (text === undefined) {
           const available = getSkill(meta.id)?.files ?? [];
           throw new Error(
@@ -1088,9 +1098,10 @@ export async function dispatchBuiltinTool(
         if (!append && args.overwrite === false && fs.existsSync(file)) {
           throw new Error(`Arquivo já existe: ${rel}`);
         }
-        const ck = tryCheckpoint(workRoot, name, 'write', [
-          { absPath: file, relPath: path.relative(workRoot, file) },
-        ]);
+        // relPath é o caminho LÓGICO (o que o modelo passou): num arquivo
+        // referenciado o absoluto está fora da pasta de trabalho e um
+        // path.relative viraria "../.." dentro do snapshot
+        const ck = tryCheckpoint(workRoot, name, 'write', [{ absPath: file, relPath: rel }]);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         if (append) fs.appendFileSync(file, content, 'utf8');
         else fs.writeFileSync(file, content, 'utf8');
@@ -1135,7 +1146,11 @@ export async function dispatchBuiltinTool(
           typeof args.endLine === 'number' && args.endLine >= 1
             ? Math.floor(args.endLine)
             : undefined;
-        const full = readFileClamped(file, rel);
+        // PDF/Word/Excel/PowerPoint: converte em texto na hora da leitura, em
+        // vez de devolver bytes UTF-8 sem sentido. As faixas de linha valem
+        // igual sobre o texto convertido.
+        const extracted = await readBinaryAsText(file, rel);
+        const full = extracted ?? readFileClamped(file, rel);
         if (start === undefined && end === undefined) return { ok: true, content: full };
         const lines = full.split('\n');
         const from = (start ?? 1) - 1;
@@ -1155,6 +1170,18 @@ export async function dispatchBuiltinTool(
         const dir = resolveInProject(workRoot, rel);
         const acc: string[] = [];
         listEntries(dir, rel === '.' ? '' : rel, args.recursive === true, acc);
+        // arquivos referenciados vivem fora da pasta e não aparecem no readdir
+        if (rel === '.') {
+          for (const link of listFileLinks(workRoot)) {
+            let size = 0;
+            try {
+              size = fs.statSync(link.target).size;
+            } catch {
+              continue; // alvo indisponível (pasta de rede fora do ar)
+            }
+            acc.push(`${link.name} (${size} bytes, arquivo referenciado)`);
+          }
+        }
         return { ok: true, content: acc.length ? acc.join('\n') : '(pasta vazia)' };
       }
       case 'portal_edit_file': {
@@ -1211,9 +1238,7 @@ export async function dispatchBuiltinTool(
             : content.replace(op.find, () => op.replace);
           total += op.replaceAll ? count : 1;
         }
-        const ck = tryCheckpoint(workRoot, name, 'edit', [
-          { absPath: file, relPath: path.relative(workRoot, file) },
-        ]);
+        const ck = tryCheckpoint(workRoot, name, 'edit', [{ absPath: file, relPath: rel }]);
         fs.writeFileSync(file, content, 'utf8');
         const diff = ops.map((op) => miniDiff(op.find, op.replace)).join('\n\n');
         return {
@@ -1272,15 +1297,22 @@ export async function dispatchBuiltinTool(
       }
       case 'portal_delete_file': {
         const rel = asString(args.path, 'path');
+        // arquivo referenciado mora fora da pasta de trabalho e pertence ao
+        // usuário (muitas vezes numa pasta de rede compartilhada) — apagá-lo
+        // por uma decisão do modelo seria estrago irreversível
+        if (linkedFilePath(workRoot, rel)) {
+          throw new Error(
+            `${rel} é um arquivo REFERENCIADO da máquina do usuário — não pode ser excluído por ` +
+              'aqui. Quem remove a referência é o usuário, pelo painel Arquivos.',
+          );
+        }
         const target = resolveInProject(workRoot, rel);
         if (!fs.existsSync(target)) throw new Error(`Não existe: ${rel}`);
         const isDir = fs.statSync(target).isDirectory();
         if (isDir && args.recursive !== true) {
           throw new Error(`${rel} é uma pasta — para excluir com o conteúdo, passe recursive: true`);
         }
-        const ck = tryCheckpoint(workRoot, name, 'delete', [
-          { absPath: target, relPath: path.relative(workRoot, target) },
-        ]);
+        const ck = tryCheckpoint(workRoot, name, 'delete', [{ absPath: target, relPath: rel }]);
         fs.rmSync(target, { recursive: isDir, force: true });
         return {
           ok: true,
@@ -1300,6 +1332,12 @@ export async function dispatchBuiltinTool(
               `no caminho onde o script salvou; NÃO mova o script por cima dele.`,
           );
         }
+        if (linkedFilePath(workRoot, fromRel) || linkedFilePath(workRoot, toRel)) {
+          throw new Error(
+            'Arquivo referenciado da máquina do usuário não pode ser movido/renomeado por aqui — ' +
+              'trabalhe com uma cópia dentro da pasta de trabalho.',
+          );
+        }
         const from = resolveInProject(workRoot, fromRel);
         const to = resolveInProject(workRoot, toRel);
         if (!fs.existsSync(from)) throw new Error(`Não existe: ${fromRel}`);
@@ -1309,8 +1347,8 @@ export async function dispatchBuiltinTool(
         // snapshot da origem e do destino: reverter restaura a origem e o
         // destino volta ao estado anterior (conteúdo antigo, ou apagado)
         const ck = tryCheckpoint(workRoot, name, 'move', [
-          { absPath: from, relPath: path.relative(workRoot, from) },
-          { absPath: to, relPath: path.relative(workRoot, to) },
+          { absPath: from, relPath: fromRel },
+          { absPath: to, relPath: toRel },
         ]);
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.renameSync(from, to);

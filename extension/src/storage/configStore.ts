@@ -48,7 +48,13 @@ export function patchConfig(
   patch: Partial<
     Pick<
       Config,
-      'projectsRoot' | 'devOrigins' | 'network' | 'microsoft' | 'racfUser' | 'commandAllowlist'
+      | 'projectsRoot'
+      | 'devOrigins'
+      | 'network'
+      | 'microsoft'
+      | 'racfUser'
+      | 'commandAllowlist'
+      | 'sharedLibraries'
     >
   >,
 ): Config {
