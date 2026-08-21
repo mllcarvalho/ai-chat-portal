@@ -431,6 +431,38 @@ export async function collectCookieHits(
 }
 
 /**
+ * Em QUAIS navegadores existe cookie do domínio, do mais "carregado" para o
+ * menos. Só olha o `host_key`, que é TEXTO PURO no banco — por isso funciona
+ * mesmo quando o valor está cifrado por App-Bound Encryption e a leitura de
+ * verdade falha. É o melhor sinal de onde a pessoa realmente está logada:
+ * melhor que o navegador padrão do Windows, que a política corporativa costuma
+ * fixar no Edge mesmo para quem navega no Chrome.
+ */
+export function browsersWithDomainCookies(domain: string): string[] {
+  const counts = new Map<string, number>();
+  const bump = (label: string, n: number) => {
+    if (n > 0) counts.set(label, (counts.get(label) ?? 0) + n);
+  };
+  for (const target of chromiumTargets()) {
+    for (const { db } of chromiumCookieDbs(target.userDataDir)) {
+      try {
+        bump(target.label, readChromiumRows(db).filter((r) => matchesDomain(r.host, domain)).length);
+      } catch {
+        // banco travado/ilegível: só não conta esse perfil
+      }
+    }
+  }
+  for (const { db } of firefoxDbs()) {
+    try {
+      bump('Firefox', readFirefoxRows(db).filter((r) => matchesDomain(r.host, domain)).length);
+    } catch {
+      /* idem */
+    }
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([label]) => label);
+}
+
+/**
  * Mensagem de erro padrão quando nenhum navegador tinha cookies do domínio.
  * A orientação vem PRIMEIRO e os detalhes técnicos por último, resumidos: o
  * despejo cru de um erro por navegador produzia um parágrafo que ninguém lia.

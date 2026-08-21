@@ -13,8 +13,15 @@ export const PORT_RANGE = 10;
  * enviar) e pelo servidor (recusar acima do teto).
  */
 export const UPLOAD_LIMITS = {
-  /** Texto de um anexo de mensagem do chat (em caracteres, após conversão). */
-  chatAttachmentChars: 512 * 1024,
+  /**
+   * Texto de um anexo de mensagem do chat (em caracteres, após conversão).
+   *
+   * 5 MB ≈ 1,2 milhão de tokens: cabe inteiro só nas CLIs de janela grande
+   * (Devin, Claude Code), que recebem o prompt por stdin. No Copilot o anexo é
+   * truncado na montagem da mensagem para o que sobra da janela do modelo —
+   * ver attachmentBlocks no messageBuilder.
+   */
+  chatAttachmentChars: 5 * 1024 * 1024,
   /** Arquivo original (Excel/Word/PDF) que será convertido em texto no chat. */
   chatSourceFileBytes: 10 * 1024 * 1024,
   /** Arquivo enviado ao painel Arquivos (espelha o WRITE_LIMIT do servidor). */

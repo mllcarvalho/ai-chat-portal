@@ -6,6 +6,7 @@ import type {
   MeInfo,
   ModelInfo,
   ProviderInfo,
+  SharedLibraryStatus,
   Skill,
   ToolInfo,
 } from '@aiportal/shared';
@@ -27,6 +28,8 @@ interface CatalogState {
   skills: Skill[];
   agents: AgentPreset[];
   tools: ToolInfo[];
+  /** Bibliotecas compartilhadas configuradas (com disponibilidade da pasta). */
+  libraries: SharedLibraryStatus[];
   /** null = consultado e indisponível (sem conta, rede, plano sem cota). */
   quota?: CopilotQuota | null;
   /** Motivo da indisponibilidade (mensagem do servidor), quando quota === null. */
@@ -36,6 +39,7 @@ interface CatalogState {
   /** Catálogo completo: skills globais + de todos os projetos (filtragem é no cliente). */
   loadSkills: () => Promise<void>;
   loadAgents: () => Promise<void>;
+  loadLibraries: () => Promise<void>;
   loadTools: (sessionId?: string) => Promise<void>;
   loadQuota: (fresh?: boolean) => Promise<void>;
 }
@@ -46,6 +50,7 @@ export const useCatalog = create<CatalogState>((set) => ({
   skills: [],
   agents: [],
   tools: [],
+  libraries: [],
 
   loadHealth: async () => {
     try {
@@ -59,12 +64,13 @@ export const useCatalog = create<CatalogState>((set) => ({
   },
 
   loadAll: async () => {
-    const [me, models, providers, skills, agents] = await Promise.allSettled([
+    const [me, models, providers, skills, agents, libraries] = await Promise.allSettled([
       api.me(),
       api.models(),
       api.providers(),
       api.listSkills(),
       api.listAgents(),
+      api.listSharedLibraries(),
     ]);
     set({
       me: me.status === 'fulfilled' ? me.value : undefined,
@@ -72,7 +78,16 @@ export const useCatalog = create<CatalogState>((set) => ({
       providers: providers.status === 'fulfilled' ? providers.value : [],
       skills: skills.status === 'fulfilled' ? skills.value : [],
       agents: agents.status === 'fulfilled' ? agents.value : [],
+      libraries: libraries.status === 'fulfilled' ? libraries.value : [],
     });
+  },
+
+  loadLibraries: async () => {
+    try {
+      set({ libraries: await api.listSharedLibraries() });
+    } catch (err) {
+      reportError('Falha ao carregar as bibliotecas compartilhadas', err);
+    }
   },
 
   loadSkills: async () => {

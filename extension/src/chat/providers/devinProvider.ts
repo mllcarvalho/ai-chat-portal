@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import type {
-  ChatErrorCode,
-  ChatFinishReason,
-  MessagePart,
-  ModelInfo,
-  ProviderInfo,
-  SessionMode,
+import {
+  UPLOAD_LIMITS,
+  type ChatErrorCode,
+  type ChatFinishReason,
+  type MessagePart,
+  type ModelInfo,
+  type ProviderInfo,
+  type SessionMode,
 } from '@aiportal/shared';
 import { ensureDir } from '../../storage/paths';
 import { collectKnowledgeContext } from '../../storage/knowledgeStore';
@@ -15,7 +17,13 @@ import { netProcessEnv } from '../../tools/netEnv';
 import { findBin } from '../../tools/findBin';
 import { waitForApproval } from '../approvals';
 import { AcpClient, AcpProcessError } from './acpClient';
-import { portalMcpServer } from './portalMcp';
+import {
+  mcpStderrHint,
+  plainNodeBin,
+  portalMcpServer,
+  warnDroppedMcpServers,
+  watchPortalMcp,
+} from './portalMcp';
 import { rewriteSlashCommand, skillCatalogBlock } from './skillCatalog';
 import { historyReplayBlock } from './history';
 import type {
@@ -46,10 +54,20 @@ import type {
  */
 
 const BIN = 'devin';
-/** Sem nenhuma mensagem por este tempo, desiste do processo. */
-const IDLE_TIMEOUT_MS = 300_000;
+/**
+ * Sem nenhuma mensagem por este tempo, desiste do processo. Dez minutos: uma
+ * ferramenta gerando arquivo grande fica muito tempo em silêncio, e derrubar o
+ * processo aí perde a resposta inteira.
+ */
+const IDLE_TIMEOUT_MS = 600_000;
 const SYSTEM_PROMPT_CLAMP = 32 * 1024;
-const ATTACHMENT_CLAMP = 64 * 1024;
+/**
+ * O anexo já foi validado contra o teto do portal na entrada; cortá-lo de novo
+ * aqui, num valor menor, só faria o usuário mandar um arquivo aceito e receber
+ * uma resposta baseada no começo dele. O prompt vai por stdin (JSON-RPC), então
+ * não há limite de argv no caminho.
+ */
+const ATTACHMENT_CLAMP = UPLOAD_LIMITS.chatAttachmentChars;
 const TOOL_RESULT_CLAMP = 64 * 1024;
 /** Teto de leitura quando o agente pede um arquivo pelo fs/read_text_file. */
 const FS_READ_CLAMP = 512 * 1024;
@@ -114,35 +132,163 @@ async function cliVersion(): Promise<string | undefined> {
   return value;
 }
 
+/**
+ * Id reservado: não define DEVIN_MODEL, deixando valer o que o usuário
+ * escolheu no /model da própria CLI.
+ */
+const CLI_DEFAULT_MODEL = 'default';
+
+/**
+ * O ACP não expõe seleção de modelo — o configOptions do session/new traz
+ * apenas `mode`. Mas o flag --model da CLI tem equivalente em ambiente
+ * (`[env: DEVIN_MODEL=]`), e quem spawna o processo do `devin acp` é o portal:
+ * setar a variável no filho é o que permite escolher o modelo por conversa.
+ *
+ * A lista vem dos exemplos do `devin --help`. Não há endpoint que a enumere,
+ * então valores fora daqui devem ser adicionados conforme aparecerem no /model.
+ */
 const MODELS: ModelInfo[] = [
   {
-    id: 'default',
+    id: CLI_DEFAULT_MODEL,
     name: 'Padrão do Devin',
-    family: 'segue a configuração da CLI',
+    family: 'segue o /model da CLI',
     vendor: 'cognition',
-    version: 'default',
+    version: CLI_DEFAULT_MODEL,
     maxInputTokens: 200_000,
     provider: 'devin',
   },
+  ...['claude-opus-4.6', 'claude-sonnet-4', 'opus', 'codex'].map((id) => ({
+    id,
+    name: id,
+    family: 'devin --model',
+    vendor: 'cognition',
+    version: id,
+    maxInputTokens: 200_000,
+    provider: 'devin' as const,
+  })),
 ];
+
+/**
+ * Servidor MCP no formato que o Devin aceita no session/new.
+ *
+ * Descoberto com scripts/probe-devin-mcp.mjs, testando quatro variantes contra
+ * a CLI real. Três detalhes que não estavam na especificação:
+ *
+ *  - `type: "stdio"` é OBRIGATÓRIO. Sem ele o pior acontece: o session/new
+ *    passa, a sessão sobe e o servidor é ignorado em SILÊNCIO — foi o que
+ *    produzia o "Server portal not found in configuration" mais adiante.
+ *  - `env` também é obrigatório (o Devin rejeita com "Invalid params" sem ele).
+ *  - `env` é ARRAY de {name, value}; objeto é recusado.
+ */
+function acpStdioServer(
+  name: string,
+  server: { command: string; args: string[]; env: Record<string, string> },
+): object {
+  return {
+    type: 'stdio',
+    name,
+    command: server.command,
+    args: server.args,
+    env: Object.entries(server.env).map(([k, value]) => ({ name: k, value })),
+  };
+}
+
+/** Uma opção de configuração da sessão ACP (mode, model…). */
+interface ConfigOption {
+  id?: string;
+  category?: string;
+  type?: string;
+  currentValue?: string;
+  options?: { value?: string; name?: string }[];
+}
+
+/**
+ * Modelos disponíveis, lidos da PRÓPRIA CLI.
+ *
+ * O ACP não tem um "list models", mas o `session/new` devolve (e notifica via
+ * `config_option_update`) os `configOptions` da sessão — entre eles o select
+ * de modelo, que é o mesmo que o /model mostra no terminal. Fixar uma lista
+ * aqui seria chutar: cada instalação corporativa expõe um conjunto diferente.
+ *
+ * Faz o handshake e encerra sem enviar prompt: não consome modelo, só cria uma
+ * sessão vazia do lado da CLI.
+ */
+const MODELS_TTL_MS = 10 * 60_000;
+let modelsCache: { at: number; value: ModelInfo[] } | undefined;
+
+async function probeModels(): Promise<ModelInfo[]> {
+  const bin = await devinBinPath();
+  if (!bin) return [];
+  const found: ConfigOption[] = [];
+  const client = new AcpClient({
+    command: bin,
+    args: ['acp'],
+    cwd: os.tmpdir(),
+    env: { ...process.env, ...netProcessEnv() },
+    onNotification: (method, params) => {
+      if (method !== 'session/update') return;
+      const update = (params as { update?: { configOptions?: ConfigOption[] } } | undefined)
+        ?.update;
+      if (update?.configOptions) found.push(...update.configOptions);
+    },
+    onRequest: async () => ({}),
+  });
+  try {
+    await client.request('initialize', {
+      protocolVersion: 1,
+      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+    });
+    const created = await client.request<{ configOptions?: ConfigOption[] }>('session/new', {
+      cwd: os.tmpdir(),
+      mcpServers: [],
+    });
+    if (created?.configOptions) found.push(...created.configOptions);
+  } catch {
+    return [];
+  } finally {
+    await client.dispose();
+  }
+
+  // o select de modelo é o que NÃO é o de modo (o único outro select conhecido)
+  const option = found.find(
+    (o) => o.type === 'select' && o.id !== 'mode' && o.category !== 'mode' && o.options?.length,
+  );
+  if (!option?.options?.length) return [];
+  return option.options
+    .filter((o): o is { value: string; name?: string } => !!o.value)
+    .map((o) => ({
+      id: o.value,
+      name: o.name ?? o.value,
+      family: 'devin',
+      vendor: 'cognition',
+      version: o.value,
+      maxInputTokens: 200_000,
+      provider: 'devin' as const,
+    }));
+}
+
+/** Ambiente do `devin acp`, com o modelo da conversa quando houver escolha. */
+function devinEnv(modelId?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...netProcessEnv() };
+  if (modelId && modelId !== CLI_DEFAULT_MODEL) env.DEVIN_MODEL = modelId;
+  return env;
+}
 
 const CAPABILITIES = {
   skills: true,
   knowledge: true,
-  // TODO: o Devin recusa o servidor MCP declarado no session/new ("Server
-  // portal not found in configuration") — o formato correto está sendo
-  // levantado com scripts/probe-devin-mcp.mjs. Até lá ele roda com as
-  // ferramentas nativas dele, sem as do portal.
-  mcp: false,
-  toolToggles: false,
+  // os MCPs do portal chegam proxiados pelo servidor MCP do portal
+  mcp: true,
+  // mesmo catálogo do Copilot (getEnabledToolDefs), então o liga/desliga vale
+  toolToggles: true,
   agents: true,
   modes: true,
   contextFiles: true,
   // reporta ACU (unidade do Devin), não dólares nem credits do Copilot
   cost: false,
-  // depende do servidor MCP acima: sem ele o adaptador do BMAD manda usar
-  // ferramentas que não existem do lado do Devin
-  bmad: false,
+  // as ferramentas que o adaptador do BMAD invoca chegam pelo servidor MCP do
+  // portal, declarado no session/new
+  bmad: true,
 } as const;
 
 /** Modos do portal → modos da sessão ACP (vistos no availableModes do trace). */
@@ -216,8 +362,15 @@ function buildSystemPrompt(ctx: TurnContext, hasPortalTools: boolean): string | 
 
 /**
  * O ACP não tem campo de system prompt: o preâmbulo do portal vai como um
- * bloco no início da PRIMEIRA mensagem. Nos turnos seguintes a sessão já
- * carrega esse contexto, então só o texto do usuário é enviado.
+ * bloco no início da PRIMEIRA mensagem.
+ *
+ * O catálogo de skills, porém, volta em TODO turno. Ele não é contexto, é
+ * regra de roteamento — e regra dita uma vez, dez turnos atrás, perde para o
+ * pedido que está na frente do modelo: era isso que fazia "crie um PRD" no
+ * meio da conversa ser respondido de cabeça, sem carregar a skill. Nos outros
+ * motores esse bloco vai no system prompt de cada requisição (o Claude Code
+ * remonta o --append-system-prompt a cada turno); aqui, repetir é o
+ * equivalente. Custa pouco: são só comando, nome e descrição.
  */
 function buildPromptText(
   ctx: TurnContext,
@@ -225,7 +378,11 @@ function buildPromptText(
   hasPortalTools: boolean,
 ): string {
   const parts: string[] = [];
-  const preamble = isFirstTurn ? buildSystemPrompt(ctx, hasPortalTools) : undefined;
+  const preamble = isFirstTurn
+    ? buildSystemPrompt(ctx, hasPortalTools)
+    : hasPortalTools
+      ? skillCatalogBlock(ctx)
+      : undefined;
   if (preamble) {
     parts.push(`<contexto-do-portal>\n${preamble}\n</contexto-do-portal>\n\n`);
   }
@@ -286,11 +443,16 @@ interface SessionUpdate {
 async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   const { sse, token, parts, usage, requestId } = ctx;
   ensureDir(ctx.workRoot);
+  warnDroppedMcpServers(ctx);
+  // a CLI é quem spawna o servidor MCP do portal: falha de spawn morre no log
+  // dela, então quem conta ao usuário é o portal
+  const reportPortalMcp = watchPortalMcp(ctx, () => mcpStderrHint(client.stderrTail));
 
   const state = {
     sessionId: ctx.session.providerSessionId,
     finishReason: 'stop' as ChatFinishReason,
     acuCost: undefined as number | undefined,
+    respondedModelId: undefined as string | undefined,
   };
   /** Início de cada tool call, para medir duração; também guarda o nome. */
   const tools = new Map<string, { name: string; startedAt: number; reported: boolean }>();
@@ -314,7 +476,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     cwd: ctx.workRoot,
     // netProcessEnv devolve só o overlay de rede — sem process.env o filho
     // ficaria sem PATH (mesmo bug que o provider do Claude Code teve)
-    env: { ...process.env, ...netProcessEnv() },
+    env: devinEnv(ctx.session.modelId ?? ctx.agent?.defaultModelId),
     onNotification: (method, params) => handleNotification(method, params),
     onRequest: (method, params) => handleRequest(method, params),
   });
@@ -333,7 +495,15 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   function handleNotification(method: string, params: unknown): void {
     lastEventAt = Date.now();
-    if (method !== 'session/update') return; // _cognition.ai/* tratado abaixo
+    // evento proprietário de fim de turno: é o ÚNICO lugar que diz qual modelo
+    // de fato respondeu (o ACP não expõe escolha nem identificação de modelo)
+    if (method === '_cognition.ai/agent_stopped') {
+      const stats = (params as { stats?: { modelLabel?: string; acuCost?: number } })?.stats;
+      if (stats?.modelLabel) state.respondedModelId = stats.modelLabel;
+      if (typeof stats?.acuCost === 'number') state.acuCost = stats.acuCost;
+      return;
+    }
+    if (method !== 'session/update') return;
     const update = (params as { update?: SessionUpdate } | undefined)?.update;
     if (!update) return;
 
@@ -456,17 +626,9 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   // ferramentas do portal para o agente (é o que faz o BMAD rodar aqui). O
   // formato de mcpServers no ACP é o do stdio: command/args/env.
-  const portal = portalMcpServer(ctx.session.id);
-  const mcpServers = portal
-    ? [
-        {
-          name: 'portal',
-          command: portal.command,
-          args: portal.args,
-          env: Object.entries(portal.env).map(([name, value]) => ({ name, value })),
-        },
-      ]
-    : [];
+  // nodeBin: o Devin não engole um `command` com espaços — ver plainNodeBin().
+  const portal = portalMcpServer(ctx.session.id, { nodeBin: await plainNodeBin() });
+  const mcpServers = portal ? [acpStdioServer('portal', portal)] : [];
 
   try {
     // 1. handshake: declara que o portal sabe ler/escrever arquivos por ele
@@ -543,12 +705,15 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     flushText();
     clearInterval(idleTimer);
     cancelSub.dispose();
+    // depois do dispose: o stderr do Devin só está completo com o processo fora
     await client.dispose();
+    reportPortalMcp();
   }
 
   return {
     finishReason: state.finishReason,
-    modelId: 'default',
+    // rótulo real ("SWE-1.6 Fast") quando a CLI informou; senão o id do catálogo
+    modelId: state.respondedModelId ?? 'default',
     providerSessionId: state.sessionId,
   };
 }
@@ -575,7 +740,18 @@ export const devinProvider: ChatProvider = {
   mapError,
   runSubagent: runSubagentTurn,
   async listModels(): Promise<ModelInfo[]> {
-    return (await cliVersion()) ? MODELS : [];
+    if (!(await cliVersion())) return [];
+    if (modelsCache && Date.now() - modelsCache.at < MODELS_TTL_MS) return modelsCache.value;
+    let probed: ModelInfo[] = [];
+    try {
+      probed = await probeModels();
+    } catch {
+      // melhor esforço: sem a sonda, valem os exemplos do --help
+    }
+    // "Padrão" primeiro: quem não quer escolher segue o /model da CLI
+    const value = probed.length ? [MODELS[0], ...probed] : MODELS;
+    modelsCache = { at: Date.now(), value };
+    return value;
   },
   async describe(): Promise<ProviderInfo> {
     const version = await cliVersion();
@@ -604,14 +780,17 @@ export const devinProvider: ChatProvider = {
  */
 async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
   const usage = { inputTokens: 0, outputTokens: 0, requests: 0 };
-  const portal = portalMcpServer(req.sessionId, 'subagent');
+  const portal = portalMcpServer(req.sessionId, {
+    scope: 'subagent',
+    nodeBin: await plainNodeBin(),
+  });
   let text = '';
 
   const client = new AcpClient({
     command: (await devinBinPath()) ?? BIN,
     args: ['acp'],
     cwd: req.workRoot,
-    env: { ...process.env, ...netProcessEnv() },
+    env: devinEnv(req.modelId),
     onNotification: (method, params) => {
       if (method !== 'session/update') return;
       const update = (params as { update?: SessionUpdate } | undefined)?.update;
@@ -641,16 +820,7 @@ async function runSubagentTurn(req: SubagentRequest): Promise<SubagentOutcome> {
     });
     const created = await client.request<{ sessionId?: string }>('session/new', {
       cwd: req.workRoot,
-      mcpServers: portal
-        ? [
-            {
-              name: 'portal',
-              command: portal.command,
-              args: portal.args,
-              env: Object.entries(portal.env).map(([name, value]) => ({ name, value })),
-            },
-          ]
-        : [],
+      mcpServers: portal ? [acpStdioServer('portal', portal)] : [],
     });
     if (!created?.sessionId) throw new Error('O Devin não devolveu um sessionId.');
 

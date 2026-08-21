@@ -234,6 +234,28 @@ export function Composer() {
 
   if (!session) return null;
 
+  /**
+   * Guarda o arquivo original (PDF/Word/Excel/PPT) na pasta de trabalho da
+   * conversa, em "anexos/". Best-effort: se falhar, o anexo em texto já
+   * resolve — o usuário não perde a mensagem por causa disso.
+   */
+  const saveOriginal = async (file: File): Promise<string | undefined> => {
+    const relPath = `anexos/${file.name}`;
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '');
+        reader.onerror = () => reject(reader.error ?? new Error('falha ao ler'));
+        reader.readAsDataURL(file);
+      });
+      if (session.projectId) await api.writeProjectFileBinary(session.projectId, relPath, base64);
+      else await api.writeSessionFileBinary(session.id, relPath, base64);
+      return relPath;
+    } catch {
+      return undefined;
+    }
+  };
+
   const addFiles = async (files: FileList | File[]) => {
     const next: ChatAttachment[] = [];
     for (const file of Array.from(files)) {
@@ -244,7 +266,12 @@ export function Composer() {
       let content: string;
       if (isConvertibleDocument(file.name)) {
         if (file.size > MAX_SOURCE_BYTES) {
-          toast(`"${file.name}" passa do limite de ${SOURCE_LIMIT_LABEL} e não foi anexado.`, 'error');
+          toast(
+            `"${file.name}" tem ${(file.size / 1024 / 1024).toFixed(1)} MB e o limite é ` +
+              `${SOURCE_LIMIT_LABEL} — envie só a parte relevante, ou coloque o arquivo na pasta ` +
+              'da conversa (painel Arquivos) e peça a leitura por lá.',
+            'error',
+          );
           continue;
         }
         try {
@@ -253,10 +280,20 @@ export function Composer() {
           toast(`"${file.name}": ${(err as Error).message}`, 'error');
           continue;
         }
+        // o original também vai para a pasta da conversa: o texto extraído
+        // resolve a leitura agora, o arquivo em si continua disponível para
+        // reler por partes, baixar ou usar num script
+        const saved = await saveOriginal(file);
+        if (saved) {
+          content =
+            `[arquivo original salvo na pasta da conversa como "${saved}" — para reler trechos, ` +
+            `use portal_read_file nesse caminho]\n\n${content}`;
+        }
       } else {
         if (file.size > MAX_ATTACHMENT_BYTES) {
           toast(
-            `"${file.name}" passa do limite de ${ATTACHMENT_LIMIT_LABEL} e não foi anexado.`,
+            `"${file.name}" tem ${(file.size / 1024 / 1024).toFixed(1)} MB e o limite é ` +
+              `${ATTACHMENT_LIMIT_LABEL} — envie só o trecho relevante.`,
             'error',
           );
           continue;
@@ -303,7 +340,9 @@ export function Composer() {
         toast(`"${name}" já está anexado.`, 'info');
         return;
       }
-      if (ctx.file.truncated) toast(`"${name}" passou de 512 KB e foi truncado.`, 'info');
+      if (ctx.file.truncated) {
+        toast(`"${name}" passou de ${ATTACHMENT_LIMIT_LABEL} e foi truncado.`, 'info');
+      }
       setAttachments((curr) => [...curr, { name, content: ctx.file!.content }]);
     } catch (err) {
       toast((err as Error).message, 'error');

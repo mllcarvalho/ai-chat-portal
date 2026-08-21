@@ -8,7 +8,6 @@ import {
   KeyRound,
   Link,
   Lock,
-  Package,
   Plug,
   Plus,
   Receipt,
@@ -30,6 +29,7 @@ import type {
 import { api, type McpProxyInput } from '../../api/client';
 import { useUi } from '../../stores/uiStore';
 import { Modal } from '../common/Modal';
+import { Select } from '../common/Select';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 type McpTool = { name: string; description: string };
@@ -413,6 +413,8 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
   const [token, setToken] = useState('');
   const [curlBlob, setCurlBlob] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Navegador forçado na captura SSO ('' = automático). */
+  const [captureBrowser, setCaptureBrowser] = useState('');
   /** Só fecha o painel quando o done acontecer NESTA visita (não em setup antigo). */
   const sawInProgress = useRef(false);
   const doneNotified = useRef(false);
@@ -431,6 +433,13 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
       alive = false;
       clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    void api
+      .getConfig()
+      .then((c) => setCaptureBrowser(c.captureBrowser ?? ''))
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -557,56 +566,87 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
             </div>
           )}
 
-          {/* Bloco 1 — caminho recomendado: detecta credenciais e, na 1ª vez,
-              instala e liga o servidor de uma vez */}
+          {/* Um caminho só: o botão faz a cadeia inteira (sessão do navegador →
+              captura pelo navegador padrão via SSO) e, na primeira vez, ainda
+              instala e liga o servidor. Todo o resto foi para "Avançado":
+              antes eram cinco botões concorrendo e ninguém sabia qual apertar. */}
           <section className="mcp-block">
             <div className="mcp-block__head">
               <span className="mcp-block__title">
-                {status?.installed ? (
-                  <><Lock className="icon" aria-hidden /> Credenciais do ServiceNow</>
+                {status?.hasCredentials ? (
+                  <><Lock className="icon" aria-hidden /> Conexão com o ServiceNow</>
                 ) : (
-                  <><WandSparkles className="icon" aria-hidden /> Configurar automaticamente</>
+                  <><WandSparkles className="icon" aria-hidden /> Conectar ao ServiceNow</>
                 )}
               </span>
-              {status?.hasCredentials && <span className="mcp-block__pill">guardadas</span>}
+              {status?.hasCredentials && <span className="mcp-block__pill">conectado</span>}
             </div>
             <p className="mcp-block__hint">
-              O portal lê as credenciais direto do navegador onde você está logado no{' '}
-              <code>itau.service-now.com</code> (Chrome, Edge ou Firefox) — sem mexer no DevTools.{' '}
+              Deixe uma aba do <code>itau.service-now.com</code> aberta e logada no seu navegador e
+              clique no botão. O portal procura a sessão ali e, se precisar, abre o seu navegador
+              padrão para o login corporativo entrar sozinho.{' '}
               {status?.installed
-                ? 'Detectar de novo renova quando a sessão expira.'
-                : 'Na primeira vez, isto também instala e liga o servidor. Recomendado.'}
+                ? 'Refaça sempre que o IUClick der erro de autenticação — a sessão do ServiceNow expira.'
+                : 'Na primeira vez isto também instala e liga o servidor.'}
             </p>
             <div className="mcp-block__actions">
               <button className="btn btn--primary" disabled={busy} onClick={() => void autodetect()}>
                 {busy ? (
-                  'Detectando…'
-                ) : status?.installed ? (
-                  <><WandSparkles className="icon" aria-hidden /> Detectar credenciais</>
+                  'Conectando…'
                 ) : (
-                  <><WandSparkles className="icon" aria-hidden /> Detectar e configurar</>
+                  <>
+                    <WandSparkles className="icon" aria-hidden /> Conectar ao ServiceNow
+                  </>
                 )}
-              </button>
-              {status?.installed && (
-                <button className="btn btn--danger" disabled={busy} onClick={() => void purge()}>
-                  <BrushCleaning className="icon" aria-hidden /> Remover e limpar tudo
-                </button>
-              )}
-            </div>
-            <p className="mcp-block__hint">
-              No Windows corporativo (Chrome/Edge 127+ com App-Bound Encryption, ou antivírus
-              bloqueando), a leitura direta pode falhar. Nesse caso, use a captura via SSO: o portal
-              abre o navegador, o login corporativo entra sozinho e ele lê a sessão.
-            </p>
-            <div className="mcp-block__actions">
-              <button className="btn" disabled={busy} onClick={() => void autodetect('browser')}>
-                <WandSparkles className="icon" aria-hidden /> Detectar via navegador (SSO)
               </button>
             </div>
 
             <details className="mcp-fallback">
-              <summary>Não funcionou? Colar do DevTools</summary>
+              <summary>Avançado — não funcionou, ou preciso de outro caminho</summary>
               <div className="mcp-fallback__body">
+                <p className="mcp-block__hint">
+                  Forçar a captura pelo navegador: útil quando a leitura direta dos cookies falha
+                  (Windows com App-Bound Encryption, ou antivírus bloqueando).
+                </p>
+                <div className="field">
+                  <label>Navegador da captura</label>
+                  <Select
+                    value={captureBrowser}
+                    onChange={(value) => {
+                      setCaptureBrowser(value);
+                      void api
+                        .patchConfig({ captureBrowser: value })
+                        .then(() =>
+                          toast(
+                            value
+                              ? `A captura vai abrir o ${value}.`
+                              : 'Captura de volta ao automático.',
+                            'ok',
+                          ),
+                        )
+                        .catch((err) => toast((err as Error).message, 'error'));
+                    }}
+                    options={[
+                      { value: '', label: 'Automático', hint: 'Onde você já está logado' },
+                      { value: 'Chrome', label: 'Chrome' },
+                      { value: 'Edge', label: 'Edge' },
+                      { value: 'Brave', label: 'Brave' },
+                    ]}
+                  />
+                  <span className="field__hint">
+                    No automático o portal abre o navegador que TEM cookie do ServiceNow e, na
+                    falta dele, o padrão do sistema. Fixe aqui se abrir o navegador errado — em
+                    máquina corporativa a política costuma deixar o Edge como padrão do Windows
+                    mesmo para quem navega no Chrome.
+                  </span>
+                </div>
+                <div className="mcp-block__actions">
+                  <button className="btn" disabled={busy} onClick={() => void autodetect('browser')}>
+                    <WandSparkles className="icon" aria-hidden /> Capturar pelo navegador (SSO)
+                  </button>
+                </div>
+
+                <div className="mcp-fallback__divider">Colar do DevTools</div>
                 <p className="mcp-block__hint">
                   Na aba do <code>itau.service-now.com</code> logada, abra o DevTools (F12) → aba{' '}
                   <strong>Network</strong>, clique numa requisição para{' '}
@@ -671,42 +711,38 @@ function IuclickSetup({ onDone }: { onDone: () => void }) {
                     )}
                   </button>
                 </div>
+
+                <div className="mcp-fallback__divider">Servidor MCP</div>
+                <p className="mcp-block__hint">
+                  {status?.installed
+                    ? 'O servidor já está registrado. Refaça só se precisar reinstalar o pacote do zero.'
+                    : 'Instala o servidor sem credenciais (registry do Itaú + pacote @ai-stack-fn7/mcp-servers); a autenticação fica para a tool login no chat.'}
+                </p>
+                <div className="mcp-block__actions">
+                  <button
+                    className="btn"
+                    disabled={busy || halfCreds}
+                    title={halfCreds ? 'Informe Cookie e X-UserToken juntos (ou deixe ambos vazios)' : undefined}
+                    onClick={() =>
+                      void call(() => api.startIuclick({ cookies: cookies.trim(), token: token.trim() }))
+                    }
+                  >
+                    {failed ? (
+                      <><RotateCcw className="icon" aria-hidden /> Tentar setup de novo</>
+                    ) : status?.installed ? (
+                      <><RotateCcw className="icon" aria-hidden /> Refazer setup do zero</>
+                    ) : (
+                      <><Rocket className="icon" aria-hidden /> Instalar sem credenciais</>
+                    )}
+                  </button>
+                  {status?.installed && (
+                    <button className="btn btn--danger" disabled={busy} onClick={() => void purge()}>
+                      <BrushCleaning className="icon" aria-hidden /> Remover e limpar tudo
+                    </button>
+                  )}
+                </div>
               </div>
             </details>
-          </section>
-
-          {/* Bloco 2 — instalar sem credenciais (alternativa quando a detecção
-              não rola, ex: não está logado no navegador) */}
-          <section className="mcp-block">
-            <div className="mcp-block__head">
-              <span className="mcp-block__title">
-                <Package className="icon" aria-hidden /> Servidor MCP
-              </span>
-              {status?.installed && <span className="mcp-block__pill">instalado</span>}
-            </div>
-            <p className="mcp-block__hint">
-              {status?.installed
-                ? 'O servidor já está registrado. Refaça só se precisar reinstalar o pacote do zero.'
-                : 'Alternativa: instala o servidor sem credenciais agora (registry do Itaú + pacote @ai-stack-fn7/mcp-servers) e você autentica depois pela tool login no chat.'}
-            </p>
-            <div className="mcp-block__actions">
-              <button
-                className="btn"
-                disabled={busy || halfCreds}
-                title={halfCreds ? 'Informe Cookie e X-UserToken juntos (ou deixe ambos vazios)' : undefined}
-                onClick={() =>
-                  void call(() => api.startIuclick({ cookies: cookies.trim(), token: token.trim() }))
-                }
-              >
-                {failed ? (
-                  <><RotateCcw className="icon" aria-hidden /> Tentar setup de novo</>
-                ) : status?.installed ? (
-                  <><RotateCcw className="icon" aria-hidden /> Refazer setup do zero</>
-                ) : (
-                  <><Rocket className="icon" aria-hidden /> Instalar sem credenciais</>
-                )}
-              </button>
-            </div>
           </section>
         </div>
       )}

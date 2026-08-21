@@ -4,3 +4,5 @@ esbuild.mjs
 tsconfig.json
 dist/*.map
 .gitignore
+.DS_Store
+**/.DS_Store

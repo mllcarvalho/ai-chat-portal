@@ -4,6 +4,7 @@ import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from '../
 import { exportAgentZip, importAgentZip } from '../../storage/agentZip';
 import { registerBmadAssets } from '../../storage/bmadStore';
 import { listVsCodeAgents } from '../../storage/vscodeAgents';
+import { requireLibrary } from '../../storage/sharedLibrary';
 
 export function registerAgentRoutes(router: Router): void {
   router.get('/api/agents', ({ res }) => {
@@ -20,19 +21,33 @@ export function registerAgentRoutes(router: Router): void {
       sendError(res, 400, 'Nome do agente é obrigatório');
       return;
     }
-    const agent = createAgent({
-      name: input.name.trim(),
-      description: input.description,
-      icon: input.icon,
-      instructions: input.instructions ?? '',
-      defaultModelId: input.defaultModelId,
-      defaultMode: input.defaultMode,
-      enabledTools: input.enabledTools ?? null,
-      skillIds: input.skillIds,
-      knowledgeBaseIds: input.knowledgeBaseIds,
-      importedFrom: input.importedFrom,
-    });
-    sendJson(res, 201, agent);
+    if (input.scope === 'shared') {
+      try {
+        requireLibrary(input.libraryId ?? '');
+      } catch (err) {
+        sendError(res, 400, err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
+    try {
+      const agent = createAgent({
+        name: input.name.trim(),
+        description: input.description,
+        icon: input.icon,
+        instructions: input.instructions ?? '',
+        defaultModelId: input.defaultModelId,
+        defaultMode: input.defaultMode,
+        enabledTools: input.enabledTools ?? null,
+        skillIds: input.skillIds,
+        knowledgeBaseIds: input.knowledgeBaseIds,
+        importedFrom: input.importedFrom,
+        scope: input.scope,
+        libraryId: input.libraryId,
+      });
+      sendJson(res, 201, agent);
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 
   router.get('/api/agents/:id/export', async ({ res, params }) => {
@@ -66,7 +81,13 @@ export function registerAgentRoutes(router: Router): void {
 
   router.patch('/api/agents/:id', ({ res, params, body }) => {
     const patch = (body ?? {}) as Partial<AgentPreset>;
-    const updated = updateAgent(params.id, patch);
+    let updated: AgentPreset | undefined;
+    try {
+      updated = updateAgent(params.id, patch);
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (!updated) {
       sendError(res, 404, 'Agente não encontrado');
       return;
@@ -84,7 +105,11 @@ export function registerAgentRoutes(router: Router): void {
   });
 
   router.delete('/api/agents/:id', ({ res, params }) => {
-    const ok = deleteAgent(params.id);
-    sendJson(res, ok ? 200 : 404, { ok });
+    try {
+      const ok = deleteAgent(params.id);
+      sendJson(res, ok ? 200 : 404, { ok });
+    } catch (err) {
+      sendError(res, 400, err instanceof Error ? err.message : String(err));
+    }
   });
 }

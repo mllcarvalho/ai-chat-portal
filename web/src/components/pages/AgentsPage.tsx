@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
+  Download,
   Folder,
   Globe,
+  Import,
   Link,
   Mail,
   Maximize2,
+  MessageSquare,
   Package,
   Pencil,
   Plus,
   Puzzle,
   Search,
+  Trash2,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -32,10 +37,14 @@ import { AgentIcon } from '../common/AgentIcon';
 import { MarkdownEditorModal } from '../common/MarkdownEditorModal';
 import { Modal } from '../common/Modal';
 import { Select } from '../common/Select';
+import { useSharedRevision } from '../../lib/useSharedRevision';
 import { EmptyState, PageShell, Panel } from './PageShell';
 
 interface Draft {
   id?: string;
+  /** 'shared' = o agente vive numa biblioteca compartilhada da equipe. */
+  scope?: 'global' | 'shared';
+  libraryId?: string;
   name: string;
   icon: string;
   description: string;
@@ -137,6 +146,9 @@ export function AgentsPage() {
   // agentes BMAD desabilitados ficam só nas Configurações, fora da lista
   const visibleAgents = agents.filter((a) => !(isBmadAsset(a.id) && a.enabled === false));
   const models = useCatalog((s) => s.models);
+  const libraries = useCatalog((s) => s.libraries);
+  const libraryName = (id?: string) =>
+    libraries.find((lib) => lib.id === id)?.name ?? 'Compartilhada';
   const loadAgents = useCatalog((s) => s.loadAgents);
   const newSession = useSessions((s) => s.newSession);
   const session = useSessions((s) => s.current);
@@ -187,6 +199,12 @@ export function AgentsPage() {
     loadLinks();
   }, [loadLinks]);
 
+  // agente/skill/base alterado por outra pessoa na pasta da equipe: a lista e
+  // as opções de vínculo se atualizam sozinhas
+  useSharedRevision('agents', () => void loadAgents());
+  useSharedRevision('skills', loadLinks);
+  useSharedRevision('knowledge', loadLinks);
+
   const toggleDraftLink = (key: 'skillIds' | 'knowledgeBaseIds', id: string) => {
     setDraft((d) => {
       if (!d) return d;
@@ -195,15 +213,68 @@ export function AgentsPage() {
     });
   };
 
+  /** "2 skills e 1 base" — usado nas mensagens de mover vínculos. */
+  const describeLinks = (items: { skills: Skill[]; bases: KnowledgeBase[] }) => {
+    const parts: string[] = [];
+    if (items.skills.length) {
+      parts.push(`${items.skills.length} skill${items.skills.length === 1 ? '' : 's'}`);
+    }
+    if (items.bases.length) {
+      parts.push(`${items.bases.length} base${items.bases.length === 1 ? '' : 's'} de conhecimento`);
+    }
+    return parts.join(' e ');
+  };
+
   const skillLabel = (s: Skill) => s.name;
   const baseLabel = (b: KnowledgeBase) =>
     `${b.name}${b.enabled ? '' : ' (desativada no geral)'}`;
 
+  /**
+   * Vínculos do agente que NÃO estão na mesma biblioteca compartilhada. São
+   * eles que quebram o agente na máquina de quem recebe: o preset guarda ids,
+   * e a skill/base referenciada só existe no computador de quem criou.
+   */
+  const localLinks = (d: Draft) => {
+    if (d.scope !== 'shared' || !d.libraryId) return { skills: [], bases: [] };
+    return {
+      skills: d.skillIds
+        .map((id) => skills.find((s) => s.id === id))
+        .filter((s): s is Skill => !!s && !(s.scope === 'shared' && s.libraryId === d.libraryId)),
+      bases: d.knowledgeBaseIds
+        .map((id) => bases.find((b) => b.id === id))
+        .filter(
+          (b): b is KnowledgeBase => !!b && !(b.scope === 'shared' && b.libraryId === d.libraryId),
+        ),
+    };
+  };
+
   const save = async () => {
     if (!draft) return;
+    /** Skills/bases a mover junto com o agente (decidido no confirm abaixo). */
+    let carry: { skills: Skill[]; bases: KnowledgeBase[] } = { skills: [], bases: [] };
+    if (draft.scope === 'shared') {
+      const pending = localLinks(draft);
+      const pendingCount = pending.skills.length + pending.bases.length;
+      const ok = await confirm({
+        title: 'Salvar na biblioteca compartilhada',
+        message:
+          `Este agente vai para a biblioteca "${libraryName(draft.libraryId)}" — ` +
+          'todo mundo que usa essa pasta passa a ver a nova versão.' +
+          (pendingCount
+            ? `\n\nEle usa ${describeLinks(pending)} que ainda ${pendingCount === 1 ? 'está' : 'estão'} ` +
+              'só nesta máquina. Sem levar junto, quem abrir o agente vê "item indisponível". ' +
+              'Levar tudo para a biblioteca?'
+            : ''),
+        confirmLabel: pendingCount ? 'Salvar e levar junto' : 'Salvar para a equipe',
+      });
+      if (!ok) return;
+      carry = pending;
+    }
     setBusy(true);
     try {
       const payload: Partial<AgentPreset> = {
+        scope: draft.scope === 'shared' ? 'shared' : 'global',
+        libraryId: draft.scope === 'shared' ? draft.libraryId : undefined,
         name: draft.name.trim(),
         icon: draft.icon || undefined,
         description: draft.description.trim() || undefined,
@@ -214,9 +285,24 @@ export function AgentsPage() {
         skillIds: draft.skillIds,
         knowledgeBaseIds: draft.knowledgeBaseIds,
       };
+      // move primeiro os vínculos: se a pasta de rede recusar, o agente não é
+      // salvo apontando para itens que ficaram para trás
+      for (const skill of carry.skills) {
+        await api.patchSkill(skill.id, { scope: 'shared', libraryId: draft.libraryId });
+      }
+      for (const base of carry.bases) {
+        await api.patchKnowledgeBase(base.id, { scope: 'shared', libraryId: draft.libraryId });
+      }
       if (draft.id) await api.patchAgent(draft.id, payload);
       else await api.createAgent(payload);
-      toast('Agente salvo.', 'ok');
+      const carried = carry.skills.length + carry.bases.length;
+      toast(
+        carried
+          ? `Agente salvo e ${describeLinks(carry)} ${carried === 1 ? 'movida' : 'movidas'} para a biblioteca.`
+          : 'Agente salvo.',
+        'ok',
+      );
+      if (carried) loadLinks();
       setDraft(undefined);
       await loadAgents();
     } catch (err) {
@@ -359,13 +445,27 @@ export function AgentsPage() {
     return (
       <div className="link-field__chips">
         {ids.map((id) => {
-          const label =
-            key === 'skillIds'
-              ? skills.find((s) => s.id === id)?.name
-              : bases.find((b) => b.id === id)?.name;
+          const item =
+            key === 'skillIds' ? skills.find((s) => s.id === id) : bases.find((b) => b.id === id);
+          const label = item?.name;
+          // num agente compartilhado, vínculo que não está na mesma biblioteca
+          // vira "item indisponível" na máquina de quem receber
+          const onlyLocal =
+            !!item &&
+            draft?.scope === 'shared' &&
+            !(item.scope === 'shared' && item.libraryId === draft.libraryId);
           return (
-            <span key={id} className={`link-chip${label ? '' : ' link-chip--missing'}`}>
+            <span
+              key={id}
+              className={`link-chip${label ? '' : ' link-chip--missing'}${onlyLocal ? ' link-chip--local' : ''}`}
+              title={
+                onlyLocal
+                  ? 'Só nesta máquina — ao salvar, o portal oferece levar para a biblioteca compartilhada'
+                  : undefined
+              }
+            >
               {label ?? 'item indisponível'}
+              {onlyLocal && ' · só nesta máquina'}
               <span
                 role="button"
                 className="link-chip__x"
@@ -460,18 +560,24 @@ export function AgentsPage() {
           )}
           {draft && !draft.id && (
             <div className="page-list-item page-list-item--active page-list-item--draft">
-              <span className="page-list-item__meta">
+              <span className="page-list-item__row">
+                <span className="item-card__name">
+                  <AgentIcon icon={draft.icon} /> {draft.name.trim() || 'Novo agente'}
+                </span>
                 <span className="mcp-status">rascunho</span>
-              </span>
-              <span className="item-card__name">
-                <AgentIcon icon={draft.icon} /> {draft.name.trim() || 'Novo agente'}
               </span>
               <span className="item-card__desc">
                 {draft.description.trim() || 'Preencha ao lado e salve.'}
               </span>
               <span className="page-list-item__actions">
-                <span role="button" className="mini-btn" onClick={() => setDraft(undefined)}>
-                  Descartar
+                <span
+                  role="button"
+                  className="mini-btn"
+                  title="Descartar rascunho"
+                  aria-label="Descartar rascunho"
+                  onClick={() => setDraft(undefined)}
+                >
+                  <X className="icon" aria-hidden />
                 </span>
               </span>
             </div>
@@ -489,13 +595,25 @@ export function AgentsPage() {
                   instructions: agent.instructions,
                   defaultModelId: agent.defaultModelId ?? '',
                   defaultMode: agent.defaultMode ?? '',
+                  scope: agent.scope,
+                  libraryId: agent.libraryId,
                   skillIds: agent.skillIds ?? [],
                   knowledgeBaseIds: agent.knowledgeBaseIds ?? [],
                 })
               }
             >
-              <span className="item-card__name">
-                <AgentIcon icon={agent.icon} /> {agent.name}
+              <span className="page-list-item__row">
+                <span className="item-card__name">
+                  <AgentIcon icon={agent.icon} /> {agent.name}
+                </span>
+                {agent.scope === 'shared' && (
+                  <span
+                    className="scope-badge scope-badge--shared"
+                    title={libraryName(agent.libraryId)}
+                  >
+                    <Users className="icon icon--sm" aria-hidden /> {libraryName(agent.libraryId)}
+                  </span>
+                )}
               </span>
               <span className="item-card__desc">
                 {agent.description || agent.instructions || '—'}
@@ -506,30 +624,33 @@ export function AgentsPage() {
                   role="button"
                   className="mini-btn"
                   title="Nova conversa com este agente"
+                  aria-label="Nova conversa com este agente"
                   onClick={(e) => {
                     e.stopPropagation();
                     setView('chat');
                     void newSession(contextProjectId, { agentId: agent.id });
                   }}
                 >
-                  Conversar →
+                  <MessageSquare className="icon" aria-hidden />
                 </span>
                 <span
                   role="button"
                   className="mini-btn"
                   title="Baixar para compartilhar (.agent.json; com skills/bases vinculadas vira .agent.zip)"
+                  aria-label="Exportar agente"
                   onClick={(e) => {
                     e.stopPropagation();
                     void exportAgent(agent);
                   }}
                 >
-                  Exportar
+                  <Download className="icon" aria-hidden />
                 </span>
                 {!isBmadAsset(agent.id) && (
                   <span
                     role="button"
                     className="mini-btn"
                     title="Enviar por email (abre o cliente com o .agent.zip anexado — skills e bases vinculadas vão juntas)"
+                    aria-label="Enviar agente por email"
                     onClick={(e) => {
                       e.stopPropagation();
                       void emailShare(agent.id);
@@ -541,11 +662,17 @@ export function AgentsPage() {
                 <span
                   role="button"
                   className="mini-btn mini-btn--danger"
+                  title="Excluir agente"
+                  aria-label="Excluir agente"
                   onClick={(e) => {
                     e.stopPropagation();
                     void confirm({
                       title: 'Excluir agente',
-                      message: `Excluir o agente "${agent.name}"?`,
+                      message:
+                        agent.scope === 'shared'
+                          ? `Excluir o agente "${agent.name}" da biblioteca "${libraryName(agent.libraryId)}"? ` +
+                            'Ele sai para TODAS as pessoas que usam essa pasta compartilhada.'
+                          : `Excluir o agente "${agent.name}"?`,
                       confirmLabel: 'Excluir',
                       danger: true,
                     }).then((ok) => {
@@ -555,7 +682,7 @@ export function AgentsPage() {
                     });
                   }}
                 >
-                  Excluir
+                  <Trash2 className="icon" aria-hidden />
                 </span>
               </span>
             </button>
@@ -566,8 +693,10 @@ export function AgentsPage() {
               <div className="panel__divider">Chat modes do VS Code</div>
               {vsAgents.map((vs) => (
                 <div className="page-list-item page-list-item--static" key={vs.id}>
-                  <span className="item-card__name">
-                    <Puzzle className="icon" aria-hidden /> {vs.name}
+                  <span className="page-list-item__row">
+                    <span className="item-card__name">
+                      <Puzzle className="icon" aria-hidden /> {vs.name}
+                    </span>
                   </span>
                   <span className="item-card__desc">
                     {vs.description || '—'}
@@ -577,8 +706,14 @@ export function AgentsPage() {
                     </em>
                   </span>
                   <span className="page-list-item__actions">
-                    <span role="button" className="mini-btn" onClick={() => importVsAgent(vs)}>
-                      Importar →
+                    <span
+                      role="button"
+                      className="mini-btn"
+                      title="Importar como agente do portal"
+                      aria-label="Importar como agente do portal"
+                      onClick={() => importVsAgent(vs)}
+                    >
+                      <Import className="icon" aria-hidden />
                     </span>
                   </span>
                 </div>
@@ -594,7 +729,7 @@ export function AgentsPage() {
           >
             <div className="agent-form">
             <div className="row">
-              <div className="field" style={{ maxWidth: 90, flex: '0 0 90px' }}>
+              <div className="field" style={{ maxWidth: 72, flex: '0 0 72px' }}>
                 <label>Ícone</label>
                 <input
                   value={draft.icon}
@@ -617,6 +752,54 @@ export function AgentsPage() {
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
               />
+            </div>
+            <div className="row">
+              <div className="field">
+                <label>Onde fica</label>
+                <Select
+                  value={draft.scope === 'shared' ? 'shared' : 'global'}
+                  onChange={(value) =>
+                    setDraft({
+                      ...draft,
+                      scope: value as Draft['scope'],
+                      libraryId:
+                        value === 'shared'
+                          ? draft.libraryId ?? libraries.find((l) => l.available)?.id
+                          : draft.libraryId,
+                    })
+                  }
+                  options={[
+                    {
+                      value: 'global',
+                      label: <><Globe className="icon" aria-hidden /> Só nesta máquina</>,
+                      hint: 'Agente pessoal',
+                    },
+                    {
+                      value: 'shared',
+                      label: <><Users className="icon" aria-hidden /> Compartilhado</>,
+                      hint: libraries.length
+                        ? 'Vai para a pasta da equipe'
+                        : 'Configure uma biblioteca em Configurações',
+                      disabled: libraries.length === 0,
+                    },
+                  ]}
+                />
+              </div>
+              {draft.scope === 'shared' && (
+                <div className="field">
+                  <label>Biblioteca</label>
+                  <Select
+                    value={draft.libraryId ?? libraries[0]?.id ?? ''}
+                    onChange={(value) => setDraft({ ...draft, libraryId: value })}
+                    options={libraries.map((lib) => ({
+                      value: lib.id,
+                      label: <><Users className="icon" aria-hidden /> {lib.name}</>,
+                      hint: lib.available ? lib.path : 'indisponível agora',
+                      disabled: !lib.available,
+                    }))}
+                  />
+                </div>
+              )}
             </div>
             <div className="row">
               <div className="field">
@@ -661,7 +844,7 @@ export function AgentsPage() {
                   </button>
                   {renderLinkChips('skillIds')}
                 </div>
-                <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+                <span className="field__hint">
                   Garantidas no catálogo das conversas deste agente e levadas no export. Não
                   restringe: as demais skills continuam disponíveis.
                 </span>
@@ -674,7 +857,7 @@ export function AgentsPage() {
                   </button>
                   {renderLinkChips('knowledgeBaseIds')}
                 </div>
-                <span style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 4 }}>
+                <span className="field__hint">
                   Entram no contexto das conversas deste agente mesmo desativadas no toggle geral, e
                   vão juntas no export.
                 </span>

@@ -11,6 +11,7 @@ import type {
   HealthInfo,
   IuclickStatus,
   KnowledgeBase,
+  KnowledgeCollectionSync,
   KnowledgeDoc,
   McpProxyConfig,
   McpServerInfo,
@@ -18,10 +19,14 @@ import type {
   NetworkConfig,
   MeInfo,
   ModelInfo,
+  ProviderId,
   ProviderInfo,
   Project,
   Session,
   SessionMode,
+  SharedLibrary,
+  SharedLibraryStatus,
+  SharedRevision,
   SessionSummary,
   Skill,
   SkillWithContent,
@@ -166,6 +171,8 @@ export const api = {
     title?: string;
     projectId?: string | null;
     mode?: SessionMode;
+    /** Motor da conversa; ausente = o primeiro disponível na máquina. */
+    provider?: ProviderId;
     agentId?: string;
     modelId?: string;
   }) => request<Session>('POST', '/api/sessions', init),
@@ -241,11 +248,11 @@ export const api = {
     }),
   createSessionFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/sessions/${id}/files/mkdir`, { path }),
-  linkSessionFolder: (id: string) =>
+  linkSessionFolder: (id: string, kind: 'dir' | 'file' = 'dir') =>
     request<{ ok: boolean; name?: string; cancelled?: boolean }>(
       'POST',
       `/api/sessions/${id}/files/links`,
-      {},
+      { kind },
     ),
 
   listProjects: () => request<Project[]>('GET', '/api/projects'),
@@ -285,11 +292,11 @@ export const api = {
     }),
   createProjectFolder: (id: string, path: string) =>
     request<{ ok: boolean; path: string }>('POST', `/api/projects/${id}/files/mkdir`, { path }),
-  linkProjectFolder: (id: string) =>
+  linkProjectFolder: (id: string, kind: 'dir' | 'file' = 'dir') =>
     request<{ ok: boolean; name?: string; cancelled?: boolean }>(
       'POST',
       `/api/projects/${id}/files/links`,
-      {},
+      { kind },
     ),
   copilotQuota: (fresh = false) =>
     request<CopilotQuota>('GET', `/api/copilot/quota${fresh ? '?fresh=1' : ''}`),
@@ -309,7 +316,7 @@ export const api = {
   getSkill: (id: string) => request<SkillWithContent>('GET', `/api/skills/${id}`),
   // name e scope são obrigatórios na rota (400 sem eles) — o tipo reflete o contrato
   createSkill: (
-    input: { name: string; scope: 'global' | 'project' } & Partial<SkillWithContent>,
+    input: { name: string; scope: 'global' | 'project' | 'shared' } & Partial<SkillWithContent>,
   ) => request<SkillWithContent>('POST', '/api/skills', input),
   patchSkill: (id: string, patch: Partial<SkillWithContent>) =>
     request<SkillWithContent>('PATCH', `/api/skills/${id}`, patch),
@@ -391,11 +398,22 @@ export const api = {
   createKnowledgeBase: (input: {
     name: string;
     description?: string;
-    scope: 'global' | 'project';
+    scope: 'global' | 'project' | 'shared';
     projectId?: string;
+    libraryId?: string;
   }) => request<KnowledgeBase>('POST', '/api/knowledge', input),
-  patchKnowledgeBase: (id: string, patch: { name?: string; description?: string; enabled?: boolean }) =>
-    request<KnowledgeBase>('PATCH', `/api/knowledge/${id}`, patch),
+  patchKnowledgeBase: (
+    id: string,
+    patch: {
+      name?: string;
+      description?: string;
+      enabled?: boolean;
+      /** Trocar o escopo MOVE a base (ex.: levá-la para uma biblioteca compartilhada). */
+      scope?: 'global' | 'project' | 'shared';
+      projectId?: string;
+      libraryId?: string;
+    },
+  ) => request<KnowledgeBase>('PATCH', `/api/knowledge/${id}`, patch),
   deleteKnowledgeBase: (id: string) => request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}`),
   listKnowledgeDocs: (id: string) => request<KnowledgeDoc[]>('GET', `/api/knowledge/${id}/docs`),
   readKnowledgeDoc: (id: string, name: string) =>
@@ -405,6 +423,14 @@ export const api = {
     ),
   writeKnowledgeDoc: (id: string, name: string, content: string) =>
     request<KnowledgeDoc>('PUT', `/api/knowledge/${id}/docs`, { name, content }),
+  /** Sobe o arquivo ORIGINAL (PDF/Word/Excel/PPT); o portal converte o texto sozinho. */
+  uploadKnowledgeDoc: (id: string, name: string, contentBase64: string) =>
+    request<KnowledgeDoc>('PUT', `/api/knowledge/${id}/docs`, { name, contentBase64 }),
+  downloadKnowledgeDoc: (id: string, name: string) =>
+    downloadFromUrl(
+      `/api/knowledge/${id}/docs/raw?name=${encodeURIComponent(name)}`,
+      name,
+    ),
   deleteKnowledgeDoc: (id: string, name: string) =>
     request<{ ok: boolean }>('DELETE', `/api/knowledge/${id}/docs/${encodeURIComponent(name)}`),
   moveKnowledgeDoc: (id: string, name: string, toBaseId: string) =>
@@ -413,7 +439,12 @@ export const api = {
     downloadFromUrl(`/api/knowledge/${id}/export`, fileName),
   importKnowledgeBase: (
     zipBase64: string,
-    input: { name?: string; scope: 'global' | 'project'; projectId?: string },
+    input: {
+      name?: string;
+      scope: 'global' | 'project' | 'shared';
+      projectId?: string;
+      libraryId?: string;
+    },
   ) => request<KnowledgeBase>('POST', '/api/knowledge/import', { zipBase64, ...input }),
   addRemoteKnowledgeDoc: (id: string, url: string, name?: string) =>
     request<KnowledgeDoc>('POST', `/api/knowledge/${id}/docs/remote`, { url, name }),
@@ -422,6 +453,19 @@ export const api = {
       'POST',
       `/api/knowledge/${id}/sync`,
       name ? { name } : {},
+    ),
+  /** Varre um site inteiro para dentro da base: as páginas viram um grupo. */
+  crawlKnowledgeSite: (id: string, url: string, opts?: { maxPages?: number; depth?: number }) =>
+    request<KnowledgeCollectionSync>('POST', `/api/knowledge/${id}/collections`, { url, ...opts }),
+  syncKnowledgeCollection: (id: string, collectionId: string) =>
+    request<KnowledgeCollectionSync>(
+      'POST',
+      `/api/knowledge/${id}/collections/${collectionId}/sync`,
+    ),
+  deleteKnowledgeCollection: (id: string, collectionId: string, keepDocs = false) =>
+    request<{ ok: boolean }>(
+      'DELETE',
+      `/api/knowledge/${id}/collections/${collectionId}?keepDocs=${keepDocs}`,
     ),
 
   loginStatus: () =>
@@ -470,11 +514,26 @@ export const api = {
       { id },
     ),
 
+  listSharedLibraries: () => request<SharedLibraryStatus[]>('GET', '/api/shared-libraries'),
+  saveSharedLibraries: (libraries: Array<Partial<SharedLibrary>>) =>
+    request<SharedLibraryStatus[]>('PUT', '/api/shared-libraries', { libraries }),
+  /** Abre o seletor de pastas na janela do VS Code (caminho de rede também pode ser digitado). */
+  pickSharedLibraryFolder: () =>
+    request<{ ok: boolean; path?: string; cancelled?: boolean }>(
+      'POST',
+      '/api/shared-libraries/pick',
+      {},
+    ),
+
+  /** Hash das pastas compartilhadas por tipo — muda quando outra pessoa mexe. */
+  sharedRevision: () => request<SharedRevision>('GET', '/api/shared-libraries/revision'),
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: {
     projectsRoot?: string;
     network?: NetworkConfig;
     microsoft?: MicrosoftGraphConfig;
     commandAllowlist?: string[];
+    /** '' volta ao automático. */
+    captureBrowser?: string;
   }) => request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import type { EditorContext } from '@aiportal/shared';
+import { UPLOAD_LIMITS, type EditorContext } from '@aiportal/shared';
 import { Router, sendJson } from '../router';
 
-/** Mesmo teto dos anexos do chat (o servidor recusa acima de 512 KB). */
-const MAX_CHARS = 512 * 1024;
+/** Mesmo teto dos anexos do chat — o servidor recusa acima dele. */
+const MAX_CHARS = UPLOAD_LIMITS.chatAttachmentChars;
 
 export function registerEditorRoutes(router: Router): void {
   // arquivo/seleção ativos na janela do VS Code que hospeda o portal

@@ -10,10 +10,18 @@ import { PROJECT_META_DIR, ensureDir } from './paths';
  * arquivos continuam no local original — ler/escrever pelo link chega neles.
  */
 export interface FolderLink {
-  /** Nome do symlink na raiz da pasta de trabalho (como aparece na árvore). */
+  /** Nome na raiz da pasta de trabalho (como aparece na árvore). */
   name: string;
-  /** Caminho absoluto (realpath) da pasta original. */
+  /** Caminho absoluto (realpath) do original. */
   target: string;
+  /**
+   * 'dir' (padrão, legado) é um symlink/junction de verdade no disco. 'file' é
+   * uma referência VIRTUAL: nada é criado no disco, o registro basta e a
+   * árvore/leitura resolvem o alvo. Symlink de arquivo no Windows exige
+   * privilégio de administrador — a referência virtual funciona igual nos três
+   * sistemas e também em pasta de rede.
+   */
+  type?: 'dir' | 'file';
 }
 
 function linksPath(workRoot: string): string {
@@ -22,6 +30,22 @@ function linksPath(workRoot: string): string {
 
 export function listLinks(workRoot: string): FolderLink[] {
   return readJson<FolderLink[]>(linksPath(workRoot)) ?? [];
+}
+
+/** Só os arquivos referenciados (referências virtuais). */
+export function listFileLinks(workRoot: string): FolderLink[] {
+  return listLinks(workRoot).filter((l) => l.type === 'file');
+}
+
+/**
+ * Caminho real de um arquivo referenciado, a partir do caminho relativo usado
+ * na pasta de trabalho ("contrato.xlsx"). undefined quando não é referência.
+ */
+export function linkedFilePath(workRoot: string, relPath: string): string | undefined {
+  const normalized = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!normalized || normalized.includes('/')) return undefined;
+  const link = listFileLinks(workRoot).find((l) => l.name === normalized);
+  return link?.target;
 }
 
 /** Alvos autorizados (realpath) — usado pelo guard de caminhos. */
@@ -62,14 +86,7 @@ export function addLink(workRoot: string, target: string): FolderLink {
   if (isInside(real, realRoot) || isInside(realRoot, real)) {
     throw new Error('Escolha uma pasta fora da pasta de trabalho do portal');
   }
-  // remove do registro entradas cujo symlink sumiu do disco (limpeza)
-  const links = listLinks(workRoot).filter((l) => {
-    try {
-      return fs.lstatSync(path.join(workRoot, l.name)).isSymbolicLink();
-    } catch {
-      return false;
-    }
-  });
+  const links = liveLinks(workRoot);
   const existing = links.find((l) => l.target === real);
   if (existing) {
     throw new Error(`Esta pasta já está referenciada como "${existing.name}"`);
@@ -82,9 +99,63 @@ export function addLink(workRoot: string, target: string): FolderLink {
   }
   // junction no Windows dispensa privilégio de admin (só vale para pastas)
   fs.symlinkSync(real, path.join(workRoot, name), process.platform === 'win32' ? 'junction' : 'dir');
-  const link: FolderLink = { name, target: real };
+  const link: FolderLink = { name, target: real, type: 'dir' };
   writeJsonAtomic(linksPath(workRoot), [...links, link]);
   return link;
+}
+
+/**
+ * Referencia um ARQUIVO da máquina (inclusive de pasta de rede): o arquivo
+ * continua onde está, aparece na raiz da pasta de trabalho e ler/gravar por
+ * ele chega no original. Sem symlink — ver FolderLink.type.
+ */
+export function addFileLink(workRoot: string, target: string): FolderLink {
+  let real: string;
+  try {
+    real = fs.realpathSync(target);
+  } catch {
+    throw new Error(`Arquivo não encontrado: ${target}`);
+  }
+  if (!fs.statSync(real).isFile()) {
+    throw new Error('O caminho escolhido não é um arquivo');
+  }
+  ensureDir(workRoot);
+  const realRoot = fs.realpathSync(workRoot);
+  if (isInside(realRoot, real)) {
+    throw new Error('Este arquivo já está na pasta de trabalho do portal');
+  }
+  const links = liveLinks(workRoot);
+  const existing = links.find((l) => l.target === real);
+  if (existing) {
+    throw new Error(`Este arquivo já está referenciado como "${existing.name}"`);
+  }
+  const base = path.basename(real) || 'arquivo';
+  let name = base;
+  let i = 2;
+  const ext = path.extname(base);
+  const stem = ext ? base.slice(0, -ext.length) : base;
+  while (fs.existsSync(path.join(workRoot, name)) || links.some((l) => l.name === name)) {
+    name = `${stem}-${i++}${ext}`;
+  }
+  const link: FolderLink = { name, target: real, type: 'file' };
+  writeJsonAtomic(linksPath(workRoot), [...links, link]);
+  return link;
+}
+
+/**
+ * Registro sem as referências mortas: pasta cujo symlink sumiu do disco e
+ * arquivo cujo alvo não existe mais (o alvo pode ser uma pasta de rede
+ * desconectada — some da lista e volta quando a rede voltar).
+ */
+function liveLinks(workRoot: string): FolderLink[] {
+  return listLinks(workRoot).filter((l) => {
+    try {
+      if (l.type === 'file') return fs.statSync(l.target).isFile();
+      return fs.lstatSync(path.join(workRoot, l.name)).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Tira uma entrada do registro (o symlink em si é removido pelo chamador). */

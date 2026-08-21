@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FileSymlink,
   FolderSymlink,
   Maximize2,
   Pencil,
@@ -29,7 +30,7 @@ import {
 import { UPLOAD_LIMITS, formatByteLimit } from '@aiportal/shared';
 import type { FileEntry } from '@aiportal/shared';
 import { api } from '../../api/client';
-import { extractDocumentText, isConvertibleDocument } from '../../lib/extractDocument';
+import { isConvertibleDocument } from '../../lib/extractDocument';
 import { usePreview } from '../../stores/previewStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
@@ -272,6 +273,8 @@ function TreeLevel(props: {
                     <FolderSymlink className="icon icon--sm file-tree__linkicon" aria-hidden />
                   ) : isDir ? (
                     <Folder className="icon icon--sm" aria-hidden />
+                  ) : entry.linked ? (
+                    <FileSymlink className="icon icon--sm file-tree__linkicon" aria-hidden />
                   ) : (
                     <FileText className="icon icon--sm" aria-hidden />
                   )}
@@ -522,18 +525,23 @@ export function ProjectFilesDrawer() {
     }
   };
 
-  /** Referencia uma pasta externa (o seletor nativo abre na janela do VS Code). */
-  const linkFolder = async () => {
-    toast('Escolha a pasta na janela do VS Code…', 'ok');
+  /**
+   * Referencia uma pasta OU um arquivo de qualquer lugar da máquina (inclusive
+   * pasta de rede): o original fica onde está e o portal passa a enxergá-lo.
+   * O seletor nativo abre na janela do VS Code.
+   */
+  const linkExternal = async (kind: 'dir' | 'file') => {
+    toast(`Escolha ${kind === 'file' ? 'o arquivo' : 'a pasta'} na janela do VS Code…`, 'ok');
     try {
       const result = projectId
-        ? await api.linkProjectFolder(projectId)
+        ? await api.linkProjectFolder(projectId, kind)
         : workspaceSessionId
-          ? await api.linkSessionFolder(workspaceSessionId)
+          ? await api.linkSessionFolder(workspaceSessionId, kind)
           : undefined;
       if (result?.ok && result.name) {
         toast(
-          `Pasta "${result.name}" referenciada — os arquivos continuam no local original.`,
+          `${kind === 'file' ? 'Arquivo' : 'Pasta'} "${result.name}" referenciado — ` +
+            'o original continua no local dele.',
           'ok',
         );
         await reload();
@@ -551,7 +559,9 @@ export function ProjectFilesDrawer() {
     const ok = await confirm({
       title: isLink ? 'Remover referência' : isDir ? 'Excluir pasta' : 'Excluir arquivo',
       message: isLink
-        ? `Remover a referência a "${entry.path}"? Os arquivos originais continuam intactos no local deles.`
+        ? `Remover a referência a "${entry.path}"? ${
+            isDir ? 'Os arquivos originais continuam intactos' : 'O arquivo original continua intacto'
+          } no local de origem.`
         : isDir
           ? `Excluir a pasta "${entry.path}" e todo o conteúdo dela?`
           : `Excluir o arquivo "${entry.path}"?`,
@@ -684,21 +694,10 @@ export function ProjectFilesDrawer() {
           else if (workspaceSessionId) {
             await api.writeSessionFileBinary(workspaceSessionId, item.relPath, b64);
           }
-          if (isConvertibleDocument(item.file.name)) {
-            // Excel/Word/PDF ganham TAMBÉM um .md com o texto extraído — é o
-            // que o assistente consegue ler/fixar no contexto (o original fica)
-            try {
-              const text = await extractDocumentText(item.file);
-              const mdPath = item.relPath.replace(/\.[^.]+$/, '.md');
-              if (projectId) await api.writeProjectFile(projectId, mdPath, text);
-              else if (workspaceSessionId) {
-                await api.writeSessionFile(workspaceSessionId, mdPath, text);
-              }
-              converted++;
-            } catch {
-              // o original subiu; só a extração de texto falhou
-            }
-          }
+          // nada de gerar um .md paralelo: PDF/Word/Excel/PPT são convertidos
+          // em texto na hora em que o assistente lê (portal_read_file), então
+          // o original basta e a pasta não fica com duas versões do mesmo doc
+          if (isConvertibleDocument(item.file.name)) converted++;
           okCount++;
         } catch {
           failed++;
@@ -710,7 +709,7 @@ export function ProjectFilesDrawer() {
     }
     if (okCount) {
       const extra = converted
-        ? ` ${converted === 1 ? '1 documento também virou' : `${converted} documentos também viraram`} .md (é o que o assistente lê — o original foi mantido).`
+        ? ` ${converted === 1 ? '1 documento Office/PDF será convertido' : `${converted} documentos Office/PDF serão convertidos`} em texto quando o assistente ler.`
         : '';
       toast(
         `${okCount} arquivo${okCount === 1 ? '' : 's'} adicionado${okCount === 1 ? '' : 's'}.${extra}`,
@@ -954,10 +953,21 @@ export function ProjectFilesDrawer() {
                 title="A pasta continua no lugar original — o portal só passa a enxergá-la; alterações acontecem direto nos arquivos originais"
                 onClick={() => {
                   close();
-                  void linkFolder();
+                  void linkExternal('dir');
                 }}
               >
                 <FolderSymlink className="icon icon--sm" aria-hidden /> Referenciar pasta do
+                computador…
+              </button>
+              <button
+                className="dropdown__item"
+                title="O arquivo continua no lugar original (inclusive numa pasta de rede) — o portal só passa a enxergá-lo"
+                onClick={() => {
+                  close();
+                  void linkExternal('file');
+                }}
+              >
+                <FileSymlink className="icon icon--sm" aria-hidden /> Referenciar arquivo do
                 computador…
               </button>
               <button

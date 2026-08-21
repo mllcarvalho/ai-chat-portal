@@ -22,6 +22,10 @@ export interface KnowledgeSnippet {
   baseName: string;
   docName: string;
   content: string;
+  /** Site varrido dono do documento, quando veio de uma coleção. */
+  collectionName?: string;
+  title?: string;
+  sourceUrl?: string;
 }
 
 /** Entrada do índice de bases grandes demais para injeção integral. */
@@ -30,6 +34,9 @@ export interface KnowledgeIndexEntry {
   docName: string;
   size: number;
   headings: string[];
+  collectionName?: string;
+  title?: string;
+  sourceUrl?: string;
 }
 
 /** Arquivo do projeto fixado no contexto da sessão. */
@@ -108,6 +115,11 @@ export function buildPreamble(opts: {
     blocks.push(
       'Quando o usuário pedir para criar um agente (uma persona reutilizável do portal), use a ' +
         'ferramenta portal_create_agent — agentes são globais e ficam no seletor de agente do chat.',
+      'LIMITE POR CHAMADA DE FERRAMENTA: nenhuma chamada pode carregar mais de ~200 linhas de ' +
+        'conteúdo. Arquivo longo se escreve SEMPRE em blocos — a primeira chamada de ' +
+        'portal_write_file cria o começo e as seguintes continuam com append: true, cada uma com ' +
+        'no máximo ~120 linhas. Uma chamada gigante demora minutos para ser transmitida, aparece ' +
+        'para o usuário como uma tela parada e pode estourar o tempo limite da rodada.',
       'Ao continuar a resposta depois de receber resultados de ferramentas, retome de onde parou: ' +
         'nunca repita saudações, apresentações nem informações que você já escreveu nesta mesma ' +
         'resposta. Anuncie uma ação só depois de executá-la, nunca antes de chamar a ferramenta.',
@@ -160,9 +172,13 @@ export function buildPreamble(opts: {
     }
   }
   for (const snippet of knowledge ?? []) {
-    blocks.push(
-      `## Base de conhecimento: ${snippet.baseName} — ${snippet.docName}\n${snippet.content}`,
-    );
+    // páginas de um site varrido se anunciam pelo site + título, não pelo
+    // nome do arquivo gerado (que não diz nada ao modelo nem ao usuário)
+    const origin = snippet.collectionName
+      ? `${snippet.baseName} · ${snippet.collectionName} — ${snippet.title ?? snippet.docName}`
+      : `${snippet.baseName} — ${snippet.docName}`;
+    const source = snippet.sourceUrl ? `\nFonte: ${snippet.sourceUrl}` : '';
+    blocks.push(`## Base de conhecimento: ${origin}${source}\n${snippet.content}`);
   }
   if (opts.knowledgeIndex?.length) {
     blocks.push(
@@ -172,13 +188,7 @@ export function buildPreamble(opts: {
         'busque com portal_search_knowledge ANTES de responder e, se os trechos não bastarem, ' +
         'leia o documento com portal_read_knowledge. Nunca responda de memória algo que estas ' +
         'bases documentam, e não invente conteúdo delas.\n' +
-        opts.knowledgeIndex
-          .map(
-            (e) =>
-              `- Base "${e.baseName}" — ${e.docName} (${Math.max(1, Math.round(e.size / 1024))} KB)` +
-              (e.headings.length ? `: ${e.headings.join('; ')}` : ''),
-          )
-          .join('\n'),
+        knowledgeIndexLines(opts.knowledgeIndex).join('\n'),
     );
   }
   for (const file of contextFiles ?? []) {
@@ -187,6 +197,39 @@ export function buildPreamble(opts: {
     );
   }
   return blocks.join('\n\n');
+}
+
+/**
+ * Índice das bases, agrupado por site varrido. Um site de documentação vira
+ * dezenas de páginas: listadas soltas, viram um paredão de nomes de arquivo
+ * indistinguíveis; sob um cabeçalho do site, o modelo entende que são um
+ * conjunto e escolhe a página pelo título.
+ */
+function knowledgeIndexLines(entries: KnowledgeIndexEntry[]): string[] {
+  const lines: string[] = [];
+  const loose = entries.filter((e) => !e.collectionName);
+  for (const e of loose) {
+    lines.push(
+      `- Base "${e.baseName}" — ${e.docName} (${Math.max(1, Math.round(e.size / 1024))} KB)` +
+        (e.headings.length ? `: ${e.headings.join('; ')}` : ''),
+    );
+  }
+  const groups = new Map<string, KnowledgeIndexEntry[]>();
+  for (const e of entries) {
+    if (!e.collectionName) continue;
+    const key = `${e.baseName}\u0000${e.collectionName}`;
+    groups.set(key, [...(groups.get(key) ?? []), e]);
+  }
+  for (const [key, docs] of groups) {
+    const [baseName, collectionName] = key.split('\u0000');
+    lines.push(
+      `- Base "${baseName}" — site ${collectionName} (${docs.length} página${docs.length === 1 ? '' : 's'}), leia com portal_read_knowledge usando o nome do arquivo:`,
+    );
+    for (const d of docs) {
+      lines.push(`    · ${d.title ?? d.docName} → ${d.docName}${d.sourceUrl ? ` (${d.sourceUrl})` : ''}`);
+    }
+  }
+  return lines;
 }
 
 /** Nota sobre os anexos da pasta da skill (lidos com portal_read_skill_file). */
@@ -220,14 +263,30 @@ function userText(message: ChatMessage): string {
     .join('\n');
 }
 
-/** Anexos da mensagem viram blocos <anexo> logo após o texto do usuário. */
-function attachmentBlocks(message: ChatMessage): string {
-  return message.parts
-    .filter((p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment')
+/**
+ * Anexos da mensagem viram blocos <anexo> logo após o texto do usuário.
+ *
+ * `limit` é o total que os anexos de UMA mensagem podem ocupar. Existe porque o
+ * portal aceita anexos maiores que a janela dos modelos do Copilot (as CLIs têm
+ * janela bem maior) e a mensagem atual é a única que a poda de histórico nunca
+ * descarta: sem o corte aqui, um anexo grande derrubaria o turno inteiro com
+ * erro de contexto em vez de responder com o que coube.
+ */
+function attachmentBlocks(message: ChatMessage, limit: number): string {
+  const attachments = message.parts.filter(
+    (p): p is Extract<typeof p, { type: 'attachment' }> => p.type === 'attachment',
+  );
+  if (!attachments.length) return '';
+  const each = Math.max(4_000, Math.floor(limit / attachments.length));
+  return attachments
     .map((p) => {
       // um anexo contendo a tag literal quebraria a delimitação do bloco
       const safe = p.content.replaceAll('</anexo>', '<\\/anexo>');
-      return `<anexo nome="${p.name.replaceAll('"', "'")}">\n${safe}\n</anexo>`;
+      const body =
+        safe.length <= each
+          ? safe
+          : `${safe.slice(0, each)}\n\n… (anexo truncado: não cabe na janela deste modelo)`;
+      return `<anexo nome="${p.name.replaceAll('"', "'")}">\n${body}\n</anexo>`;
     })
     .join('\n\n');
 }
@@ -270,6 +329,9 @@ export function buildMessages(opts: {
 
   // poda: mantém as mensagens mais recentes que cabem no orçamento
   const budget = Math.max(8_000, windowChars - preamble.length);
+  // o que os anexos de uma mensagem podem ocupar: o resto da janela fica para o
+  // texto do usuário, o histórico próximo e a resposta
+  const attachmentLimit = Math.max(8_000, Math.floor(budget * 0.6));
   let used = 0;
   let startIdx = 0;
   for (let i = session.messages.length - 1; i >= 0; i--) {
@@ -325,7 +387,7 @@ export function buildMessages(opts: {
   for (const message of session.messages.slice(startIdx)) {
     if (message.role === 'user') {
       const text = expandSlashCommand(userText(message), commandSkills);
-      const attachments = attachmentBlocks(message);
+      const attachments = attachmentBlocks(message, attachmentLimit);
       const combined = [text, attachments].filter(Boolean).join('\n\n');
       if (combined) result.push(vscode.LanguageModelChatMessage.User(combined));
       continue;

@@ -67,6 +67,9 @@ export function SettingsModal() {
   const [noProxy, setNoProxy] = useState('');
   const [extraCaCerts, setExtraCaCerts] = useState('');
   const [savingNet, setSavingNet] = useState(false);
+  const libraries = useCatalog((s) => s.libraries);
+  const loadLibraries = useCatalog((s) => s.loadLibraries);
+  const [savingLibs, setSavingLibs] = useState(false);
 
   useEffect(() => {
     void api.getConfig().then((c) => {
@@ -99,6 +102,60 @@ export function SettingsModal() {
     } catch (err) {
       toast((err as Error).message, 'error');
     }
+  };
+
+  /**
+   * Bibliotecas compartilhadas: a lista inteira vai num PUT só. Sem "salvar"
+   * separado — adicionar/remover já grava, que é o que a pessoa espera de uma
+   * lista de pastas.
+   */
+  const persistLibraries = async (next: Array<{ id?: string; name: string; path: string }>) => {
+    setSavingLibs(true);
+    try {
+      await api.saveSharedLibraries(next);
+      await loadLibraries();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setSavingLibs(false);
+    }
+  };
+
+  const addLibrary = async () => {
+    try {
+      const picked = await api.pickSharedLibraryFolder();
+      if (!picked.ok || !picked.path) return;
+      if (libraries.some((lib) => lib.path === picked.path)) {
+        toast('Esta pasta já está na lista.', 'info');
+        return;
+      }
+      await persistLibraries([
+        ...libraries.map((lib) => ({ id: lib.id, name: lib.name, path: lib.path })),
+        { name: '', path: picked.path },
+      ]);
+      toast('Biblioteca compartilhada adicionada.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const removeLibrary = async (id: string) => {
+    await persistLibraries(
+      libraries
+        .filter((lib) => lib.id !== id)
+        .map((lib) => ({ id: lib.id, name: lib.name, path: lib.path })),
+    );
+    toast('Biblioteca removida da lista (a pasta e o conteúdo dela ficam intactos).', 'ok');
+  };
+
+  const renameLibrary = async (id: string, name: string) => {
+    await persistLibraries(
+      libraries.map((lib) => ({
+        id: lib.id,
+        name: lib.id === id ? name : lib.name,
+        path: lib.path,
+      })),
+    );
   };
 
   const saveNetwork = async () => {
@@ -140,7 +197,7 @@ export function SettingsModal() {
       <div className="field">
         <label>Chat</label>
         <label
-          style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 'normal' }}
+          className="check-row"
         >
           <input
             type="checkbox"
@@ -149,7 +206,7 @@ export function SettingsModal() {
           />
           Ocultar detalhes técnicos das respostas (chamadas de ferramentas)
         </label>
-        <span style={{ fontSize: 12.5, color: 'var(--text-dim)' }}>
+        <span className="field__hint">
           Os cards tipo portal_write_file somem do chat. Pedidos de aprovação de comandos continuam
           aparecendo sempre.
         </span>
@@ -158,20 +215,14 @@ export function SettingsModal() {
       {bmadAgents.length > 0 && (
         <div className="field">
           <label>Agentes BMAD</label>
-          <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+          <span className="field__note">
             Os agentes desmarcados somem dos seletores do chat. Habilite aqui quando precisar
             deles.
           </span>
           {bmadAgents.map((agent) => (
             <label
               key={agent.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-                fontWeight: 'normal',
-              }}
+              className="check-row"
             >
               <input
                 type="checkbox"
@@ -184,10 +235,56 @@ export function SettingsModal() {
         </div>
       )}
 
+      <div className="field">
+        <label>Bibliotecas compartilhadas</label>
+        <span className="field__note">
+          Pastas de rede (ou sincronizadas) com skills, agentes e bases da equipe. O que está lá
+          aparece para todo mundo que aponta para a mesma pasta — e quem edita, edita para todos.
+        </span>
+        {libraries.map((lib) => (
+          <div key={lib.id} className="shared-lib">
+            <div className="shared-lib__row">
+              <input
+                value={lib.name}
+                onChange={(e) => void renameLibrary(lib.id, e.target.value)}
+                placeholder="Nome da biblioteca"
+                aria-label="Nome da biblioteca"
+              />
+              <button
+                className="btn btn--sm btn--ghost"
+                disabled={savingLibs}
+                title="Remover da lista (a pasta continua no lugar)"
+                onClick={() => void removeLibrary(lib.id)}
+              >
+                Remover
+              </button>
+            </div>
+            <span className="shared-lib__path" title={lib.path}>
+              {lib.path}
+            </span>
+            <span className={`shared-lib__status${lib.available ? '' : ' shared-lib__status--off'}`}>
+              {lib.available
+                ? `${lib.counts?.skills ?? 0} skill(s) · ${lib.counts?.agents ?? 0} agente(s) · ` +
+                  `${lib.counts?.knowledgeBases ?? 0} base(s)` +
+                  (lib.writable ? '' : ' · somente leitura')
+                : `indisponível agora — ${lib.error ?? 'a pasta não respondeu'}`}
+            </span>
+          </div>
+        ))}
+        <button
+          className="btn"
+          style={{ alignSelf: 'flex-start', marginTop: 6 }}
+          disabled={savingLibs}
+          onClick={() => void addLibrary()}
+        >
+          Adicionar pasta compartilhada…
+        </button>
+      </div>
+
       {(config?.commandAllowlist?.length ?? 0) > 0 && (
         <div className="field">
           <label>Comandos sempre permitidos</label>
-          <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+          <span className="field__note">
             Executáveis liberados pelo "Sempre permitir" — rodam sem pedir aprovação no chat.
             Clique para remover.
           </span>
@@ -218,7 +315,7 @@ export function SettingsModal() {
 
       <div className="field">
         <label>Rede corporativa (proxy)</label>
-        <span style={{ fontSize: 12.5, color: 'var(--text-dim)', marginBottom: 6 }}>
+        <span className="field__note">
           Os proxies são preenchidos pelo login (RACF + senha). Alterar aqui regrava os mesmos
           arquivos do login: settings.json do VS Code, .bashrc/.zshrc e o cafile do ~/.npmrc.
           Também vale para as conexões dos servidores MCP.
@@ -263,7 +360,7 @@ export function SettingsModal() {
 
       <div className="field">
         <label>Status</label>
-        <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+        <span className="field__note" style={{ marginBottom: 0 }}>
           Portal v{health?.version ?? '?'} · {health?.modelCount ?? 0} modelos do Copilot
           {health?.needsConsent ? ' · aguardando autorização no VS Code' : ''}
           {' · desenvolvido por Matheus Llobregat'}
@@ -283,7 +380,7 @@ export function SettingsModal() {
         )}
       </div>
 
-      <p style={{ color: 'var(--text-faint)', fontSize: 12.5 }}>
+      <p className="modal__footnote">
         O portal roda 100% local: a interface conversa com uma extensão do VS Code que faz proxy
         dos modelos e MCPs do Copilot. Fechar o VS Code derruba o portal.
       </p>

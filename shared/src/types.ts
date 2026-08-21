@@ -79,6 +79,51 @@ export interface Config {
    * do comando, ex.: "python3") — preenchido pelo "sempre permitir" da UI.
    */
   commandAllowlist?: string[];
+  /** Pastas compartilhadas (rede) com skills, agentes e bases da equipe. */
+  sharedLibraries?: SharedLibrary[];
+  /**
+   * Navegador usado na captura de sessão via SSO (IUClick/ServiceNow). Vazio =
+   * automático. Existe porque a política corporativa costuma fixar o Edge como
+   * padrão do Windows mesmo para quem navega no Chrome — e aí a janela do SSO
+   * abria no navegador errado.
+   */
+  captureBrowser?: 'Chrome' | 'Edge' | 'Brave';
+}
+
+/**
+ * Biblioteca compartilhada: uma pasta (normalmente de rede, \\servidor\equipe\…)
+ * de onde o portal lê skills, agentes e bases de conhecimento além dos locais.
+ * Quem edita um item de lá está editando para todo mundo que aponta para a
+ * mesma pasta — a UI avisa antes de gravar.
+ */
+export interface SharedLibrary {
+  id: string;
+  /** Nome exibido nas listagens (badge "Compartilhada · <nome>"). */
+  name: string;
+  /** Caminho da pasta no sistema de arquivos (UNC no Windows, montagem no macOS). */
+  path: string;
+}
+
+/**
+ * Impressão digital das pastas compartilhadas, por tipo. O cliente compara
+ * entre um poll e outro para recarregar sozinho quando OUTRA pessoa mexeu.
+ */
+export interface SharedRevision {
+  skills: string;
+  agents: string;
+  knowledge: string;
+  /** Última varredura concluída (ISO); ausente = nenhuma ainda. */
+  checkedAt?: string;
+  /** Bibliotecas fora do ar na varredura. */
+  offline: string[];
+}
+
+/** Situação de uma biblioteca no momento da consulta (a rede pode estar fora). */
+export interface SharedLibraryStatus extends SharedLibrary {
+  available: boolean;
+  writable: boolean;
+  error?: string;
+  counts?: { skills: number; agents: number; knowledgeBases: number };
 }
 
 /**
@@ -293,8 +338,10 @@ export interface Skill {
   id: string;
   /** @deprecated Legado: toda skill vale como instrução E como comando. Ignorado. */
   kind?: 'instruction' | 'command';
-  scope: 'global' | 'project';
+  scope: 'global' | 'project' | 'shared';
   projectId?: string;
+  /** Biblioteca compartilhada dona da skill (scope 'shared'). */
+  libraryId?: string;
   name: string;
   description: string;
   /** Nome do slash command (sem a barra). Derivado do nome quando não informado. */
@@ -363,6 +410,13 @@ export interface AgentPreset {
   knowledgeBaseIds?: string[];
   /** Id de origem quando criado por import — reimports atualizam em vez de duplicar. */
   importedFrom?: string;
+  /**
+   * 'shared' = o agente vive numa biblioteca compartilhada (um arquivo por
+   * agente na pasta de rede); ausente/'global' = agents.json local.
+   */
+  scope?: 'global' | 'shared';
+  /** Biblioteca compartilhada dona do agente (scope 'shared'). */
+  libraryId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -606,15 +660,41 @@ export interface BmadArtifactsReport {
   artifacts: BmadArtifact[];
 }
 
+/**
+ * Varredura de um site (GitHub Pages, portal de documentação…) trazida para a
+ * base: uma URL inicial vira N documentos, um por página. A coleção mantém
+ * esses documentos AGRUPADOS — na lista, no contexto do modelo e no re-sync —
+ * em vez de virarem dezenas de .md soltos no meio dos documentos avulsos.
+ */
+export interface KnowledgeCollection {
+  /** Slug estável, também usado como prefixo dos arquivos gerados. */
+  id: string;
+  /** Rótulo exibido, ex: "meudocs.github.io/guia". */
+  name: string;
+  /** URL onde a varredura começa. */
+  rootUrl: string;
+  /** Tetos usados na varredura — o re-sync repete os mesmos. */
+  maxPages: number;
+  depth: number;
+  /** Como as páginas foram descobertas na última varredura. */
+  via?: 'sitemap' | 'links';
+  syncedAt?: string;
+  syncError?: string;
+}
+
 export interface KnowledgeBase {
   id: string;
   name: string;
   description?: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'project' | 'shared';
   projectId?: string;
+  /** Biblioteca compartilhada dona da base (scope 'shared'). */
+  libraryId?: string;
   /** Bases habilitadas entram no contexto das conversas (global: todas; project: as do projeto). */
   enabled: boolean;
   docCount: number;
+  /** Sites varridos que vivem nesta base (cada um agrupa vários documentos). */
+  collections?: KnowledgeCollection[];
   /** Id de origem quando criada por import — reimports atualizam em vez de duplicar. */
   importedFrom?: string;
   createdAt: string;
@@ -625,12 +705,35 @@ export interface KnowledgeDoc {
   name: string;
   size: number;
   mtime: string;
+  /**
+   * Documento guardado no formato original (PDF, Word, Excel, PowerPoint): o
+   * texto usado no contexto e na busca vem de uma conversão cacheada, e o
+   * arquivo continua disponível para baixar/abrir.
+   */
+  binary?: boolean;
   /** URL de origem (SharePoint, GitHub Pages…) quando o doc é sincronizado de uma fonte remota. */
   sourceUrl?: string;
   /** Última sincronização bem-sucedida com a sourceUrl (ISO). */
   syncedAt?: string;
   /** Erro da última tentativa de sincronização (limpo quando sincroniza com sucesso). */
   syncError?: string;
+  /** Id da coleção (site varrido) dona deste documento, quando veio de uma varredura. */
+  collection?: string;
+  /** Título da página de origem — é o que a lista mostra no lugar do nome do arquivo. */
+  title?: string;
+}
+
+/** Resultado de varrer um site (ao criar a coleção ou ao re-sincronizar). */
+export interface KnowledgeCollectionSync {
+  collection: KnowledgeCollection;
+  docs: KnowledgeDoc[];
+  added: number;
+  updated: number;
+  removed: number;
+  /** Páginas que falharam — a varredura segue com o resto. */
+  errors: Array<{ url: string; error: string }>;
+  /** O site tinha mais páginas que o teto configurado. */
+  truncated: boolean;
 }
 
 /** Snapshot dos AI credits (premium requests) da licença Copilot do usuário. */

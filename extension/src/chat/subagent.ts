@@ -2,11 +2,15 @@ import * as vscode from 'vscode';
 import { listAgents } from '../storage/agentStore';
 import { isBmadInstalled } from '../storage/paths';
 import {
+  IDLE_RETRIES,
+  IDLE_RETRY_HINT,
   MODEL_RETRIES,
+  ModelIdleTimeoutError,
   isTransientModelError,
   raceCancellation,
   retryDelayMs,
   sleep,
+  withIdleTimeout,
 } from './retry';
 import {
   BMAD_TOOL_NAMES,
@@ -181,21 +185,25 @@ export async function runSubagent(opts: {
       for (let attempt = 0; ; attempt++) {
         usage.requests++;
         try {
-          const response = await model.sendRequest(
-            messages,
-            {
-              justification: 'BMAD Product Studio — subagente',
-              ...(toolDefs.length
-                ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
-                : {}),
-            },
-            opts.token,
+          // mesmo teto de silêncio do chat: sem ele um gateway pendurado
+          // deixaria o subagente preso para sempre (ninguém vê o stream dele)
+          const response = await withIdleTimeout(
+            model.sendRequest(
+              messages,
+              {
+                justification: 'BMAD Product Studio — subagente',
+                ...(toolDefs.length
+                  ? { tools: toolDefs, toolMode: vscode.LanguageModelChatToolMode.Auto }
+                  : {}),
+              },
+              opts.token,
+            ),
           );
           // iteração manual com corrida de cancelamento: um for await ficaria
           // pendurado junto com o gateway e ignoraria o "Parar" do usuário
           const iterator = response.stream[Symbol.asyncIterator]();
           while (true) {
-            const next = await raceCancellation(iterator.next(), opts.token);
+            const next = await raceCancellation(withIdleTimeout(iterator.next()), opts.token);
             if (next.done || opts.token.isCancellationRequested) break;
             const part = next.value;
             if (part instanceof vscode.LanguageModelTextPart) roundText += part.value;
@@ -203,11 +211,15 @@ export async function runSubagent(opts: {
           }
           break;
         } catch (err) {
+          const idleTimeout = err instanceof ModelIdleTimeoutError;
           const canRetry =
-            attempt < MODEL_RETRIES &&
+            attempt < (idleTimeout ? IDLE_RETRIES : MODEL_RETRIES) &&
             !opts.token.isCancellationRequested &&
             isTransientModelError(err);
           if (!canRetry) throw err;
+          // repetir a mesma geração que estourou o tempo não leva a lugar
+          // nenhum — a tentativa que sobra vai com a dica de gravar em blocos
+          if (idleTimeout) messages.push(vscode.LanguageModelChatMessage.User(IDLE_RETRY_HINT));
           roundText = '';
           roundCalls = [];
           await sleep(retryDelayMs(err, attempt));

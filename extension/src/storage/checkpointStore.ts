@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { dataRoot } from './paths';
+import { linkedFilePath } from './linkStore';
 
 /**
  * Checkpoints do workspace: antes de cada mutação destrutiva das ferramentas
@@ -148,9 +149,12 @@ export function revertCheckpoint(id: string): RevertResult {
   }
   const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8')) as CheckpointMeta;
   for (const entry of meta.entries) {
-    const abs = path.resolve(meta.workRoot, entry.path);
+    // arquivo referenciado: o alvo real está fora da pasta de trabalho, mas foi
+    // autorizado pelo usuário — o registro em links.json é a permissão
+    const linked = linkedFilePath(meta.workRoot, entry.path);
+    const abs = linked ?? path.resolve(meta.workRoot, entry.path);
     const rel = path.relative(meta.workRoot, abs);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    if (!linked && (rel.startsWith('..') || path.isAbsolute(rel))) {
       throw new Error(`Checkpoint com caminho fora da pasta de trabalho: ${entry.path}`);
     }
     if (entry.kind === 'absent') {

@@ -13,8 +13,10 @@
  * `latest` para a versão boa. NUNCA use `npm unpublish`: além de só funcionar
  * em 72h, ele queima o número da versão (o npm não deixa republicá-lo).
  *
- * Builda tudo, empacota o .vsix, embute no instalador npx e publica no npm.
- * Pré-requisito: npm login feito (uma vez só).
+ * Builda tudo, empacota o .vsix, publica no VS Code Marketplace, embute no
+ * instalador npx e publica no npm.
+ * Pré-requisitos (uma vez só): npm login e vsce login aichatportal
+ * (ou a variável VSCE_PAT com o Personal Access Token do Marketplace).
  */
 import { execSync } from 'node:child_process';
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -73,10 +75,26 @@ console.log(
 );
 run('npm run package');
 
-copyFileSync(
-  join(root, 'extension', `ai-chat-portal-extension-${version}.vsix`),
-  join(root, 'installer', 'bmad-product-studio.vsix'),
-);
+const vsixPath = join(root, 'extension', `ai-chat-portal-extension-${version}.vsix`);
+
+// Marketplace antes do npm: se o npm publish falhar depois, rodar de novo é
+// seguro — esta etapa detecta a versão já publicada e pula.
+const extensionId = 'aichatportal.ai-chat-portal-extension';
+let onMarketplace = false;
+try {
+  const shown = JSON.parse(quiet(`npx vsce show ${extensionId} --json`).toString());
+  onMarketplace = (shown.versions ?? []).some((v) => v.version === version);
+} catch {
+  // extensão ainda não existe no Marketplace (primeira publicação) — segue
+}
+if (onMarketplace) {
+  console.log(`\x1b[36m▸\x1b[0m Marketplace já tem a ${version} — pulando o vsce publish.`);
+} else {
+  console.log('\x1b[36m▸\x1b[0m Publicando no VS Code Marketplace…');
+  run(`npx vsce publish --packagePath "${vsixPath}"`);
+}
+
+copyFileSync(vsixPath, join(root, 'installer', 'bmad-product-studio.vsix'));
 
 // o instalador sempre publica com a mesma versão da extensão
 const installerPkgPath = join(root, 'installer', 'package.json');

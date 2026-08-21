@@ -71,10 +71,30 @@ function fetchErrorDetail(err: unknown): string {
 }
 
 /**
+ * Página remota já processada. O `html` só vem quando a resposta era HTML de
+ * verdade: a varredura de site precisa dele porque `htmlToMarkdown` descarta
+ * <nav>/<aside> — justamente onde os sites de documentação publicam o índice
+ * de páginas.
+ */
+export interface RemoteDocument {
+  /** Texto pronto para virar documento. */
+  content: string;
+  /** URL final (depois dos redirects). */
+  finalUrl: string;
+  html?: string;
+  title?: string;
+}
+
+/** Compatibilidade: só o conteúdo, que é o que a maior parte do portal usa. */
+export async function fetchRemoteContent(url: string): Promise<string> {
+  return (await fetchRemoteDocument(url)).content;
+}
+
+/**
  * Baixa o conteúdo da URL e devolve texto pronto para virar documento:
  * markdown/texto entram como estão; HTML é convertido para markdown.
  */
-export async function fetchRemoteContent(url: string): Promise<string> {
+export async function fetchRemoteDocument(url: string): Promise<RemoteDocument> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -104,7 +124,7 @@ export async function fetchRemoteContent(url: string): Promise<string> {
     if (declared > BINARY_FETCH_LIMIT) throw new Error('Arquivo remoto excede o limite de 20 MB');
     const data = Buffer.from(await res.arrayBuffer());
     if (data.byteLength > BINARY_FETCH_LIMIT) throw new Error('Arquivo remoto excede o limite de 20 MB');
-    return extractBinaryText(kind, data);
+    return { content: await extractBinaryText(kind, data), finalUrl: res.url || url };
   }
   if (/^(image|video|audio|font)\//.test(type) || /application\/(zip|octet-stream|msword|vnd\.)/.test(type)) {
     throw new Error(
@@ -119,7 +139,56 @@ export async function fetchRemoteContent(url: string): Promise<string> {
   const isPlain = type.includes('markdown') || /\.(md|markdown|txt)$/.test(pathname);
   const looksHtml = type.includes('html') || /^\s*(<!doctype\s+html|<html[\s>])/i.test(text);
   const markdown = !isPlain && looksHtml ? htmlToMarkdown(text) : text;
-  return sanitizeMarkdown(markdown, url);
+  return {
+    content: sanitizeMarkdown(markdown, url),
+    finalUrl: res.url || url,
+    ...(!isPlain && looksHtml && { html: text, title: htmlTitle(text) }),
+  };
+}
+
+/** <title> da página, sem o sufixo do site ("Autenticação — Meus Docs"). */
+export function htmlTitle(html: string): string | undefined {
+  const raw = /<title[^>]*>([\s\S]*?)<\/title\s*>/i.exec(html)?.[1];
+  if (!raw) return undefined;
+  const text = decodeEntities(raw).replace(/\s+/g, ' ').trim();
+  if (!text) return undefined;
+  const trimmed = text.split(/\s+[|·—–]\s+/)[0].trim();
+  return (trimmed || text).slice(0, 120);
+}
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * href absolutos das âncoras do HTML, resolvidos contra a página. Inclui o que
+ * vier de <nav>: numa varredura, o menu lateral é a melhor lista de páginas
+ * quando o site não publica sitemap.
+ */
+export function extractLinks(html: string, baseUrl: string): string[] {
+  const urls = new Set<string>();
+  const anchor = /<a\s[^>]*href\s*=\s*("([^"]*)"|'([^']*)'|([^\s">]+))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = anchor.exec(html))) {
+    const href = decodeEntities(match[2] ?? match[3] ?? match[4] ?? '').trim();
+    if (!href || href.startsWith('#') || /^(mailto|tel|javascript|data):/i.test(href)) continue;
+    try {
+      const resolved = new URL(href, baseUrl);
+      if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') continue;
+      resolved.hash = '';
+      urls.add(resolved.toString());
+    } catch {
+      // href quebrado na página: ignora e segue
+    }
+  }
+  return [...urls];
 }
 
 /**

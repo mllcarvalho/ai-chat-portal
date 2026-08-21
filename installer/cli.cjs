@@ -85,6 +85,15 @@ function code(args) {
   if (result.status !== 0) fail(`Falha ao executar: code ${args.join(' ')}`);
 }
 
+/** Como code(), mas devolve false em vez de encerrar — para tentativas com fallback. */
+function codeTry(args) {
+  const result = spawnSync(winQuote(codeBin), args.map(winQuote), {
+    stdio: 'inherit',
+    shell: isWindows,
+  });
+  return result.status === 0;
+}
+
 const codeBin = findCode();
 if (!codeBin) {
   fail(
@@ -95,16 +104,10 @@ if (!codeBin) {
 }
 ok(`VS Code encontrado (${codeBin})`);
 
-// ---------- 2. instalar a extensão (vsix embutido no pacote) ----------
+// ---------- 2. instalar a extensão (Marketplace, com vsix embutido de fallback) ----------
 
+const extensionId = 'aichatportal.ai-chat-portal-extension';
 const vsix = join(pkgDir, 'bmad-product-studio.vsix');
-if (!existsSync(vsix)) {
-  fail(
-    'O .vsix não está no pacote.\n' +
-      `  - Via npx: rode npx ${pkgName}@latest\n` +
-      '  - No repositório: rode npm run release para gerá-lo',
-  );
-}
 
 // em Macs corporativos ~/.vscode às vezes fica com dono root e a instalação falha em silêncio
 if (!isWindows) {
@@ -123,8 +126,22 @@ if (!isWindows) {
   }
 }
 
-log('Instalando a extensão no VS Code…');
-code(['--install-extension', vsix, '--force']);
+// Marketplace primeiro: políticas corporativas costumam bloquear extensões
+// instaladas de .vsix local, e pelo Marketplace o VS Code atualiza sozinho.
+log('Instalando a extensão pelo Marketplace do VS Code…');
+if (!codeTry(['--install-extension', extensionId, '--force'])) {
+  console.warn(
+    '\x1b[33m⚠ Marketplace indisponível — instalando o .vsix embutido no pacote.\x1b[0m',
+  );
+  if (!existsSync(vsix)) {
+    fail(
+      'O .vsix não está no pacote.\n' +
+        `  - Via npx: rode npx ${pkgName}@latest\n` +
+        '  - No repositório: rode npm run release para gerá-lo',
+    );
+  }
+  code(['--install-extension', vsix, '--force']);
+}
 
 // o CLI do VS Code pode falhar em silêncio (exit 0) — confirma na lista
 let installed = '';
@@ -156,6 +173,17 @@ if (installed && !/github\.copilot-chat/i.test(installed)) {
 
 const expectedVersion = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).version;
 
+/** O Marketplace pode entregar versão mais nova que a deste instalador — aceita >=. */
+function versionAtLeast(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff > 0;
+  }
+  return true;
+}
+
 async function healthCheck(port) {
   try {
     // o /api/health pode levar ~6s (timeouts internos de modelos/conta quando a rede está ruim)
@@ -181,7 +209,7 @@ async function findLivePortal() {
   const runtime = readRuntime();
   if (!runtime) return undefined;
   const health = await healthCheck(runtime.port);
-  if (health && health.version === expectedVersion) return { runtime, health };
+  if (health && versionAtLeast(health.version, expectedVersion)) return { runtime, health };
   return undefined;
 }
 
