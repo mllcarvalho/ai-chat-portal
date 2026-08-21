@@ -1,12 +1,29 @@
 {
   "name": "ai-chat-portal-extension",
   "displayName": "BMAD Product Studio",
-  "description": "Proxy local que expõe os modelos e MCPs do GitHub Copilot para o BMAD Product Studio",
+  "description": "Chat com os modelos do GitHub Copilot direto do navegador — projetos, sessões, skills, agentes, bases de conhecimento e MCPs, 100% local",
   "version": "0.4.14",
   "publisher": "aichatportal",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "private": true,
   "license": "MIT",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#0b101b",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mllcarvalho/ai-chat-portal.git"
+  },
+  "keywords": [
+    "copilot",
+    "chat",
+    "ai",
+    "agent",
+    "mcp",
+    "bmad"
+  ],
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -38,7 +55,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "package": "vsce package --no-dependencies"
   },
   "dependencies": {
     "@aiportal/shared": "*",

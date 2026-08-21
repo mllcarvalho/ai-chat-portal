@@ -79,11 +79,13 @@ No modo dev, pegue a URL com token pelo comando do VS Code **"BMAD Product Studi
 
 ```bash
 # 1. suba a "version" em extension/package.json (ex.: 0.2.0 → 0.3.0)
-# 2. publique (precisa de npm login, uma vez só):
+# 2. publique (precisa de npm login e vsce login aichatportal, uma vez só):
 npm run release
 ```
 
-O `release.mjs` builda tudo, gera o `.vsix`, embute no pacote `installer/` (sincronizando a versão) e publica no npm. Quem usa pega a nova versão com `npx bmad-product-studio@latest`.
+O `release.mjs` builda tudo, gera o `.vsix`, publica a extensão no [VS Code Marketplace](https://marketplace.visualstudio.com/manage/publishers/aichatportal), embute o `.vsix` no pacote `installer/` (sincronizando a versão) e publica no npm. Quem usa pega a nova versão com `npx bmad-product-studio@latest` — e quem instalou pelo Marketplace recebe a atualização automaticamente pelo próprio VS Code.
+
+> O instalador npx tenta o Marketplace primeiro (`code --install-extension aichatportal.ai-chat-portal-extension`) e só usa o `.vsix` embutido como fallback — ambientes corporativos que bloqueiam extensões locais continuam funcionando.
 
 ## Solução de problemas
 
