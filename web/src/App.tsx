@@ -17,7 +17,7 @@ import { McpServersPage } from './components/pages/McpServersPage';
 import { KnowledgePage } from './components/pages/KnowledgePage';
 import { BmadDocPage } from './components/pages/BmadDocPage';
 import { NewProjectModal } from './components/panels/NewProjectModal';
-import { SettingsModal } from './components/settings/SettingsModal';
+import { SettingsPage } from './components/pages/SettingsPage';
 import { Toasts } from './components/common/Toasts';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { EnvBanner } from './components/layout/EnvBanner';
@@ -98,7 +98,6 @@ export function App() {
         <Sidebar />
         <MainArea />
         {panel.kind === 'newProject' && <NewProjectModal />}
-        {panel.kind === 'settings' && <SettingsModal />}
         <ConfirmDialog />
         <Toasts />
       </div>
@@ -121,6 +120,7 @@ function MainArea() {
       {view === 'bmadDoc' && <BmadDocPage />}
       {view === 'diagnostics' && <DiagnosticsPage />}
       {view === 'board' && <BoardView />}
+      {view === 'settings' && <SettingsPage />}
       {view === 'chat' &&
         (current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />)}
     </main>

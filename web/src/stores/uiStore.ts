@@ -10,13 +10,13 @@ export type MainView =
   | 'knowledge'
   | 'bmadDoc'
   | 'diagnostics'
-  | 'board';
+  | 'board'
+  | 'settings';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =
   | { kind: 'none' }
   | { kind: 'files' }
-  | { kind: 'settings' }
   | { kind: 'newProject' };
 
 interface Toast {

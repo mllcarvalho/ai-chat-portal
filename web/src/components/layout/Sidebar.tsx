@@ -170,7 +170,7 @@ export function Sidebar() {
         <button
           className="sidebar__rail-btn"
           title="Configurações"
-          onClick={() => openPanel({ kind: 'settings' })}
+          onClick={() => setView('settings')}
         >
           <Settings className="icon" aria-hidden style={{ color: '#64748b' }} />
         </button>
@@ -337,7 +337,7 @@ export function Sidebar() {
                 {item.icon} {item.label}
               </button>
             ))}
-            <button className="sidebar__footer-btn" onClick={() => openPanel({ kind: 'settings' })}>
+            <button className="sidebar__footer-btn" onClick={() => setView('settings')}>
               <Settings className="icon" aria-hidden style={{ color: '#64748b' }} /> Configurações
             </button>
           </>
