@@ -2,7 +2,7 @@
   "name": "ai-chat-portal-extension",
   "displayName": "BMAD Product Studio",
   "description": "Chat com os modelos do GitHub Copilot direto do navegador — projetos, sessões, skills, agentes, bases de conhecimento e MCPs, 100% local",
-  "version": "0.4.14",
+  "version": "0.5.0",
   "publisher": "aichatportal",
   "author": "Matheus Llobregat (https://github.com/mllcarvalho)",
   "private": true,
