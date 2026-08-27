@@ -7,7 +7,7 @@ import {
   deleteSession,
   getSession,
   listSessions,
-  saveSession,
+  updateSession,
 } from '../../storage/sessionStore';
 import { revertCheckpoint } from '../../storage/checkpointStore';
 import { sessionExportFileName, sessionToMarkdown } from '../../storage/sessionMarkdown';
@@ -84,11 +84,6 @@ export function registerSessionRoutes(router: Router): void {
   });
 
   router.patch('/api/sessions/:id', ({ res, params, body }) => {
-    const session = getSession(params.id);
-    if (!session) {
-      sendError(res, 404, 'Sessão não encontrada');
-      return;
-    }
     const patch = (body ?? {}) as Partial<
       Pick<
         Session,
@@ -106,28 +101,36 @@ export function registerSessionRoutes(router: Router): void {
       sendError(res, 400, 'Modo inválido (use ask, plan ou agent)');
       return;
     }
-    if (patch.title !== undefined) session.title = String(patch.title) || session.title;
-    if (patch.modelId !== undefined) session.modelId = patch.modelId || undefined;
-    if (patch.agentId !== undefined) session.agentId = patch.agentId || undefined;
-    if (patch.mode !== undefined) session.mode = patch.mode;
-    if (patch.provider !== undefined && PROVIDERS.includes(patch.provider)) {
-      // trocar de provider abandona o histórico do lado da CLI antiga: o id
-      // de lá não vale nada para o novo backend
-      if (patch.provider !== session.provider) session.providerSessionId = undefined;
-      session.provider = patch.provider;
+    // releitura + mutação + gravação no MESMO tick (updateSession): um patch
+    // de metadados nunca regrava um `messages` velho por cima do que uma
+    // geração concorrente (ou outra pessoa, no modo colaboração) persistiu
+    const session = updateSession(params.id, (s) => {
+      if (patch.title !== undefined) s.title = String(patch.title) || s.title;
+      if (patch.modelId !== undefined) s.modelId = patch.modelId || undefined;
+      if (patch.agentId !== undefined) s.agentId = patch.agentId || undefined;
+      if (patch.mode !== undefined) s.mode = patch.mode;
+      if (patch.provider !== undefined && PROVIDERS.includes(patch.provider)) {
+        // trocar de provider abandona o histórico do lado da CLI antiga: o id
+        // de lá não vale nada para o novo backend
+        if (patch.provider !== s.provider) s.providerSessionId = undefined;
+        s.provider = patch.provider;
+      }
+      if (patch.activeSkillIds !== undefined) {
+        s.activeSkillIds = Array.isArray(patch.activeSkillIds) ? patch.activeSkillIds : [];
+      }
+      if (patch.enabledTools !== undefined) {
+        s.enabledTools = Array.isArray(patch.enabledTools) ? patch.enabledTools : null;
+      }
+      if (patch.contextFiles !== undefined) {
+        s.contextFiles = Array.isArray(patch.contextFiles)
+          ? patch.contextFiles.filter((p): p is string => typeof p === 'string')
+          : [];
+      }
+    });
+    if (!session) {
+      sendError(res, 404, 'Sessão não encontrada');
+      return;
     }
-    if (patch.activeSkillIds !== undefined) {
-      session.activeSkillIds = Array.isArray(patch.activeSkillIds) ? patch.activeSkillIds : [];
-    }
-    if (patch.enabledTools !== undefined) {
-      session.enabledTools = Array.isArray(patch.enabledTools) ? patch.enabledTools : null;
-    }
-    if (patch.contextFiles !== undefined) {
-      session.contextFiles = Array.isArray(patch.contextFiles)
-        ? patch.contextFiles.filter((p): p is string => typeof p === 'string')
-        : [];
-    }
-    saveSession(session);
     sendJson(res, 200, session);
   });
 

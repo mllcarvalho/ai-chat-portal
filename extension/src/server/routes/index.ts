@@ -20,6 +20,9 @@ import { registerEditorRoutes } from './editor';
 import { registerShareRoutes } from './share';
 import { registerDiagnosticsRoutes } from './diagnostics';
 import { registerCheckpointRoutes } from './checkpoints';
+import { registerEventRoutes } from './events';
+import { registerCollabRoutes } from './collab';
+import { registerBoardRoutes } from './board';
 
 export interface RouteDeps {
   context: vscode.ExtensionContext;
@@ -28,6 +31,10 @@ export interface RouteDeps {
   buildId: number;
   /** Encerra o servidor desta janela (chamado quando outra janela assume o portal). */
   requestShutdown: () => void;
+  /** Porta em que o servidor está escutando agora (0 = ainda não subiu). */
+  getPort: () => number;
+  /** Religa o servidor com a config atual (ligar/desligar o modo colaboração muda o bind). */
+  requestRestart: () => Promise<void>;
 }
 
 export function buildRouter(deps: RouteDeps): Router {
@@ -52,5 +59,8 @@ export function buildRouter(deps: RouteDeps): Router {
   registerShareRoutes(router);
   registerDiagnosticsRoutes(router, deps);
   registerCheckpointRoutes(router);
+  registerEventRoutes(router);
+  registerCollabRoutes(router, deps);
+  registerBoardRoutes(router);
   return router;
 }

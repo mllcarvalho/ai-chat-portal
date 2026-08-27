@@ -7,7 +7,7 @@ import { startServer } from './server/httpServer';
 import { buildRouter } from './server/routes/index';
 import { setExtensionContext } from './extensionContext';
 import { registerBmadAssets, startBmadInstall } from './storage/bmadStore';
-import { loadConfig } from './storage/configStore';
+import { getConfig, loadConfig } from './storage/configStore';
 import { setSecretStore } from './storage/mcpProxyStore';
 import { getPortalRoot, initPortalRoot, isBmadInstalled } from './storage/paths';
 import { cleanOrphanWorkspaces } from './storage/sessionStore';
@@ -172,7 +172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // melhor-esforço; o painel BMAD re-registra na primeira consulta
     }
   });
-  const config = loadConfig();
+  loadConfig();
   const version = (context.extension.packageJSON as { version: string }).version;
 
   // SecretStorage do VS Code guarda os client_secret dos proxies MCP (cifrado em repouso)
@@ -182,11 +182,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const buildId = computeBuildId(context);
   // chamado pela rota /api/shutdown quando outra janela assume o portal
   const shutdownRef = { close: () => {} };
+  const currentPort = { value: 0 };
   const router = buildRouter({
     context,
     version,
     buildId,
     requestShutdown: () => shutdownRef.close(),
+    getPort: () => currentPort.value,
+    // ligar/desligar o modo colaboração muda o bind do servidor: derruba e
+    // sobe de novo com a config atual (a espera dá tempo do close drenar)
+    requestRestart: async () => {
+      shutdownRef.close();
+      await new Promise((r) => setTimeout(r, 300));
+      await tryBecomeServer();
+    },
   });
   const mediaDir = path.join(context.extensionPath, 'media');
 
@@ -194,8 +203,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tryBecomeServer = async (): Promise<void> => {
     if (serving) return;
     serving = true;
+    // getConfig() e não o `config` da ativação: patchConfig troca o objeto
+    // cacheado, e o restart do modo colaboração precisa ler o valor novo
+    const freshConfig = getConfig();
     const result = await startServer(router, {
-      config,
+      config: freshConfig,
       version,
       buildId,
       hasPortalRoot: !!getPortalRoot(),
@@ -205,8 +217,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       serving = false;
       return;
     }
-    portalUrl = buildPortalUrl(result.port, config.token);
-    writeRuntime(result.port, config.token, version);
+    currentPort.value = result.port;
+    portalUrl = buildPortalUrl(result.port, freshConfig.token);
+    writeRuntime(result.port, freshConfig.token, version);
     // MCPs sobem SÓ na janela que serve o portal: cada janela subindo os
     // próprios stdio duplicava todos os processos. Antes de religar, importa
     // proxy/CA do shell de login (o host da extensão via GUI não herda).

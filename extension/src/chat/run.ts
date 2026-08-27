@@ -6,6 +6,7 @@ import {
   type ChatErrorCode,
   type ChatFinishReason,
   type ChatMessage,
+  type MessageAuthor,
   type MessagePart,
   type Project,
   type Session,
@@ -32,6 +33,8 @@ export interface ChatRunArgs {
   userMessageId?: string;
   requestId: string;
   sse: ChatStream;
+  /** Quem enviou (modo colaboração): a mensagem do usuário sai assinada. */
+  author?: MessageAuthor;
 }
 
 /**
@@ -57,6 +60,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
         ? args.userMessageId
         : crypto.randomUUID(),
     role: 'user',
+    ...(args.author ? { author: args.author } : {}),
     parts: userParts,
     createdAt: new Date().toISOString(),
   };

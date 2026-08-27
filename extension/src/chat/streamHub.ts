@@ -93,6 +93,11 @@ export function activeStream(sessionId: string): ChatStream | undefined {
   return stream && !stream.closed && !stream.generationDone ? stream : undefined;
 }
 
+/** Stream (mesmo pós-done) de um requestId — atribuição de aprovações/perguntas. */
+export function streamByRequest(requestId: string): ChatStream | undefined {
+  return [...bySession.values()].find((s) => s.requestId === requestId && !s.closed);
+}
+
 /** Sessões com geração em andamento — usado no boot da SPA para retomar todas. */
 export function activeSessionIds(): string[] {
   return [...bySession.values()]

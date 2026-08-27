@@ -9,7 +9,8 @@ export type MainView =
   | 'mcps'
   | 'knowledge'
   | 'bmadDoc'
-  | 'diagnostics';
+  | 'diagnostics'
+  | 'board';
 
 /** Sobreposições leves que continuam como modal/drawer. */
 export type PanelKind =

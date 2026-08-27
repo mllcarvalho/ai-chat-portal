@@ -44,6 +44,19 @@ interface SessionsState {
   refreshSummary: (summary: SessionSummary) => void;
   /** Título otimista na sidebar ao enviar a 1ª mensagem (o servidor grava o mesmo). */
   applyLocalTitle: (id: string, projectId: string | undefined, title: string) => void;
+  /**
+   * Evento "sessão mudou" vindo do canal global (outra aba/pessoa): insere ou
+   * atualiza o resumo nas listas da sidebar, sem refetch.
+   */
+  applyRemoteSummary: (summary: SessionSummary) => void;
+  /** Evento "sessão excluída" vindo do canal global. */
+  removeRemoteSession: (sessionId: string, projectId: string | null) => void;
+  /**
+   * Substitui a conversa aberta pelo estado do servidor (mudou por fora desta
+   * aba). O `guard` roda DEPOIS do fetch: se um envio começou nesse meio
+   * tempo, a troca é abortada para não engolir a mensagem otimista.
+   */
+  reloadCurrentFromServer: (id: string, guard?: () => boolean) => Promise<void>;
 }
 
 export const useSessions = create<SessionsState>((set, get) => ({
@@ -218,5 +231,51 @@ export const useSessions = create<SessionsState>((set, get) => ({
     } else {
       set({ standalone: patch(standalone) });
     }
+  },
+
+  applyRemoteSummary: (summary) => {
+    const { current, standalone, byProject } = get();
+    const upsert = (list: SessionSummary[]) =>
+      [summary, ...list.filter((s) => s.id !== summary.id)].sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt),
+      );
+    if (summary.projectId) {
+      // só atualiza projetos já carregados: os demais buscam ao expandir
+      if (byProject[summary.projectId]) {
+        set({
+          byProject: { ...byProject, [summary.projectId]: upsert(byProject[summary.projectId]) },
+        });
+      }
+    } else {
+      set({ standalone: upsert(standalone) });
+    }
+    if (current?.id === summary.id && current.title !== summary.title) {
+      set({ current: { ...current, title: summary.title } });
+    }
+  },
+
+  removeRemoteSession: (sessionId, projectId) => {
+    const { current, standalone, byProject } = get();
+    const without = (list: SessionSummary[]) => list.filter((s) => s.id !== sessionId);
+    if (projectId) {
+      if (byProject[projectId]) {
+        set({ byProject: { ...byProject, [projectId]: without(byProject[projectId]) } });
+      }
+    } else {
+      set({ standalone: without(standalone) });
+    }
+    if (current?.id === sessionId) set({ current: undefined });
+  },
+
+  reloadCurrentFromServer: async (id, guard) => {
+    if (get().current?.id !== id) return;
+    let fresh: Session;
+    try {
+      fresh = await api.getSession(id);
+    } catch {
+      return; // transitório; o próximo evento tenta de novo
+    }
+    // a pessoa pode ter trocado de conversa (ou começado a gerar) durante o fetch
+    if (get().current?.id === id && (guard?.() ?? true)) set({ current: fresh });
   },
 }));

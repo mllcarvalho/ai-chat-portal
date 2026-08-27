@@ -88,7 +88,122 @@ export interface Config {
    * abria no navegador errado.
    */
   captureBrowser?: 'Chrome' | 'Edge' | 'Brave';
+  /** Modo colaboração (multiplayer): servidor na rede local + convidados. */
+  collab?: CollabConfig;
 }
+
+/**
+ * Colaboração em tempo real ("modo host"): com `enabled`, o servidor passa a
+ * escutar também na rede local (0.0.0.0) e aceita convidados — cada um com um
+ * token individual, revogável, que identifica a pessoa em tudo que ela faz.
+ * Ligar/desligar exige religar o servidor (o bind muda), o que a rota
+ * PATCH /api/collab faz sozinha.
+ */
+export interface CollabConfig {
+  enabled: boolean;
+  /** Nome exibido do dono da máquina nas sessões compartilhadas (default: conta GitHub). */
+  hostName?: string;
+  guests: CollabGuest[];
+}
+
+/** Convite individual: o token identifica a pessoa (nome, cor) e é revogável. */
+export interface CollabGuest {
+  id: string;
+  name: string;
+  /** Token de acesso individual (vai na URL de convite). */
+  token: string;
+  /** Cor estável da pessoa (presença, cursor, autor de mensagem). */
+  color: string;
+  /** Convite revogado: o token deixa de valer, o registro fica para histórico. */
+  revoked?: boolean;
+  createdAt: string;
+}
+
+/** Identidade de quem está falando com a API (derivada do token apresentado). */
+export interface CollabIdentity {
+  role: 'host' | 'guest';
+  /** Id do convite (só convidados). */
+  guestId?: string;
+  name: string;
+  color: string;
+}
+
+/** Uma pessoa conectada ao portal agora (uma entrada por aba conectada ao /api/events). */
+export interface CollabPeer {
+  /** Id da aba/conexão (gerado no cliente). */
+  clientId: string;
+  name: string;
+  role: 'host' | 'guest';
+  color: string;
+  /** O que a pessoa está olhando (para presença por conversa/quadro). */
+  viewing?: { sessionId?: string; projectId?: string; board?: boolean };
+  connectedAt: string;
+}
+
+/** Convite na visão do host (GET /api/collab) — inclui a URL pronta de entrada. */
+export interface CollabGuestInfo extends CollabGuest {
+  /** URLs de convite (uma por endereço de rede da máquina). */
+  joinUrls: string[];
+  online: boolean;
+}
+
+/** Estado da colaboração para a tela de configurações (host). */
+export interface CollabStatus {
+  enabled: boolean;
+  hostName: string;
+  /** Endereços do portal na rede local (vazio quando desligado). */
+  lanUrls: string[];
+  port: number;
+  guests: CollabGuestInfo[];
+  online: CollabPeer[];
+}
+
+// ---------------------------------------------------------------------------
+// Quadro colaborativo (canvas de post-its por projeto)
+// ---------------------------------------------------------------------------
+
+/** Cores de post-it (classes CSS ficam por conta da UI). */
+export type BoardNoteColor = 'yellow' | 'orange' | 'blue' | 'green' | 'pink' | 'purple';
+
+export interface BoardNote {
+  id: string;
+  /** Posição no canvas (coordenadas do mundo, não da tela). */
+  x: number;
+  y: number;
+  /** Largura; a altura acompanha o conteúdo. */
+  w: number;
+  color: BoardNoteColor;
+  text: string;
+  author?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BoardComment {
+  id: string;
+  noteId: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}
+
+/**
+ * Estado do quadro de um projeto. Sincronização por operações: o cliente
+ * aplica otimista, envia o lote em POST /board/ops e recebe as operações dos
+ * outros pelo canal de eventos; `revision` detecta lacunas (aí refaz o GET).
+ */
+export interface BoardState {
+  revision: number;
+  notes: BoardNote[];
+  comments: BoardComment[];
+  updatedAt: string;
+}
+
+export type BoardOp =
+  | { type: 'note_upsert'; note: BoardNote }
+  | { type: 'note_delete'; id: string }
+  | { type: 'comment_add'; comment: BoardComment }
+  | { type: 'comment_delete'; id: string };
 
 /**
  * Biblioteca compartilhada: uma pasta (normalmente de rede, \\servidor\equipe\…)
@@ -274,9 +389,22 @@ export interface TokenUsage {
 
 export type ChatFinishReason = 'stop' | 'cancelled' | 'max_rounds' | 'error';
 
+/**
+ * Quem escreveu a mensagem numa sessão compartilhada (modo colaboração).
+ * Ausente = conversa single-player de antes do multiplayer (trate como o host).
+ */
+export interface MessageAuthor {
+  name: string;
+  role: 'host' | 'guest';
+  /** Cor estável da pessoa (avatar/cursor) — herdada do convite. */
+  color?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
+  /** Autor humano da mensagem (mensagens user em sessão compartilhada). */
+  author?: MessageAuthor;
   parts: MessagePart[];
   /** Modelo que gerou a resposta (mensagens assistant). */
   modelId?: string;

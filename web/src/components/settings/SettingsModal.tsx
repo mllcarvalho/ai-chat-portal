@@ -1,8 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, Users } from 'lucide-react';
 import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useCatalog } from '../../stores/catalogStore';
+import { useCollab } from '../../stores/collabStore';
 import { useUi } from '../../stores/uiStore';
 import { AgentIcon } from '../common/AgentIcon';
 import { Modal } from '../common/Modal';
@@ -52,6 +53,208 @@ function ProxyInput(props: {
   );
 }
 
+/**
+ * Modo colaboração (multiplayer): liga o servidor na rede local e gerencia os
+ * convites. Só o host vê esta seção — cada convidado entra com um link+token
+ * individual e revogável.
+ */
+function CollabSection() {
+  const toast = useUi((s) => s.toast);
+  const confirm = useUi((s) => s.confirm);
+  const status = useCollab((s) => s.status);
+  const loadStatus = useCollab((s) => s.loadStatus);
+  const [guestName, setGuestName] = useState('');
+  const [hostName, setHostName] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [copiedId, setCopiedId] = useState<string>();
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  if (!status) return null;
+
+  const toggle = async () => {
+    const enabling = !status.enabled;
+    if (enabling) {
+      const ok = await confirm({
+        title: 'Ligar o modo colaboração?',
+        message:
+          'O portal passa a aceitar conexões da sua rede local (quem tiver um link de convite entra direto no navegador, sem instalar nada). O servidor religa agora — uma resposta em geração é interrompida.',
+        confirmLabel: 'Ligar',
+      });
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      await api.patchCollab({ enabled: enabling });
+      toast(
+        enabling
+          ? 'Modo colaboração ligado — o servidor está religando…'
+          : 'Modo colaboração desligado — o servidor está religando…',
+        'ok',
+      );
+      // o servidor cai e volta em ~1s; recarrega o status quando voltar
+      setTimeout(() => void loadStatus(), 2500);
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveHostName = async () => {
+    if (hostName === undefined || hostName.trim() === status.hostName) return;
+    try {
+      await api.patchCollab({ hostName: hostName.trim() });
+      await loadStatus();
+      toast('Seu nome nas sessões compartilhadas foi salvo.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  const invite = async () => {
+    const name = guestName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      await api.addCollabGuest(name);
+      setGuestName('');
+      await loadStatus();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyLink = (id: string, url: string) => {
+    void navigator.clipboard.writeText(url).then(
+      () => {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(undefined), 2000);
+      },
+      () => toast('Não foi possível copiar o link.', 'error'),
+    );
+  };
+
+  const revoke = async (id: string, name: string, purge: boolean) => {
+    const ok = await confirm({
+      title: purge ? 'Excluir convite' : 'Revogar convite',
+      message: purge
+        ? `Excluir de vez o convite de ${name}?`
+        : `Revogar o acesso de ${name}? O link deixa de funcionar na hora.`,
+      confirmLabel: purge ? 'Excluir' : 'Revogar',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.revokeCollabGuest(id, purge);
+      await loadStatus();
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
+
+  return (
+    <div className="field">
+      <label>
+        <Users className="icon icon--sm" aria-hidden /> Colaboração (multiplayer)
+      </label>
+      <span className="field__note">
+        Trabalhe com o squad na mesma sessão: com o modo ligado, quem tiver um link de convite
+        abre este portal no navegador pela rede local — chat, aprovações e quadro em tempo real.
+        A IA continua rodando só aqui, na sua licença.
+      </span>
+      <label className="check-row">
+        <input type="checkbox" checked={status.enabled} disabled={busy} onChange={() => void toggle()} />
+        Aceitar convidados pela rede local
+      </label>
+
+      {status.enabled && (
+        <>
+          {status.lanUrls.length > 0 ? (
+            <span className="field__hint">
+              Portal na rede: {status.lanUrls.join(' · ')} — mande o link de convite (abaixo), que
+              já entra autenticado.
+            </span>
+          ) : (
+            <span className="field__hint">
+              Nenhum endereço de rede local detectado (sem Wi-Fi/cabo?).
+            </span>
+          )}
+
+          <input
+            style={{ marginTop: 6 }}
+            value={hostName ?? status.hostName}
+            onChange={(e) => setHostName(e.target.value)}
+            onBlur={() => void saveHostName()}
+            placeholder="Seu nome nas sessões compartilhadas"
+            aria-label="Seu nome nas sessões compartilhadas"
+          />
+
+          {status.guests.map((guest) => (
+            <div key={guest.id} className="collab-guest">
+              <span className="collab-dot" style={{ background: guest.color }} />
+              <span className="collab-guest__name">
+                {guest.name}
+                {guest.revoked ? ' · revogado' : guest.online ? ' · online' : ''}
+              </span>
+              {!guest.revoked && guest.joinUrls[0] && (
+                <button
+                  className="btn btn--sm"
+                  onClick={() => copyLink(guest.id, guest.joinUrls[0])}
+                  title={guest.joinUrls[0]}
+                >
+                  {copiedId === guest.id ? (
+                    <>
+                      <Check className="icon icon--sm" aria-hidden /> copiado
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="icon icon--sm" aria-hidden /> link de convite
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                className="btn btn--sm btn--ghost"
+                onClick={() => void revoke(guest.id, guest.name, !!guest.revoked)}
+              >
+                {guest.revoked ? 'Excluir' : 'Revogar'}
+              </button>
+            </div>
+          ))}
+
+          <div className="collab-invite">
+            <input
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void invite();
+              }}
+              placeholder="Nome de quem você quer convidar"
+            />
+            <button className="btn" disabled={busy || !guestName.trim()} onClick={() => void invite()}>
+              Convidar
+            </button>
+          </div>
+
+          {status.online.length > 0 && (
+            <span className="field__hint">
+              Online agora:{' '}
+              {status.online
+                .map((p) => `${p.name}${p.role === 'host' ? ' (host)' : ''}`)
+                .join(', ')}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SettingsModal() {
   const health = useCatalog((s) => s.health);
   const me = useCatalog((s) => s.me);
@@ -70,17 +273,23 @@ export function SettingsModal() {
   const libraries = useCatalog((s) => s.libraries);
   const loadLibraries = useCatalog((s) => s.loadLibraries);
   const [savingLibs, setSavingLibs] = useState(false);
+  // convidado (modo colaboração): a config é da MÁQUINA DO HOST — nem busca
+  const isGuest = useCollab((s) => s.identity?.role === 'guest');
 
   useEffect(() => {
-    void api.getConfig().then((c) => {
-      setConfig(c);
-      setProjectsRoot(c.projectsRoot);
-      setHttpsProxy(c.network?.httpsProxy ?? '');
-      setHttpProxy(c.network?.httpProxy ?? '');
-      setNoProxy(c.network?.noProxy ?? '');
-      setExtraCaCerts(c.network?.extraCaCerts ?? '');
-    });
-  }, []);
+    if (isGuest) return;
+    void api
+      .getConfig()
+      .then((c) => {
+        setConfig(c);
+        setProjectsRoot(c.projectsRoot);
+        setHttpsProxy(c.network?.httpsProxy ?? '');
+        setHttpProxy(c.network?.httpProxy ?? '');
+        setNoProxy(c.network?.noProxy ?? '');
+        setExtraCaCerts(c.network?.extraCaCerts ?? '');
+      })
+      .catch(() => undefined);
+  }, [isGuest]);
 
   const save = async () => {
     if (!projectsRoot.trim() || projectsRoot === config?.projectsRoot) return;
@@ -186,13 +395,17 @@ export function SettingsModal() {
 
   return (
     <Modal title="Configurações">
-      <div className="field">
-        <label>Pasta raiz dos projetos</label>
-        <input value={projectsRoot} onChange={(e) => setProjectsRoot(e.target.value)} />
-        <button className="btn" style={{ alignSelf: 'flex-start', marginTop: 6 }} onClick={() => void save()}>
-          Salvar
-        </button>
-      </div>
+      {!isGuest && (
+        <div className="field">
+          <label>Pasta raiz dos projetos</label>
+          <input value={projectsRoot} onChange={(e) => setProjectsRoot(e.target.value)} />
+          <button className="btn" style={{ alignSelf: 'flex-start', marginTop: 6 }} onClick={() => void save()}>
+            Salvar
+          </button>
+        </div>
+      )}
+
+      {!isGuest && <CollabSection />}
 
       <div className="field">
         <label>Chat</label>
@@ -212,7 +425,7 @@ export function SettingsModal() {
         </span>
       </div>
 
-      {bmadAgents.length > 0 && (
+      {!isGuest && bmadAgents.length > 0 && (
         <div className="field">
           <label>Agentes BMAD</label>
           <span className="field__note">
@@ -235,6 +448,7 @@ export function SettingsModal() {
         </div>
       )}
 
+      {!isGuest && (
       <div className="field">
         <label>Bibliotecas compartilhadas</label>
         <span className="field__note">
@@ -280,8 +494,9 @@ export function SettingsModal() {
           Adicionar pasta compartilhada…
         </button>
       </div>
+      )}
 
-      {(config?.commandAllowlist?.length ?? 0) > 0 && (
+      {!isGuest && (config?.commandAllowlist?.length ?? 0) > 0 && (
         <div className="field">
           <label>Comandos sempre permitidos</label>
           <span className="field__note">
@@ -313,6 +528,7 @@ export function SettingsModal() {
         </div>
       )}
 
+      {!isGuest && (
       <div className="field">
         <label>Rede corporativa (proxy)</label>
         <span className="field__note">
@@ -352,11 +568,14 @@ export function SettingsModal() {
           {savingNet ? 'Salvando…' : 'Salvar rede'}
         </button>
       </div>
+      )}
 
-      <div className="field">
-        <label>Conta</label>
-        <span>{me ? `${me.login} (GitHub via VS Code)` : 'não conectada'}</span>
-      </div>
+      {!isGuest && (
+        <div className="field">
+          <label>Conta</label>
+          <span>{me ? `${me.login} (GitHub via VS Code)` : 'não conectada'}</span>
+        </div>
+      )}
 
       <div className="field">
         <label>Status</label>

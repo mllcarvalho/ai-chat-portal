@@ -33,9 +33,33 @@ import type {
   ToolInfo,
   VsCodeAgent,
 } from '@aiportal/shared';
-import { DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
+import type {
+  BoardOp,
+  BoardState,
+  CollabIdentity,
+  CollabStatus,
+} from '@aiportal/shared';
+import { CLIENT_HEADER, DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 
 const TOKEN_KEY = 'aiportal.token';
+const CLIENT_ID_KEY = 'aiportal.clientId';
+
+/**
+ * Id desta ABA (sessionStorage): identifica a conexão no /api/events e marca a
+ * origem das mutações — a aba que causou um evento ignora o próprio eco.
+ */
+export const clientId: string = (() => {
+  try {
+    let id = sessionStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      sessionStorage.setItem(CLIENT_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+})();
 
 /** Config de proxy MCP enviada ao backend (clientSecret só vai, nunca volta). */
 export type McpProxyInput = McpProxyConfig & { clientSecret?: string };
@@ -67,6 +91,9 @@ async function maybeFailover(): Promise<void> {
   const now = Date.now();
   if (now - lastFailoverProbe < 15000) return;
   lastFailoverProbe = now;
+  // convidados entram pelo IP da LAN do host: a sondagem procura o portal no
+  // MESMO endereço em que a página foi servida, não em 127.0.0.1 fixo
+  const host = location.hostname || '127.0.0.1';
   const ports: number[] = [];
   for (let port = DEFAULT_PORT; port <= DEFAULT_PORT + PORT_RANGE; port++) {
     if (String(port) !== location.port) ports.push(port);
@@ -75,7 +102,7 @@ async function maybeFailover(): Promise<void> {
   const results = await Promise.all(
     ports.map(async (port) => {
       try {
-        const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+        const res = await fetch(`http://${host}:${port}/api/health`, {
           signal: AbortSignal.timeout(1500),
         });
         if (!res.ok) return undefined;
@@ -88,7 +115,7 @@ async function maybeFailover(): Promise<void> {
   );
   const port = results.find((p) => p !== undefined);
   if (port !== undefined) {
-    location.replace(`http://127.0.0.1:${port}/?token=${encodeURIComponent(getToken())}`);
+    location.replace(`http://${host}:${port}/?token=${encodeURIComponent(getToken())}`);
   }
 }
 
@@ -119,6 +146,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
       method,
       headers: {
         [TOKEN_HEADER]: getToken(),
+        [CLIENT_HEADER]: clientId,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -527,6 +555,25 @@ export const api = {
 
   /** Hash das pastas compartilhadas por tipo — muda quando outra pessoa mexe. */
   sharedRevision: () => request<SharedRevision>('GET', '/api/shared-libraries/revision'),
+  // colaboração (multiplayer)
+  collabMe: () => request<CollabIdentity>('GET', '/api/collab/me'),
+  collabStatus: () => request<CollabStatus>('GET', '/api/collab'),
+  patchCollab: (patch: { enabled?: boolean; hostName?: string }) =>
+    request<CollabStatus & { restarting?: boolean }>('PATCH', '/api/collab', patch),
+  addCollabGuest: (name: string) =>
+    request<CollabStatus>('POST', '/api/collab/guests', { name }),
+  revokeCollabGuest: (id: string, purge = false) =>
+    request<CollabStatus>('DELETE', `/api/collab/guests/${id}${purge ? '?purge=1' : ''}`),
+  setViewing: (viewing: { sessionId?: string; projectId?: string; board?: boolean }) =>
+    request<{ ok: boolean }>('POST', '/api/events/viewing', { clientId, ...viewing }),
+  sendBoardCursor: (projectId: string, x: number, y: number, active: boolean) =>
+    request<{ ok: boolean }>('POST', '/api/events/cursor', { clientId, projectId, x, y, active }),
+
+  // quadro colaborativo do projeto
+  getBoard: (projectId: string) => request<BoardState>('GET', `/api/projects/${projectId}/board`),
+  postBoardOps: (projectId: string, ops: BoardOp[]) =>
+    request<{ revision: number }>('POST', `/api/projects/${projectId}/board/ops`, { ops }),
+
   getConfig: () => request<Omit<Config, 'token'>>('GET', '/api/config'),
   patchConfig: (patch: {
     projectsRoot?: string;

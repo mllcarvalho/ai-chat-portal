@@ -5,16 +5,24 @@ import { Router, sendError, sendJson } from '../router';
 import { SseStream } from '../sse';
 import { runChat } from '../../chat/run';
 import { cancelRequest } from '../../chat/activeRequests';
-import { ChatStream, activeSessionIds, activeStream, registerStream } from '../../chat/streamHub';
+import {
+  ChatStream,
+  activeSessionIds,
+  activeStream,
+  registerStream,
+  streamByRequest,
+} from '../../chat/streamHub';
 import { resolveApproval } from '../../chat/approvals';
 import { resolveQuestion } from '../../chat/questions';
+import { emitBus } from '../../events/bus';
+import { collabEnabled } from '../../storage/collabStore';
 import { getConfig, patchConfig } from '../../storage/configStore';
 import { getSession } from '../../storage/sessionStore';
 
 const MAX_ATTACHMENT_CHARS = UPLOAD_LIMITS.chatAttachmentChars;
 
 export function registerChatRoutes(router: Router): void {
-  router.post('/api/chat', async ({ res, body }) => {
+  router.post('/api/chat', async ({ res, body, auth }) => {
     const { sessionId, text, attachments, retryFromMessageId, userMessageId } = (body ?? {}) as
       Partial<ChatRequestBody>;
     const validAttachments = (Array.isArray(attachments) ? attachments : []).filter(
@@ -47,6 +55,8 @@ export function registerChatRoutes(router: Router): void {
     const requestId = crypto.randomUUID();
     const stream = new ChatStream(sessionId, requestId, new SseStream(res));
     registerStream(stream);
+    // as outras abas/pessoas anexam ao stream ao vivo ao saber que começou
+    emitBus('generation_started', { sessionId });
     try {
       await runChat({
         session,
@@ -58,9 +68,14 @@ export function registerChatRoutes(router: Router): void {
         ...(typeof userMessageId === 'string' && userMessageId ? { userMessageId } : {}),
         requestId,
         sse: stream,
+        // sessão compartilhada: a mensagem sai assinada por quem a enviou
+        ...(auth && collabEnabled()
+          ? { author: { name: auth.name, role: auth.role, color: auth.color } }
+          : {}),
       });
     } finally {
       stream.close();
+      emitBus('generation_ended', { sessionId });
     }
   });
 
@@ -102,7 +117,7 @@ export function registerChatRoutes(router: Router): void {
   });
 
   // resposta da UI a um user_question (pergunta do portal_ask_user)
-  router.post('/api/chat/:requestId/question', ({ res, params, body }) => {
+  router.post('/api/chat/:requestId/question', ({ res, params, body, auth }) => {
     const { callId, answer } = (body ?? {}) as { callId?: string; answer?: string };
     if (!callId || typeof answer !== 'string' || !answer.trim()) {
       sendError(res, 400, 'callId e answer são obrigatórios');
@@ -113,11 +128,17 @@ export function registerChatRoutes(router: Router): void {
       sendError(res, 404, 'Esta pergunta expirou ou já foi respondida (talvez em outra aba)');
       return;
     }
+    // sessão compartilhada: todo mundo vê o card — conta quem respondeu
+    if (auth && collabEnabled()) {
+      streamByRequest(params.requestId)?.send('notice', {
+        message: `Pergunta respondida por ${auth.name}.`,
+      });
+    }
     sendJson(res, 200, { ok });
   });
 
   // resposta da UI a um approval_request (comando do portal_run_command)
-  router.post('/api/chat/:requestId/approval', ({ res, params, body }) => {
+  router.post('/api/chat/:requestId/approval', ({ res, params, body, auth }) => {
     const { callId, approved, alwaysAllow } = (body ?? {}) as {
       callId?: string;
       approved?: boolean;
@@ -128,9 +149,10 @@ export function registerChatRoutes(router: Router): void {
       return;
     }
     // "sempre permitir": grava o executável (1º token) na allowlist — as
-    // próximas execuções desse binário pulam a aprovação
+    // próximas execuções desse binário pulam a aprovação. Só o host pode
+    // mudar a allowlist da própria máquina; convidados aprovam caso a caso.
     const bin = typeof alwaysAllow === 'string' ? alwaysAllow.trim() : '';
-    if (approved && bin && !/\s/.test(bin) && bin.length <= 64) {
+    if (approved && bin && auth?.role !== 'guest' && !/\s/.test(bin) && bin.length <= 64) {
       const current = getConfig().commandAllowlist ?? [];
       if (!current.includes(bin)) {
         patchConfig({ commandAllowlist: [...current, bin].slice(0, 100) });
@@ -140,6 +162,12 @@ export function registerChatRoutes(router: Router): void {
     if (!ok) {
       sendError(res, 404, 'Esta aprovação expirou ou já foi respondida (talvez em outra aba)');
       return;
+    }
+    // sessão compartilhada: todo mundo vê o card — conta quem decidiu
+    if (auth && collabEnabled()) {
+      streamByRequest(params.requestId)?.send('notice', {
+        message: `Comando ${approved ? 'aprovado' : 'negado'} por ${auth.name}.`,
+      });
     }
     sendJson(res, 200, { ok });
   });

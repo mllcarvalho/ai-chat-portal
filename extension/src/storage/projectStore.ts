@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Project } from '@aiportal/shared';
 import { getConfig } from './configStore';
+import { emitBus } from '../events/bus';
 import { readJson, writeJsonAtomic } from './jsonStore';
 import { PROJECT_META_DIR, ensureDir } from './paths';
 
@@ -63,6 +64,7 @@ export function createProject(name: string): Project {
   ensureDir(path.join(getConfig().projectsRoot, dirName, PROJECT_META_DIR, 'sessions'));
   ensureDir(path.join(getConfig().projectsRoot, dirName, PROJECT_META_DIR, 'skills'));
   writeJsonAtomic(projectJsonPath(dirName), project);
+  emitBus('projects_changed', {});
   return project;
 }
 
@@ -74,6 +76,7 @@ export function patchProject(
   if (!project) return undefined;
   const updated: Project = { ...project, ...patch, updatedAt: new Date().toISOString() };
   writeJsonAtomic(projectJsonPath(project.dirName), updated);
+  emitBus('projects_changed', {});
   return updated;
 }
 
@@ -92,10 +95,12 @@ export function unregisterProject(id: string): { ok: boolean; trashed: boolean }
     ensureDir(trashDir);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     fs.renameSync(dir, path.join(trashDir, `${project.dirName}-${stamp}`));
+    emitBus('projects_changed', {});
     return { ok: true, trashed: true };
   } catch {
     const metaPath = projectJsonPath(project.dirName);
     fs.renameSync(metaPath, `${metaPath}.removed`);
+    emitBus('projects_changed', {});
     return { ok: true, trashed: false };
   }
 }

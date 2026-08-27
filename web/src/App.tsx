@@ -25,6 +25,8 @@ import { DiagnosticsBanner } from './components/layout/DiagnosticsBanner';
 import { UpdateBanner } from './components/layout/UpdateBanner';
 import { DiagnosticsPage } from './components/pages/DiagnosticsPage';
 import { useDiagnostics } from './stores/diagnosticsStore';
+import { useCollab } from './stores/collabStore';
+import { BoardView } from './components/board/BoardView';
 
 export function App() {
   const health = useCatalog((s) => s.health);
@@ -34,6 +36,7 @@ export function App() {
   const loadSessions = useSessions((s) => s.loadSessions);
   const panel = useUi((s) => s.panel);
   const loggedIn = useUi((s) => s.loggedIn);
+  const identity = useCollab((s) => s.identity);
   const startDiagnostics = useDiagnostics((s) => s.start);
   const [booted, setBooted] = useState(false);
 
@@ -41,7 +44,15 @@ export function App() {
     void (async () => {
       const h = await loadHealth();
       if (h?.ok) {
-        await Promise.all([loadAll(), loadProjects(), loadSessions(null)]);
+        await Promise.all([
+          loadAll(),
+          loadProjects(),
+          loadSessions(null),
+          // identidade antes de renderizar: convidado nunca vê a tela de login
+          useCollab.getState().loadIdentity(),
+        ]);
+        // canal global de eventos: outras abas/pessoas aparecem ao vivo
+        useCollab.getState().connect();
         // diagnóstico do ambiente em background — só interrompe se algo falhar
         void startDiagnostics();
         // retoma gerações que seguiam rodando no servidor (inclusive de
@@ -75,7 +86,8 @@ export function App() {
 
   if (!booted) return null;
   if (!health?.ok) return <OnboardingScreen />;
-  if (!loggedIn) return <LoginScreen />;
+  // o login RACF configura o proxy DA MÁQUINA DO HOST — convidado nem vê
+  if (!loggedIn && identity?.role !== 'guest') return <LoginScreen />;
 
   return (
     <div className="app-root">
@@ -108,6 +120,7 @@ function MainArea() {
       {view === 'knowledge' && <KnowledgePage />}
       {view === 'bmadDoc' && <BmadDocPage />}
       {view === 'diagnostics' && <DiagnosticsPage />}
+      {view === 'board' && <BoardView />}
       {view === 'chat' &&
         (current ? <ChatView /> : viewProjectId ? <ProjectHome /> : <Welcome />)}
     </main>

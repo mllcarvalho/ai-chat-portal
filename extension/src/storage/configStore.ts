@@ -56,6 +56,7 @@ export function patchConfig(
       | 'commandAllowlist'
       | 'sharedLibraries'
       | 'captureBrowser'
+      | 'collab'
     >
   >,
 ): Config {

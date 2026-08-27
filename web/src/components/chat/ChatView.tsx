@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown } from 'lucide-react';
 import { useSessions } from '../../stores/sessionsStore';
 import { useChat } from '../../stores/chatStore';
+import { useCollab } from '../../stores/collabStore';
 import { usePreview } from '../../stores/previewStore';
 import { useUi } from '../../stores/uiStore';
+import { clientId } from '../../api/client';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
@@ -41,6 +43,26 @@ export function ChatView() {
     if (session) void resume(session.id);
   }, [session?.id, resume]);
 
+  // presença: conta ao servidor que esta aba está olhando ESTA conversa
+  const setViewing = useCollab((s) => s.setViewing);
+  useEffect(() => {
+    if (!session?.id) return;
+    setViewing({
+      sessionId: session.id,
+      ...(session.projectId ? { projectId: session.projectId } : {}),
+    });
+    return () => setViewing({});
+  }, [session?.id, session?.projectId, setViewing]);
+
+  const peers = useCollab((s) => s.peers);
+  const viewers = useMemo(
+    () =>
+      session
+        ? peers.filter((p) => p.clientId !== clientId && p.viewing?.sessionId === session.id)
+        : [],
+    [peers, session?.id],
+  );
+
   if (!session) return null;
 
   const lastAssistantId = [...session.messages]
@@ -56,6 +78,19 @@ export function ChatView() {
   return (
     <>
       <ChatHeader />
+      {viewers.length > 0 && (
+        <div className="collab-viewers" title="Pessoas com esta conversa aberta agora">
+          {viewers.map((peer) => (
+            <span key={peer.clientId} className="collab-viewers__person">
+              <span className="collab-dot" style={{ background: peer.color }} />
+              {peer.name}
+            </span>
+          ))}
+          <span className="collab-viewers__label">
+            {viewers.length === 1 ? 'está nesta conversa' : 'estão nesta conversa'}
+          </span>
+        </div>
+      )}
       {/* split do modo preview: o header fica inteiro em cima; abaixo dele,
           chat à esquerda e abas de arquivos à direita */}
       <div className="chat-split">

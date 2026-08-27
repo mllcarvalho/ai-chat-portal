@@ -8,6 +8,7 @@ import {
   type SessionMode,
   type SessionSummary,
 } from '@aiportal/shared';
+import { emitBus } from '../events/bus';
 import { readJson, writeJsonAtomic, deleteFile } from './jsonStore';
 import { PROJECT_META_DIR, sessionWorkspaceDir, sessionWorkspacesDir, sessionsDir } from './paths';
 import { getProject, listProjects, projectDir } from './projectStore';
@@ -90,6 +91,7 @@ export function createSession(init: {
     updatedAt: now,
   };
   writeJsonAtomic(path.join(dir, `${session.id}.json`), session);
+  emitBus('session_changed', { summary: toSummary(session) });
   return session;
 }
 
@@ -98,6 +100,7 @@ export function saveSession(session: Session): void {
   if (!dir) throw new Error(`Projeto da sessão ${session.id} não encontrado`);
   session.updatedAt = new Date().toISOString();
   writeJsonAtomic(path.join(dir, `${session.id}.json`), session);
+  emitBus('session_changed', { summary: toSummary(session) });
 }
 
 /**
@@ -114,13 +117,16 @@ export function updateSession(id: string, mutate: (session: Session) => void): S
   mutate(session);
   session.updatedAt = new Date().toISOString();
   writeJsonAtomic(file, session);
+  emitBus('session_changed', { summary: toSummary(session) });
   return session;
 }
 
 export function deleteSession(id: string): boolean {
   const file = findSessionFile(id);
   if (!file) return false;
+  const session = readJson<Session>(file);
   deleteFile(file);
+  emitBus('session_deleted', { sessionId: id, projectId: session?.projectId ?? null });
   // o workspace é o rascunho da conversa: morre junto com ela
   try {
     fs.rmSync(sessionWorkspaceDir(id), { recursive: true, force: true });

@@ -98,9 +98,24 @@ export const MessageBubble = memo(function MessageBubble(props: {
     const attachments = message.parts.filter(
       (p): p is Extract<MessagePart, { type: 'attachment' }> => p.type === 'attachment',
     );
+    // sessão compartilhada: mensagem assinada por quem enviou (a própria
+    // pessoa também vê o nome — todo mundo lê a mesma conversa igual)
+    const author = message.author;
     return (
       <div className="msg msg--user">
-        <span className="msg__role">Você</span>
+        <span className="msg__role">
+          {author ? (
+            <>
+              <span
+                className="collab-dot"
+                style={{ background: author.color ?? 'var(--accent)' }}
+              />{' '}
+              {author.name}
+            </>
+          ) : (
+            'Você'
+          )}
+        </span>
         <div className="msg__body">
           {text}
           {attachments.length > 0 && (

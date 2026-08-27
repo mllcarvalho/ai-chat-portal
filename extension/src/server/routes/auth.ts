@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { MeInfo } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
+import { setHostAccountLabel } from '../../storage/collabStore';
 import { withTimeout } from '../../util';
 import type { RouteDeps } from './index';
 
@@ -24,6 +25,8 @@ export function registerAuthRoutes(router: Router, deps: RouteDeps): void {
       sendError(res, 404, 'Nenhuma conta GitHub conectada no VS Code');
       return;
     }
+    // vira o nome default do host nas sessões compartilhadas
+    setHostAccountLabel(label);
     const me: MeInfo = {
       login: label,
       label,

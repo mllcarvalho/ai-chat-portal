@@ -6,6 +6,7 @@ import {
   Package,
   Plus,
   RefreshCw,
+  StickyNote,
   TriangleAlert,
 } from 'lucide-react';
 import type { BmadStatus } from '@aiportal/shared';
@@ -268,6 +269,13 @@ export function ProjectHome() {
         <div className="page__actions">
           <button className="btn btn--primary" onClick={() => void newSession(project.id)}>
             <Plus className="icon" aria-hidden /> Nova conversa
+          </button>
+          <button
+            className="btn"
+            onClick={() => setView('board')}
+            title="Canvas compartilhado de post-its do projeto — todo mundo edita junto, ao vivo"
+          >
+            <StickyNote className="icon" aria-hidden /> Quadro do squad
           </button>
           <button className="btn btn--danger" onClick={() => void removeProject()} title="Remover projeto do portal">
             Remover

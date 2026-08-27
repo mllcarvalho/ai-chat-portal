@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import type { Config, HealthInfo } from '@aiportal/shared';
 import { PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { Router, sendError } from './router';
-import { tokenMatches } from './tokenCheck';
+import { getConfig } from '../storage/configStore';
+import { collabEnabled, identityForToken, lanAddresses } from '../storage/collabStore';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -37,11 +38,61 @@ interface ServerOpts {
   mediaDir: string;
 }
 
-function isAllowedOrigin(origin: string, config: Config): boolean {
+/** networkInterfaces a cada request seria desperdício — a lista mal muda. */
+let lanCache: { at: number; addresses: string[] } | undefined;
+function lanAddressesCached(): string[] {
+  if (!lanCache || Date.now() - lanCache.at > 10_000) {
+    lanCache = { at: Date.now(), addresses: lanAddresses() };
+  }
+  return lanCache.addresses;
+}
+
+function isAllowedOrigin(origin: string, config: Config, port: number): boolean {
   // qualquer origem local: o portal pode migrar de porta quando outra janela
   // assume (failover do web); o token continua protegendo a API
   if (/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(origin)) return true;
+  // modo colaboração: a SPA servida pelo IP da LAN é a nossa própria origem
+  if (collabEnabled()) {
+    const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/.exec(origin);
+    if (m && Number(m[2]) === port && lanAddressesCached().includes(m[1])) return true;
+  }
   return (config.devOrigins ?? []).includes(origin);
+}
+
+/**
+ * Anti DNS-rebinding: além do localhost, no modo colaboração o próprio IP da
+ * máquina na LAN também é um Host legítimo (é por ele que o squad entra).
+ * Um domínio de atacante apontado para este IP continua barrado: o header
+ * Host viria com o domínio dele, que nunca casa com a lista.
+ */
+function isAllowedHost(host: string, port: number): boolean {
+  if (host === `127.0.0.1:${port}` || host === `localhost:${port}`) return true;
+  if (!collabEnabled()) return false;
+  const m = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/.exec(host);
+  if (!m || Number(m[2]) !== port) return false;
+  return lanAddressesCached().includes(m[1]);
+}
+
+/**
+ * Rotas que só o HOST pode chamar: tudo que reconfigura a máquina dele (proxy,
+ * MCPs, login RACF, correções de diagnóstico), expõe segredos (config com
+ * senha de proxy embutida) ou espia a tela (contexto do editor). Convidados
+ * usam o resto normalmente — o objetivo do modo colaboração é trabalhar junto,
+ * não administrar a máquina do host.
+ */
+function isHostOnly(method: string, pathname: string): boolean {
+  if (pathname === '/api/collab/me') return false;
+  if (pathname.startsWith('/api/collab')) return true;
+  if (pathname === '/api/shutdown') return true;
+  if (pathname === '/api/config') return true;
+  if (pathname.startsWith('/api/shared-libraries') && method !== 'GET') return true;
+  if (pathname.startsWith('/api/login')) return true;
+  if (pathname === '/api/diagnostics/fix') return true;
+  if (pathname.startsWith('/api/mcp/') && method !== 'GET') return true;
+  if (pathname === '/api/bmad/install') return true;
+  if (pathname === '/api/editor/context') return true;
+  if (pathname.startsWith('/api/share')) return true;
+  return false;
 }
 
 async function serveStatic(
@@ -76,10 +127,13 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
   return async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const port = getPort();
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
+    // opts.config congela o objeto da ativação; patchConfig troca o objeto
+    // cacheado — lê fresco para devOrigins/collab valerem sem reload
+    const config = getConfig();
 
-    // anti DNS-rebinding: só aceita Host local
+    // anti DNS-rebinding: só aceita Host local (ou o IP da LAN no modo colaboração)
     const host = req.headers.host ?? '';
-    if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) {
+    if (!isAllowedHost(host, port)) {
       sendError(res, 403, 'Host não permitido');
       return;
     }
@@ -91,15 +145,26 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
     // bloqueia o fetch direto
     const isCapture = url.pathname === '/api/capture' || url.pathname === '/api/capture/bridge';
 
+    // identidade de quem chama: host (token do config) ou convidado (token
+    // individual). Vale para o CORS abaixo e para as rotas.
+    const token = req.headers[TOKEN_HEADER.toLowerCase()] ?? url.searchParams.get('token') ?? '';
+    const auth = identityForToken(token);
+
     const origin = req.headers.origin;
     if (origin) {
-      if (!isCapture && !isAllowedOrigin(origin, opts.config)) {
+      // o preflight (OPTIONS) não carrega token nem executa nada: responder os
+      // headers de CORS aqui é inofensivo — a request de verdade ainda passa
+      // pelo token. É o que permite a uma aba servida por OUTRO portal (ex.:
+      // federação host↔convidado) falar com este, apresentando o token.
+      const allowed =
+        isCapture || isAllowedOrigin(origin, config, port) || req.method === 'OPTIONS' || !!auth;
+      if (!allowed) {
         sendError(res, 403, 'Origem não permitida');
         return;
       }
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${TOKEN_HEADER}`);
       // Chrome/Edge exigem este header no preflight de sites públicos para
       // 127.0.0.1 (Private Network Access)
@@ -114,14 +179,16 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
     if (url.pathname.startsWith('/api/')) {
       // health é aberto para o setup/onboarding poderem diagnosticar sem token
       if (url.pathname !== '/api/health' && !isCapture) {
-        const token =
-          req.headers[TOKEN_HEADER.toLowerCase()] ?? url.searchParams.get('token') ?? '';
-        if (!tokenMatches(token, opts.config.token)) {
+        if (!auth) {
           sendError(res, 401, 'Token inválido ou ausente');
           return;
         }
+        if (auth.role !== 'host' && isHostOnly(req.method ?? 'GET', url.pathname)) {
+          sendError(res, 403, 'Somente o host do portal pode fazer isso');
+          return;
+        }
       }
-      const handled = await router.dispatch(req, res, url.pathname, url.searchParams);
+      const handled = await router.dispatch(req, res, url.pathname, url.searchParams, auth);
       if (!handled) sendError(res, 404, 'Rota não encontrada');
       return;
     }
@@ -179,14 +246,19 @@ async function requestPeerShutdown(port: number, token: string): Promise<boolean
   }
 }
 
-async function tryListen(server: http.Server, port: number, attempts: number): Promise<boolean> {
+async function tryListen(
+  server: http.Server,
+  port: number,
+  bindHost: string,
+  attempts: number,
+): Promise<boolean> {
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 300));
     try {
       await new Promise<void>((resolve, reject) => {
         const onError = (err: NodeJS.ErrnoException) => reject(err);
         server.once('error', onError);
-        server.listen(port, '127.0.0.1', () => {
+        server.listen(port, bindHost, () => {
           server.removeListener('error', onError);
           resolve();
         });
@@ -209,6 +281,9 @@ export async function startServer(router: Router, opts: ServerOpts): Promise<Por
   let port = opts.config.port;
   const handlerPort = { value: 0 };
   const server = http.createServer(makeHandler(router, opts, () => handlerPort.value));
+  // modo colaboração: escuta em todas as interfaces para o squad entrar pela
+  // LAN. O check de Host + os tokens individuais continuam protegendo tudo.
+  const bindHost = collabEnabled() ? '0.0.0.0' : '127.0.0.1';
 
   for (let attempt = 0; attempt <= PORT_RANGE; attempt++, port++) {
     const peer = await probePortal(port);
@@ -225,9 +300,12 @@ export async function startServer(router: Router, opts: ServerOpts): Promise<Por
       );
       if (!evicting) continue;
     }
-    if (await tryListen(server, port, evicting ? 8 : 1)) {
+    if (await tryListen(server, port, bindHost, evicting ? 8 : 1)) {
       handlerPort.value = port;
-      console.log(`[ai-chat-portal] servidor em http://127.0.0.1:${port}`);
+      console.log(
+        `[ai-chat-portal] servidor em http://127.0.0.1:${port}` +
+          (bindHost === '0.0.0.0' ? ' (modo colaboração: também na rede local)' : ''),
+      );
       return { server, port };
     }
     // a porta foi tomada entre o probe e o listen (outra janela ativando junto):

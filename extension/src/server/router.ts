@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { CollabIdentity } from '@aiportal/shared';
 
 export interface Ctx {
   req: IncomingMessage;
@@ -6,6 +7,11 @@ export interface Ctx {
   params: Record<string, string>;
   query: URLSearchParams;
   body: unknown;
+  /**
+   * Quem apresentou o token desta request: o host ou um convidado (modo
+   * colaboração). Ausente só nas rotas abertas (health/capture).
+   */
+  auth?: CollabIdentity;
 }
 
 export type Handler = (ctx: Ctx) => Promise<void> | void;
@@ -72,6 +78,7 @@ export class Router {
     res: ServerResponse,
     pathname: string,
     query: URLSearchParams,
+    auth?: CollabIdentity,
   ): Promise<boolean> {
     const parts = pathname.split('/').filter(Boolean);
     for (const route of this.routes) {
@@ -99,7 +106,7 @@ export class Router {
         }
       }
       try {
-        await route.handler({ req, res, params, query, body });
+        await route.handler({ req, res, params, query, body, auth });
       } catch (err) {
         console.error(`[ai-chat-portal] erro em ${req.method} ${pathname}:`, err);
         if (!res.headersSent) {

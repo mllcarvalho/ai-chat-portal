@@ -4699,3 +4699,382 @@ button.chip--action:disabled {
   background: var(--accent);
   flex-shrink: 0;
 }
+
+/* ============================================================
+   Colaboração (multiplayer): presença, autoria, convites
+   ============================================================ */
+
+.collab-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.collab-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+  border: 2px solid var(--bg-1);
+}
+
+/* faixa fina abaixo do header do chat: quem mais está nesta conversa */
+.collab-viewers {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--tool-soft);
+  border-bottom: 1px solid var(--border);
+}
+.collab-viewers__person {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.collab-viewers__label {
+  color: var(--text-faint);
+}
+
+/* configurações: lista de convites */
+.collab-guest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+.collab-guest__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collab-invite {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.collab-invite input {
+  flex: 1;
+}
+
+/* ============================================================
+   Quadro do squad (canvas colaborativo de post-its)
+   ============================================================ */
+
+.board {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-0);
+}
+
+.board__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.board__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+}
+.board__presence {
+  display: flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.board__presence .collab-avatar + .collab-avatar {
+  margin-left: -6px;
+}
+.board__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board__zoom {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  min-width: 38px;
+  text-align: center;
+}
+
+.board__canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  /* pontilhado de quadro, sutil */
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.board__canvas--dragging {
+  cursor: grabbing;
+}
+.board__world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+.board__hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-faint);
+  font-size: 13.5px;
+  max-width: 520px;
+  margin: 0 auto;
+  pointer-events: none;
+}
+.board__zoom-reset {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  box-shadow: var(--shadow-float);
+}
+.board__zoom-reset:hover {
+  background: var(--bg-hover);
+}
+
+/* post-it */
+.board-note {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  box-shadow: var(--shadow-float);
+  border: 1px solid rgba(22, 41, 75, 0.14);
+}
+.board-note--selected {
+  box-shadow: 0 0 0 2px var(--tool), var(--shadow-pop);
+}
+.board-note__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 8px 0;
+  cursor: grab;
+  user-select: none;
+  min-height: 20px;
+}
+.board-note__head:active {
+  cursor: grabbing;
+}
+.board-note__author {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgba(22, 41, 75, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-note__comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: rgba(22, 41, 75, 0.45);
+  font-size: 10.5px;
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+.board-note__comments:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.5);
+}
+.board-note__comments--some {
+  color: var(--tool);
+  font-weight: 700;
+}
+.board-note__text {
+  border: none;
+  background: transparent;
+  resize: none;
+  padding: 4px 8px 10px;
+  min-height: 72px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.35;
+  color: #26324e;
+  field-sizing: content;
+}
+.board-note__text:focus {
+  outline: none;
+  box-shadow: none;
+}
+.board-note__toolbar {
+  position: absolute;
+  top: -34px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  box-shadow: var(--shadow-float);
+}
+.board-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid rgba(22, 41, 75, 0.2);
+}
+.board-swatch--current {
+  box-shadow: 0 0 0 2px var(--tool);
+}
+.board-note__delete {
+  display: inline-flex;
+  color: var(--danger);
+  padding: 2px;
+  border-radius: 4px;
+  margin-left: 2px;
+}
+.board-note__delete:hover {
+  background: var(--danger-soft);
+}
+
+/* cores dos post-its (e das bolinhas da paleta) */
+.board-note--yellow, .board-swatch--yellow { background: #fff3a3; }
+.board-note--orange, .board-swatch--orange { background: #ffd6a8; }
+.board-note--blue,   .board-swatch--blue   { background: #cfe3ff; }
+.board-note--green,  .board-swatch--green  { background: #cdeed3; }
+.board-note--pink,   .board-swatch--pink   { background: #ffd7e4; }
+.board-note--purple, .board-swatch--purple { background: #e4d9ff; }
+
+/* cursor das outras pessoas */
+.board-cursor {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  transition: left 90ms linear, top 90ms linear;
+}
+.board-cursor__name {
+  position: absolute;
+  left: 10px;
+  top: 14px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+/* painel lateral de comentários da nota */
+.board-comments {
+  position: absolute;
+  top: 52px;
+  right: 14px;
+  bottom: 14px;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  z-index: 6;
+}
+.board-comments__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 4px;
+}
+.board-comments__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+}
+.board-comments__note {
+  padding: 0 10px 8px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.board-comments__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.board-comments__empty {
+  color: var(--text-faint);
+  font-size: 12px;
+  margin: 0;
+}
+.board-comments__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+.board-comments__author {
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.board-comments__composer {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.board-comments__composer input {
+  flex: 1;
+  min-width: 0;
+}

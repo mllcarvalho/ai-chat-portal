@@ -1,9 +1,23 @@
-import type { ChatFinishReason, SessionSummary, TokenUsage } from './types';
+import type {
+  BoardOp,
+  ChatFinishReason,
+  CollabIdentity,
+  CollabPeer,
+  SessionSummary,
+  TokenUsage,
+} from './types';
 
 export type { ChatFinishReason } from './types';
 
 /** Header de autenticação exigido em todas as rotas /api/*. */
 export const TOKEN_HEADER = 'X-Portal-Token';
+
+/**
+ * Header opcional com o id da aba (clientId do /api/events): permite ao
+ * servidor marcar a origem de um evento — a aba que causou a mudança ignora o
+ * próprio eco em vez de recarregar à toa.
+ */
+export const CLIENT_HEADER = 'X-Portal-Client';
 
 export const DEFAULT_PORT = 4717;
 export const PORT_RANGE = 10;
@@ -111,3 +125,45 @@ export interface ChatSseEvents {
 }
 
 export type ChatSseEventName = keyof ChatSseEvents;
+
+/**
+ * Canal global de eventos (GET /api/events, SSE): tudo que muda no portal e
+ * interessa a TODOS os clientes conectados — é o que mantém as abas (e as
+ * outras pessoas, no modo colaboração) em dia sem polling. Os eventos de chat
+ * de uma geração específica continuam no stream próprio dela (ChatSseEvents).
+ */
+export interface PortalEvents {
+  /** Primeiro evento da conexão: quem você é e quem mais está aqui. */
+  hello: { clientId: string; identity: CollabIdentity; peers: CollabPeer[] };
+  /** Alguém entrou/saiu/mudou de tela. */
+  peers: { peers: CollabPeer[] };
+  /**
+   * Uma sessão mudou no disco (mensagem nova, rename, geração concluída…).
+   * `origin` = clientId de quem causou (quando conhecido) — essa aba ignora.
+   */
+  session_changed: { summary: SessionSummary; origin?: string };
+  session_deleted: { sessionId: string; projectId: string | null };
+  /** Uma geração começou/terminou nesta sessão (para as outras abas anexarem). */
+  generation_started: { sessionId: string };
+  generation_ended: { sessionId: string };
+  /** Operações aplicadas ao quadro de um projeto. */
+  board_op: { projectId: string; revision: number; ops: BoardOp[]; origin?: string };
+  /** Cursor de alguém sobre o quadro (efêmero, não persiste). */
+  board_cursor: {
+    projectId: string;
+    clientId: string;
+    name: string;
+    color: string;
+    /** Coordenadas do mundo do canvas. */
+    x: number;
+    y: number;
+    /** false = a pessoa saiu do quadro (remove o cursor). */
+    active: boolean;
+  };
+  /** A lista de projetos mudou (criado/renomeado/excluído). */
+  projects_changed: Record<string, never>;
+  /** Config de colaboração mudou (convites, nome) — a tela do host recarrega. */
+  collab_changed: Record<string, never>;
+}
+
+export type PortalEventName = keyof PortalEvents;

@@ -1,5 +1,4 @@
 import type { ServerResponse } from 'node:http';
-import type { ChatSseEventName, ChatSseEvents } from '@aiportal/shared';
 
 const HEARTBEAT_MS = 15_000;
 
@@ -38,7 +37,8 @@ export class SseStream {
     for (const cb of this.closeCallbacks) cb();
   }
 
-  send<E extends ChatSseEventName>(event: E, data: ChatSseEvents[E]): void {
+  /** Genérico de propósito: serve tanto o stream de chat quanto o /api/events. */
+  send(event: string, data: unknown): void {
     this.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
