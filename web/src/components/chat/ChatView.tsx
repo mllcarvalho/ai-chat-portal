@@ -43,6 +43,12 @@ export function ChatView() {
     if (session) void resume(session.id);
   }, [session?.id, resume]);
 
+  // executor da conversa (federação): carrega ao abrir
+  const loadExecutor = useCollab((s) => s.loadExecutor);
+  useEffect(() => {
+    if (session?.id) void loadExecutor(session.id);
+  }, [session?.id, loadExecutor]);
+
   // presença: conta ao servidor que esta aba está olhando ESTA conversa
   const setViewing = useCollab((s) => s.setViewing);
   useEffect(() => {

@@ -23,6 +23,7 @@ import { registerCheckpointRoutes } from './checkpoints';
 import { registerEventRoutes } from './events';
 import { registerCollabRoutes } from './collab';
 import { registerBoardRoutes } from './board';
+import { registerLmRoutes } from './lm';
 
 export interface RouteDeps {
   context: vscode.ExtensionContext;
@@ -62,5 +63,6 @@ export function buildRouter(deps: RouteDeps): Router {
   registerEventRoutes(router);
   registerCollabRoutes(router, deps);
   registerBoardRoutes(router);
+  registerLmRoutes(router);
   return router;
 }

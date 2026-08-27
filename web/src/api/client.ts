@@ -38,6 +38,7 @@ import type {
   BoardState,
   CollabIdentity,
   CollabStatus,
+  LmChunk,
 } from '@aiportal/shared';
 import { CLIENT_HEADER, DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { uuid } from '../lib/compat';
@@ -569,6 +570,20 @@ export const api = {
     request<{ ok: boolean }>('POST', '/api/events/viewing', { clientId, ...viewing }),
   sendBoardCursor: (projectId: string, x: number, y: number, active: boolean) =>
     request<{ ok: boolean }>('POST', '/api/events/cursor', { clientId, projectId, x, y, active }),
+  setCapability: (canExecute: boolean) =>
+    request<{ ok: boolean }>('POST', '/api/events/capability', { clientId, canExecute }),
+
+  // federação de licenças
+  getExecutor: (sessionId: string) =>
+    request<{ executorClientId: string | null; executorName: string | null }>(
+      'GET',
+      `/api/collab/executor?sessionId=${encodeURIComponent(sessionId)}`,
+    ),
+  setExecutor: (sessionId: string, executorClientId: string | null) =>
+    request<{ ok: boolean }>('POST', '/api/collab/executor', { sessionId, executorClientId }),
+  /** Host recebe um pedaço do stream remoto (a aba do executor relaia). */
+  postLmChunk: (jobId: string, chunk: LmChunk) =>
+    request<{ ok: boolean }>('POST', `/api/lm/${jobId}/chunk`, chunk),
 
   // quadro colaborativo do projeto
   getBoard: (projectId: string) => request<BoardState>('GET', `/api/projects/${projectId}/board`),

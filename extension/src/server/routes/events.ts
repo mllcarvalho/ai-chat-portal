@@ -2,6 +2,7 @@ import type { CollabIdentity, CollabPeer, PortalEventName, PortalEvents } from '
 import { Router, sendError, sendJson } from '../router';
 import { SseStream } from '../sse';
 import { onBus } from '../../events/bus';
+import { releaseExecutorClient } from '../../chat/executors';
 
 /**
  * Canal global de eventos (SSE): cada aba conectada vira um "peer" com
@@ -15,6 +16,8 @@ interface EventClient {
   identity: CollabIdentity;
   sse: SseStream;
   viewing?: CollabPeer['viewing'];
+  /** A aba ligou o portal local dela: pode executar gerações na licença própria. */
+  canExecute?: boolean;
   connectedAt: string;
 }
 
@@ -27,6 +30,7 @@ function toPeer(client: EventClient): CollabPeer {
     role: client.identity.role,
     color: client.identity.color,
     viewing: client.viewing,
+    ...(client.canExecute ? { canExecute: true } : {}),
     connectedAt: client.connectedAt,
   };
 }
@@ -46,6 +50,18 @@ export function onlineGuestIds(): Set<string> {
 
 export function broadcastEvent<E extends PortalEventName>(event: E, data: PortalEvents[E]): void {
   for (const client of clients.values()) client.sse.send(event, data);
+}
+
+/** Envia um evento SÓ para uma aba (federação: payload não vaza para as demais). Retorna false se ela não está conectada. */
+export function sendToClient<E extends PortalEventName>(
+  clientId: string,
+  event: E,
+  data: PortalEvents[E],
+): boolean {
+  const client = clients.get(clientId);
+  if (!client || client.sse.closed) return false;
+  client.sse.send(event, data);
+  return true;
 }
 
 /** Presença muda em rajadas (reload abre/fecha rápido) — coalesce num tick só. */
@@ -85,6 +101,7 @@ export function registerEventRoutes(router: Router): void {
     broadcastPeersSoon();
     client.sse.onClose(() => {
       if (clients.get(clientId) === client) clients.delete(clientId);
+      releaseExecutorClient(clientId);
       broadcastPeersSoon();
     });
   });
@@ -111,6 +128,19 @@ export function registerEventRoutes(router: Router): void {
             ...(board ? { board: true } : {}),
           }
         : undefined;
+    broadcastPeersSoon();
+    sendJson(res, 200, { ok: true });
+  });
+
+  // a aba anuncia que ligou o portal local dela (pode executar na licença própria)
+  router.post('/api/events/capability', ({ res, body }) => {
+    const { clientId, canExecute } = (body ?? {}) as { clientId?: string; canExecute?: boolean };
+    const client = clientId ? clients.get(clientId) : undefined;
+    if (!client) {
+      sendJson(res, 200, { ok: false });
+      return;
+    }
+    client.canExecute = canExecute === true;
     broadcastPeersSoon();
     sendJson(res, 200, { ok: true });
   });

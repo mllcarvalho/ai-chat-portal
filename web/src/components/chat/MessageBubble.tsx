@@ -207,7 +207,14 @@ export const MessageBubble = memo(function MessageBubble(props: {
 
   return (
     <div className="msg msg--assistant">
-      <span className="msg__role">Assistente</span>
+      <span className="msg__role">
+        Assistente
+        {message.executedBy && (
+          <span className="msg__executed-by" title="Esta resposta rodou na licença de outra pessoa (federação)">
+            {' '}· executado por {message.executedBy}
+          </span>
+        )}
+      </span>
       <div className="msg__body">
         {rendered}
         {modelThinking && <ThinkingRow />}

@@ -164,6 +164,59 @@ export interface PortalEvents {
   projects_changed: Record<string, never>;
   /** Config de colaboração mudou (convites, nome) — a tela do host recarrega. */
   collab_changed: Record<string, never>;
+  /**
+   * O host pede a um convidado (executor) que rode UMA requisição de modelo na
+   * licença dele. Só a aba com clientId === targetClientId age; as demais
+   * ignoram. As respostas voltam por POST /api/lm/:jobId/chunk.
+   */
+  lm_request: { targetClientId: string; job: LmRunRequest };
+  /** Cancelar um job de inferência remota em andamento. */
+  lm_cancel: { targetClientId: string; jobId: string };
+  /** O executor de uma conversa mudou (host ou um convidado federado). */
+  executor_changed: {
+    sessionId: string;
+    executorClientId: string | null;
+    executorName: string | null;
+  };
 }
+
+export type LmWirePart =
+  | { kind: 'text'; text: string }
+  | { kind: 'tool_call'; callId: string; name: string; input: unknown }
+  | { kind: 'tool_result'; callId: string; content: string };
+
+export interface LmWireMessage {
+  role: 'user' | 'assistant';
+  parts: LmWirePart[];
+}
+
+export interface LmToolDef {
+  name: string;
+  description: string;
+  inputSchema?: unknown;
+}
+
+/** Uma requisição de modelo a ser executada no portal do convidado. */
+export interface LmRunRequest {
+  jobId: string;
+  messages: LmWireMessage[];
+  tools: LmToolDef[];
+  /** Modelo pedido pelo host (o convidado resolve no catálogo dele; pode cair em fallback). */
+  modelId?: string;
+}
+
+/** Um pedaço do stream da inferência remota (executor → host, via a aba do executor). */
+export type LmChunk =
+  | { type: 'text'; value: string }
+  | { type: 'tool_call'; callId: string; name: string; input: unknown }
+  | {
+      type: 'done';
+      /** Créditos descontados da licença DO EXECUTOR nesta requisição (best effort). */
+      credits?: number;
+      /** Modelo que de fato respondeu na máquina do executor. */
+      modelId?: string;
+      modelName?: string;
+    }
+  | { type: 'error'; message: string; code?: string };
 
 export type PortalEventName = keyof PortalEvents;

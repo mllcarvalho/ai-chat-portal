@@ -137,6 +137,11 @@ export interface CollabPeer {
   color: string;
   /** O que a pessoa está olhando (para presença por conversa/quadro). */
   viewing?: { sessionId?: string; projectId?: string; board?: boolean };
+  /**
+   * A pessoa conectou o próprio portal local (modo federado): pode executar
+   * gerações na LICENÇA DELA. Preenchido quando a aba anuncia a capacidade.
+   */
+  canExecute?: boolean;
   connectedAt: string;
 }
 
@@ -458,6 +463,11 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   /** Autor humano da mensagem (mensagens user em sessão compartilhada). */
   author?: MessageAuthor;
+  /**
+   * Quem EXECUTOU a resposta na própria licença (modo federado): nome da
+   * pessoa cujo Copilot gerou. Ausente = executado pelo host (o padrão).
+   */
+  executedBy?: string;
   parts: MessagePart[];
   /** Modelo que gerou a resposta (mensagens assistant). */
   modelId?: string;

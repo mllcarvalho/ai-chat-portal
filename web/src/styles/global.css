@@ -5562,3 +5562,11 @@ button.chip--action:disabled {
 .setting-row__stack .chip-list {
   justify-content: flex-end;
 }
+
+/* federação: quem executou a resposta */
+.msg__executed-by {
+  font-weight: 500;
+  color: var(--tool);
+  text-transform: none;
+  letter-spacing: 0;
+}

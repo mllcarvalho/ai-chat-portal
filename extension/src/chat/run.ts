@@ -20,6 +20,7 @@ import { getProject, projectDir } from '../storage/projectStore';
 import { toSummary, updateSession } from '../storage/sessionStore';
 import { getSkill, listSkills } from '../storage/skillStore';
 import { registerRequest, releaseRequest } from './activeRequests';
+import { activeExecutor } from './executors';
 import { resolveProvider } from './providers';
 import type { TurnContext } from './providers/types';
 
@@ -145,6 +146,9 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
     token: cts.token,
     parts: assistantParts,
     usage,
+    // federação: se a conversa tem um executor conectado, o provider roda a
+    // inferência na licença DELE (só Copilot; as CLIs ignoram)
+    executor: activeExecutor(session.id),
   };
   try {
     const result = await provider.runTurn(ctx);
@@ -207,6 +211,7 @@ export async function runChat(args: ChatRunArgs): Promise<void> {
       ...(usage.requests ? { usage } : {}),
       createdAt: new Date().toISOString(),
       finishReason,
+      ...(ctx.executedBy ? { executedBy: ctx.executedBy } : {}),
       ...(chatError ? { error: chatError } : {}),
     };
   }

@@ -60,6 +60,14 @@ export interface TurnContext {
    * registrar qual modelo estava respondendo.
    */
   respondedModelId?: string;
+  /**
+   * Federação de licenças: quando presente, a inferência deste turno roda na
+   * máquina deste convidado (Copilot dele), via a ponte. Só o provider Copilot
+   * honra — os que são donos do próprio loop (CLIs) ignoram.
+   */
+  executor?: { clientId: string; name: string };
+  /** Preenchido pelo provider quando a resposta rodou na licença de um convidado. */
+  executedBy?: string;
 }
 
 export interface TurnResult {

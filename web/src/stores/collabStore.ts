@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { CollabIdentity, CollabPeer, CollabStatus, PortalEvents } from '@aiportal/shared';
 import { api, clientId } from '../api/client';
+import { cancelJob, getLocalPortal, runFederatedJob } from '../api/federation';
 import { streamPortalEvents } from '../api/events';
 import { useBoard } from './boardStore';
 import { useChat } from './chatStore';
@@ -22,6 +23,10 @@ interface CollabState {
   connected: boolean;
   /** Estado da tela de configurações do host. */
   status?: CollabStatus;
+  /** Executor escolhido por conversa (federação): clientId + nome, ou null = host. */
+  executors: Record<string, { clientId: string; name: string } | null>;
+  /** Esta aba pode executar na licença própria (portal local ligado). */
+  canExecute: boolean;
 
   /** Identidade via GET (o boot precisa dela ANTES do hello do SSE chegar). */
   loadIdentity: () => Promise<void>;
@@ -32,6 +37,12 @@ interface CollabState {
   loadStatus: () => Promise<void>;
   /** Pessoas (além de mim) olhando esta conversa agora. */
   viewersOf: (sessionId: string) => CollabPeer[];
+  /** Anuncia (ou retira) a capacidade de executar na licença própria. */
+  advertiseCapability: (canExecute: boolean) => void;
+  /** Escolhe quem executa a inferência da conversa (null = host). */
+  chooseExecutor: (sessionId: string, executorClientId: string | null) => Promise<void>;
+  /** Carrega o executor atual de uma conversa (ao abrir). */
+  loadExecutor: (sessionId: string) => Promise<void>;
 }
 
 let started = false;
@@ -44,6 +55,8 @@ export const useCollab = create<CollabState>((set, get) => {
       case 'hello': {
         const hello = data as PortalEvents['hello'];
         set({ identity: hello.identity, peers: hello.peers, connected: true });
+        // re-anuncia a capacidade de executar após (re)conectar
+        if (get().canExecute || getLocalPortal()) get().advertiseCapability(!!getLocalPortal());
         // conexão nova depois de uma queda: o que aconteceu no vácuo não
         // chegou por evento — ressincroniza tudo que está na tela
         if (everConnected) resyncAfterReconnect();
@@ -89,6 +102,29 @@ export const useCollab = create<CollabState>((set, get) => {
         void useChat.getState().resume(sessionId);
         break;
       }
+      case 'lm_request': {
+        const { targetClientId, job } = data as PortalEvents['lm_request'];
+        // só a aba-alvo executa (o evento é direcionado, mas confere)
+        if (targetClientId === clientId) void runFederatedJob(job);
+        break;
+      }
+      case 'lm_cancel': {
+        const { targetClientId, jobId } = data as PortalEvents['lm_cancel'];
+        if (targetClientId === clientId) cancelJob(jobId);
+        break;
+      }
+      case 'executor_changed': {
+        const ev = data as PortalEvents['executor_changed'];
+        set((s) => ({
+          executors: {
+            ...s.executors,
+            [ev.sessionId]: ev.executorClientId
+              ? { clientId: ev.executorClientId, name: ev.executorName ?? 'convidado' }
+              : null,
+          },
+        }));
+        break;
+      }
       case 'board_op':
         useBoard.getState().applyRemote(data as PortalEvents['board_op']);
         break;
@@ -131,6 +167,8 @@ export const useCollab = create<CollabState>((set, get) => {
   return {
     peers: [],
     connected: false,
+    executors: {},
+    canExecute: false,
 
     loadIdentity: async () => {
       try {
@@ -185,5 +223,47 @@ export const useCollab = create<CollabState>((set, get) => {
 
     viewersOf: (sessionId) =>
       get().peers.filter((p) => p.clientId !== clientId && p.viewing?.sessionId === sessionId),
+
+    advertiseCapability: (canExecute) => {
+      set({ canExecute });
+      void api.setCapability(canExecute).catch(() => undefined);
+    },
+
+    chooseExecutor: async (sessionId, executorClientId) => {
+      // otimista: reflete já; o evento executor_changed confirma para todos
+      set((s) => ({
+        executors: {
+          ...s.executors,
+          [sessionId]: executorClientId
+            ? {
+                clientId: executorClientId,
+                name:
+                  get().peers.find((p) => p.clientId === executorClientId)?.name ?? 'convidado',
+              }
+            : null,
+        },
+      }));
+      try {
+        await api.setExecutor(sessionId, executorClientId);
+      } catch (err) {
+        useUi.getState().toast((err as Error).message, 'error');
+      }
+    },
+
+    loadExecutor: async (sessionId) => {
+      try {
+        const { executorClientId, executorName } = await api.getExecutor(sessionId);
+        set((s) => ({
+          executors: {
+            ...s.executors,
+            [sessionId]: executorClientId
+              ? { clientId: executorClientId, name: executorName ?? 'convidado' }
+              : null,
+          },
+        }));
+      } catch {
+        // servidor antigo sem a rota: sem federação, segue no host
+      }
+    },
   };
 });

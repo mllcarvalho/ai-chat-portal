@@ -11,6 +11,7 @@ import type {
 import { isBmadAsset, slugifyCommand } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { useSessions } from '../../stores/sessionsStore';
+import { ExecutorPicker } from './ExecutorPicker';
 import { useCatalog } from '../../stores/catalogStore';
 import { usePreview } from '../../stores/previewStore';
 import { useUi } from '../../stores/uiStore';
@@ -202,6 +203,8 @@ export function ChatHeader() {
         title="Renomear conversa"
       />
       <span className="chat-header__spacer" />
+
+      <ExecutorPicker session={session} />
 
       {/* Modo: ask / plan / agent */}
       <Dropdown

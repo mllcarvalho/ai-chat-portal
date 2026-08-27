@@ -11,10 +11,12 @@ import {
   MessagesSquare,
   Settings,
   Users,
+  Laptop,
 } from 'lucide-react';
 import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { copyText } from '../../lib/compat';
+import { getLocalPortal, pingLocalPortal, setLocalPortal } from '../../api/federation';
 import { useCatalog } from '../../stores/catalogStore';
 import { useCollab } from '../../stores/collabStore';
 import { useUi } from '../../stores/uiStore';
@@ -130,6 +132,90 @@ function Switch(props: { checked: boolean; disabled?: boolean; onChange: (v: boo
         <span className="switch__thumb" />
       </span>
     </label>
+  );
+}
+
+function LocalPortalRow() {
+  const toast = useUi((s) => s.toast);
+  const advertiseCapability = useCollab((s) => s.advertiseCapability);
+  const canExecute = useCollab((s) => s.canExecute);
+  const [url, setUrl] = useState('');
+  const [status, setStatus] = useState<{ ok: boolean; detail: string }>();
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    const local = getLocalPortal();
+    if (local) {
+      setUrl(`${local.base}/?token=${local.token}`);
+      // já configurado: confirma e anuncia
+      void pingLocalPortal().then((r) => {
+        setStatus(r);
+        advertiseCapability(r.ok);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connect = async () => {
+    if (!setLocalPortal(url)) {
+      toast('URL inválida — cole a URL completa do comando "Copiar URL do Portal" (com ?token=).', 'error');
+      return;
+    }
+    if (!url.trim()) {
+      setStatus(undefined);
+      advertiseCapability(false);
+      toast('Portal local desconectado.', 'ok');
+      return;
+    }
+    setTesting(true);
+    const r = await pingLocalPortal();
+    setStatus(r);
+    advertiseCapability(r.ok);
+    setTesting(false);
+    toast(
+      r.ok
+        ? 'Portal local conectado — você já pode executar conversas na sua licença.'
+        : `Não deu para conectar: ${r.detail}`,
+      r.ok ? 'ok' : 'error',
+    );
+  };
+
+  return (
+    <SettingRow
+      label={
+        <>
+          <Laptop className="icon icon--sm" aria-hidden /> Executar na minha licença (federação)
+        </>
+      }
+      hint={
+        <>
+          Rode as conversas do squad no SEU Copilot em vez do host. No VS Code, comando{' '}
+          <strong>"Copiar URL do Portal"</strong> → cole aqui. Precisa do BMAD Studio rodando na sua máquina.
+          {status && (
+            <>
+              {' '}
+              <span style={{ color: status.ok ? 'var(--ok)' : 'var(--danger)' }}>
+                {status.ok ? '✓ ' : '✕ '}
+                {status.detail}
+              </span>
+            </>
+          )}
+        </>
+      }
+    >
+      <div className="setting-row__stack">
+        <input
+          className="setting-row__input setting-row__input--wide"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="http://127.0.0.1:4717/?token=…"
+          aria-label="URL do meu portal local"
+        />
+        <button className="btn" disabled={testing} onClick={() => void connect()}>
+          {testing ? 'Testando…' : url.trim() ? (canExecute ? 'Reconectar' : 'Conectar') : 'Desconectar'}
+        </button>
+      </div>
+    </SettingRow>
   );
 }
 
@@ -610,6 +696,7 @@ export function SettingsPage() {
             >
               <Switch checked={hideToolCards} onChange={setHideToolCards} label="Ocultar cards técnicos" />
             </SettingRow>
+            <LocalPortalRow />
             {!isGuest && (
               <SettingRow
                 label="Comandos sempre permitidos"

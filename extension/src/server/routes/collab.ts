@@ -11,6 +11,7 @@ import {
   setHostName,
 } from '../../storage/collabStore';
 import { onlineGuestIds, peersSnapshot } from './events';
+import { executorFor, setExecutor } from '../../chat/executors';
 import type { RouteDeps } from './index';
 
 /**
@@ -83,5 +84,29 @@ export function registerCollabRoutes(router: Router, deps: RouteDeps): void {
       return;
     }
     sendJson(res, 200, buildStatus());
+  });
+
+  // executor de uma conversa (federação): quem roda a inferência. Qualquer
+  // participante da sessão pode escolher; clientId vazio/null = volta ao host.
+  router.get('/api/collab/executor', ({ res, query }) => {
+    const sessionId = query.get('sessionId') ?? '';
+    const chosen = sessionId ? executorFor(sessionId) : undefined;
+    sendJson(res, 200, {
+      executorClientId: chosen?.clientId ?? null,
+      executorName: chosen?.name ?? null,
+    });
+  });
+
+  router.post('/api/collab/executor', ({ res, body }) => {
+    const { sessionId, executorClientId } = (body ?? {}) as {
+      sessionId?: string;
+      executorClientId?: string | null;
+    };
+    if (!sessionId) {
+      sendError(res, 400, 'sessionId é obrigatório');
+      return;
+    }
+    setExecutor(sessionId, executorClientId ?? null);
+    sendJson(res, 200, { ok: true });
   });
 }

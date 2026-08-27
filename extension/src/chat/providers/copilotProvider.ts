@@ -40,6 +40,8 @@ import {
   withIdleTimeout,
 } from '../retry';
 import { runSubagent, type SubagentOutcome } from '../subagent';
+import { remoteSendRequest } from '../lmBridge';
+import type { LmToolDef } from '@aiportal/shared';
 import {
   creditsRemaining,
   getModelBilling,
@@ -312,6 +314,49 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     });
   }
 
+  // FEDERAÇÃO: com um executor conectado, a inferência roda no Copilot DELE.
+  // countTokens/maxInputTokens/pruning seguem locais (grátis); só o
+  // sendRequest (a parte cobrada) viaja pela ponte. `doSend` unifica os dois
+  // caminhos para o loop abaixo não saber a diferença. Se a ponte falhar (o
+  // executor caiu), o erro sobe e o shell mostra — não cai silenciosamente no
+  // host, para a atribuição de licença nunca mentir.
+  const executor = ctx.executor;
+  let remoteCredits: number | undefined;
+  let remoteModelName: string | undefined;
+  let remoteModelId: string | undefined;
+  if (executor) {
+    ctx.executedBy = executor.name;
+    sse.send('notice', {
+      message: `Executando na licença de ${executor.name} (máquina dele) — nenhum crédito seu é usado nesta resposta.`,
+    });
+  }
+  const doSend = async (
+    msgs: vscode.LanguageModelChatMessage[],
+    options: vscode.LanguageModelChatRequestOptions,
+    tok: vscode.CancellationToken,
+  ): Promise<{ stream: AsyncIterable<unknown> }> => {
+    if (!executor) return model.sendRequest(msgs, options, tok);
+    const remote = remoteSendRequest(
+      executor.clientId,
+      msgs,
+      (options.tools ?? []) as LmToolDef[],
+      model.id,
+      tok,
+    );
+    // meta (créditos/modelo do executor) fica pronta quando o stream termina
+    const stream = (async function* () {
+      try {
+        yield* remote.stream;
+      } finally {
+        const meta = remote.meta();
+        if (meta.credits !== undefined) remoteCredits = (remoteCredits ?? 0) + meta.credits;
+        if (meta.modelName) remoteModelName = meta.modelName;
+        if (meta.modelId) remoteModelId = meta.modelId;
+      }
+    })();
+    return { stream };
+  };
+
   const { defs: toolDefs, droppedServers } = getEnabledToolDefs(session, agent);
   if (droppedServers.length) {
     sse.send('notice', {
@@ -404,7 +449,7 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
         // e a conversa ficava "em andamento" por minutos
         const response = await raceCancellation(
           withIdleTimeout(
-            model.sendRequest(
+            doSend(
               messages,
               {
                 justification: 'BMAD Product Studio — chat do analista',
@@ -702,6 +747,8 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     }
   }
 
+  // modelo que de fato respondeu: o do executor quando federado
+  if (remoteModelId) respondedModelId = remoteModelId;
   return {
     finishReason,
     modelId: respondedModelId,
@@ -711,6 +758,22 @@ async function runTurn(ctx: TurnContext): Promise<TurnResult> {
     // modelo incluído ou cobrança < 0,1), segue sem credits.
     afterDone: async () => {
       if (!usage.requests) return;
+      // federado: os créditos são da licença do EXECUTOR, medidos lá e
+      // reportados pela ponte — não medir a cota local (que não mudou)
+      if (executor) {
+        if (remoteCredits !== undefined) {
+          usage.credits = remoteCredits;
+          updateSession(session.id, (s) => {
+            const message = s.messages.find((m) => m.id === assistantMessageId);
+            if (message) message.usage = usage;
+          });
+          sse.send('usage_update', { messageId: assistantMessageId, usage });
+        }
+        if (remoteModelName) {
+          sse.send('notice', { message: `Respondido por ${remoteModelName} na máquina de ${executor.name}.` });
+        }
+        return;
+      }
       const before = await creditsBefore;
       if (before === undefined) return;
       for (const waitMs of [0, 1500, 2500, 4000]) {
