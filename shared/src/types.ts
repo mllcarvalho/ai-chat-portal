@@ -187,15 +187,62 @@ export interface BoardComment {
   createdAt: string;
 }
 
+/** Texto livre no quadro (sem post-it): título de área, legenda, anotação. */
+export interface BoardText {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  text: string;
+  size: 'sm' | 'md' | 'lg';
+  color: BoardStrokeColor;
+  author?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BoardShapeKind = 'line' | 'arrow' | 'rect' | 'ellipse';
+export type BoardStrokeStyle = 'solid' | 'dashed' | 'dotted';
+export type BoardStrokeColor = 'ink' | 'blue' | 'orange' | 'green' | 'red' | 'purple';
+
+/**
+ * Forma desenhada no quadro. Linhas/setas usam (x,y)→(x2,y2); retângulo e
+ * elipse usam a caixa (x,y,w,h). Sem preenchimento — é quadro de squad, não
+ * editor vetorial: o que importa é ligar/agrupar/separar as notas.
+ */
+export interface BoardShape {
+  id: string;
+  kind: BoardShapeKind;
+  x: number;
+  y: number;
+  /** Segundo ponto (line/arrow). */
+  x2?: number;
+  y2?: number;
+  /** Caixa (rect/ellipse). */
+  w?: number;
+  h?: number;
+  stroke: BoardStrokeStyle;
+  color: BoardStrokeColor;
+  /** Espessura do traço em px do mundo (1–8). */
+  width: number;
+  author?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
  * Estado do quadro de um projeto. Sincronização por operações: o cliente
  * aplica otimista, envia o lote em POST /board/ops e recebe as operações dos
  * outros pelo canal de eventos; `revision` detecta lacunas (aí refaz o GET).
+ * `texts`/`shapes` chegaram depois das notas: quadros antigos no disco não os
+ * têm — o servidor normaliza para [] ao carregar.
  */
 export interface BoardState {
   revision: number;
   notes: BoardNote[];
   comments: BoardComment[];
+  texts: BoardText[];
+  shapes: BoardShape[];
   updatedAt: string;
 }
 
@@ -203,7 +250,11 @@ export type BoardOp =
   | { type: 'note_upsert'; note: BoardNote }
   | { type: 'note_delete'; id: string }
   | { type: 'comment_add'; comment: BoardComment }
-  | { type: 'comment_delete'; id: string };
+  | { type: 'comment_delete'; id: string }
+  | { type: 'text_upsert'; text: BoardText }
+  | { type: 'text_delete'; id: string }
+  | { type: 'shape_upsert'; shape: BoardShape }
+  | { type: 'shape_delete'; id: string };
 
 /**
  * Biblioteca compartilhada: uma pasta (normalmente de rede, \\servidor\equipe\…)

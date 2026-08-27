@@ -4934,18 +4934,19 @@ button.chip--action:disabled {
   background: transparent;
   resize: none;
   padding: 4px 8px 10px;
-  min-height: 72px;
+  min-height: 60px;
   font-family: var(--font-body);
   font-size: 13px;
   line-height: 1.35;
   color: #26324e;
-  field-sizing: content;
+  overflow: hidden;
 }
 .board-note__text:focus {
   outline: none;
   box-shadow: none;
 }
-.board-note__toolbar {
+/* barra de opções do elemento selecionado (cores, tamanho, excluir) */
+.board-el-toolbar {
   position: absolute;
   top: -34px;
   left: 0;
@@ -4957,12 +4958,15 @@ button.chip--action:disabled {
   border-radius: var(--radius-sm);
   padding: 4px 6px;
   box-shadow: var(--shadow-float);
+  white-space: nowrap;
+  z-index: 4;
 }
 .board-swatch {
   width: 16px;
   height: 16px;
   border-radius: 50%;
   border: 1px solid rgba(22, 41, 75, 0.2);
+  flex-shrink: 0;
 }
 .board-swatch--current {
   box-shadow: 0 0 0 2px var(--tool);
@@ -4976,6 +4980,144 @@ button.chip--action:disabled {
 }
 .board-note__delete:hover {
   background: var(--danger-soft);
+}
+
+/* primeiro clique seleciona/arrasta; só a nota selecionada aceita digitar */
+.board-note:not(.board-note--selected) .board-note__text,
+.board-text:not(.board-text--selected) .board-text__input {
+  pointer-events: none;
+}
+.board-note,
+.board-text {
+  cursor: grab;
+}
+.board-note:active,
+.board-text:active {
+  cursor: grabbing;
+}
+
+/* ferramentas na barra superior */
+.board__tools,
+.board__style {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.board__style {
+  gap: 4px;
+  padding: 2px 6px;
+}
+.board__style-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+  margin: 0 3px;
+}
+.board-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  border-radius: 5px;
+  color: var(--text-dim);
+}
+.board-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.board-tool--active {
+  background: var(--bg-1);
+  color: var(--tool);
+  box-shadow: 0 0 0 1px var(--tool-border);
+}
+.board-tool--stroke {
+  width: 30px;
+}
+.board-tool--size-sm {
+  font-size: 10px;
+}
+.board-tool--size-md {
+  font-size: 13px;
+}
+.board-tool--size-lg {
+  font-size: 17px;
+  font-weight: 700;
+}
+.board__canvas--tool {
+  cursor: crosshair;
+}
+
+/* texto livre */
+.board-text {
+  position: absolute;
+  min-height: 24px;
+}
+.board-text--selected {
+  outline: 1px dashed var(--tool);
+  outline-offset: 2px;
+}
+.board-text__input {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: none;
+  padding: 2px 4px;
+  font-family: var(--font-display);
+  line-height: 1.25;
+  color: inherit;
+  overflow: hidden;
+}
+.board-text__input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.board-text--sm .board-text__input {
+  font-size: 13px;
+  font-weight: 600;
+}
+.board-text--md .board-text__input {
+  font-size: 20px;
+  font-weight: 700;
+}
+.board-text--lg .board-text__input {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+/* formas (svg no mundo; só os traços recebem clique) */
+.board-shapes {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.board-shape line,
+.board-shape rect,
+.board-shape ellipse {
+  pointer-events: visibleStroke;
+}
+.board-shape {
+  cursor: move;
+}
+.board-selection-box {
+  fill: none;
+  stroke: var(--tool);
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+.board-handle {
+  fill: #fff;
+  stroke: var(--tool);
+  stroke-width: 1.5;
+  pointer-events: all;
+  cursor: crosshair;
 }
 
 /* cores dos post-its (e das bolinhas da paleta) */
