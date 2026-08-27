@@ -1,3 +1,4 @@
+import * as os from 'node:os';
 import type { CollabGuestInfo, CollabStatus } from '@aiportal/shared';
 import { Router, sendError, sendJson } from '../router';
 import {
@@ -35,10 +36,12 @@ export function registerCollabRoutes(router: Router, deps: RouteDeps): void {
       joinUrls: guest.revoked ? [] : lanUrls.map((url) => `${url}/?token=${guest.token}`),
       online: online.has(guest.id),
     }));
+    const host = os.hostname();
     return {
       enabled: collab.enabled,
       hostName: hostDisplayName(),
       lanUrls,
+      ...(collab.enabled && host ? { mdnsUrl: `http://${host}:${port}` } : {}),
       port,
       guests,
       online: peersSnapshot(),

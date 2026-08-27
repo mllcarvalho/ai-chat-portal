@@ -5537,3 +5537,28 @@ button.chip--action:disabled {
 .collab-dot--online {
   box-shadow: 0 0 0 2px rgba(23, 130, 70, 0.25);
 }
+
+/* link de convite visível na linha do convidado */
+.collab-guest__link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.setting-row__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  max-width: 520px;
+}
+.setting-row__stack .chip-list {
+  justify-content: flex-end;
+}

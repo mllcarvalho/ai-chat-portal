@@ -153,6 +153,8 @@ export interface CollabStatus {
   hostName: string;
   /** Endereços do portal na rede local (vazio quando desligado). */
   lanUrls: string[];
+  /** Endereço pelo nome da máquina (mDNS, ex.: http://meu-mac.local:4717) — funciona entre Macs/Linux. */
+  mdnsUrl?: string;
   port: number;
   guests: CollabGuestInfo[];
   online: CollabPeer[];

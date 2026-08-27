@@ -27,6 +27,8 @@ import { PageShell } from './PageShell';
  * vê o que é dele — o resto configura a MÁQUINA DO HOST.
  */
 
+const ADDRESS_KEY = 'aiportal.collabAddress';
+
 type SectionId = 'collab' | 'chat' | 'agents' | 'projects' | 'network' | 'about';
 
 const SECTIONS: Array<{ id: SectionId; label: string; icon: ReactNode; hostOnly?: boolean }> = [
@@ -140,10 +142,29 @@ function CollabSection() {
   const [hostName, setHostName] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [copiedId, setCopiedId] = useState<string>();
+  // endereço pelo qual o squad alcança esta máquina: o IP detectado serve na
+  // maioria dos casos, mas VPN/hotspot/DNS interno podem pedir outro — a
+  // pessoa digita e o link de convite acompanha (fica salvo neste navegador)
+  const [address, setAddress] = useState(() => {
+    try {
+      return localStorage.getItem(ADDRESS_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
 
   useEffect(() => {
     void loadStatus();
   }, [loadStatus]);
+
+  const setAddressPersist = (value: string) => {
+    setAddress(value);
+    try {
+      localStorage.setItem(ADDRESS_KEY, value);
+    } catch {
+      // sem storage: vale só nesta sessão
+    }
+  };
 
   const toggle = async (enabling: boolean) => {
     if (!status) return;
@@ -230,6 +251,9 @@ function CollabSection() {
 
   const activeGuests = status?.guests.filter((g) => !g.revoked) ?? [];
   const revokedGuests = status?.guests.filter((g) => g.revoked) ?? [];
+  const suggestions = [...(status?.lanUrls ?? []), ...(status?.mdnsUrl ? [status.mdnsUrl] : [])];
+  const baseUrl = (address.trim() || suggestions[0] || '').replace(/\/+$/, '');
+  const joinUrl = (token: string) => (baseUrl ? `${baseUrl}/?token=${token}` : '');
 
   return (
     <Section
@@ -268,10 +292,43 @@ function CollabSection() {
                 />
               </SettingRow>
 
+              <SettingRow
+                label="Endereço que os convidados usam"
+                hint={
+                  suggestions.length
+                    ? 'Detectado automaticamente; se o squad chega por VPN ou outro nome, digite o endereço aqui — os links abaixo acompanham.'
+                    : 'Nenhum endereço de rede detectado (Wi-Fi desligado? só VPN?). Digite o IP ou nome pelo qual as pessoas alcançam esta máquina, com a porta.'
+                }
+              >
+                <div className="setting-row__stack">
+                  <input
+                    className="setting-row__input setting-row__input--wide"
+                    value={address}
+                    onChange={(e) => setAddressPersist(e.target.value)}
+                    placeholder={suggestions[0] ?? `http://IP-da-maquina:${status.port}`}
+                    aria-label="Endereço do portal para os convidados"
+                  />
+                  {suggestions.length > 0 && (
+                    <div className="chip-list">
+                      {suggestions.map((url) => (
+                        <button
+                          key={url}
+                          className={`btn btn--sm${baseUrl === url ? ' btn--primary' : ' btn--ghost'}`}
+                          title="Usar este endereço nos links de convite"
+                          onClick={() => setAddressPersist(url)}
+                        >
+                          {url}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </SettingRow>
+
               <div className="settings-subhead">
                 Convites
                 <span className="settings-subhead__hint">
-                  Cada pessoa recebe um link individual, já autenticado. Revogar corta o acesso na hora.
+                  Cada pessoa recebe um link individual, já autenticado — copie e mande por onde preferir. Revogar corta o acesso na hora.
                 </span>
               </div>
               <div className="collab-invite">
@@ -298,18 +355,29 @@ function CollabSection() {
                     {guest.name}
                     <span className="collab-guest__state">{guest.online ? 'online agora' : 'offline'}</span>
                   </span>
-                  {guest.joinUrls[0] && (
-                    <button className="btn btn--sm" onClick={() => copyLink(guest.id, guest.joinUrls[0])} title={guest.joinUrls[0]}>
-                      {copiedId === guest.id ? (
-                        <>
-                          <Check className="icon icon--sm" aria-hidden /> copiado
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="icon icon--sm" aria-hidden /> copiar link
-                        </>
-                      )}
-                    </button>
+                  {joinUrl(guest.token) ? (
+                    <>
+                      <code className="collab-guest__link" title={joinUrl(guest.token)}>
+                        {joinUrl(guest.token)}
+                      </code>
+                      <button
+                        className="btn btn--sm btn--primary"
+                        onClick={() => copyLink(guest.id, joinUrl(guest.token))}
+                        title="Copiar o link de convite"
+                      >
+                        {copiedId === guest.id ? (
+                          <>
+                            <Check className="icon icon--sm" aria-hidden /> copiado
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="icon icon--sm" aria-hidden /> copiar link
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <span className="collab-guest__state">informe o endereço acima para gerar o link</span>
                   )}
                   <button className="btn btn--sm btn--ghost" onClick={() => void revoke(guest.id, guest.name, false)}>
                     Revogar
