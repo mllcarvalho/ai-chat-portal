@@ -3,6 +3,7 @@ import { Folder, MessagesSquare, Plus } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { useCollab } from '../../stores/collabStore';
 
 /**
  * Tela inicial: dois caminhos de entrada. MESA é o espaço aberto (conversa
@@ -10,6 +11,9 @@ import { useUi } from '../../stores/uiStore';
  */
 export function HomeScreen() {
   const me = useCatalog((s) => s.me);
+  // modo colaboração: cumprimenta pelo nome do convite, não pela conta do host
+  const identity = useCollab((s) => s.identity);
+  const greetName = identity?.role === 'guest' ? identity.name : me?.login;
   const projects = useSessions((s) => s.projects);
   const newSession = useSessions((s) => s.newSession);
   const openProject = useSessions((s) => s.openProject);
@@ -30,7 +34,7 @@ export function HomeScreen() {
   return (
     <div className="welcome home">
       <h1>
-        Olá{me ? `, ${me.login}` : ''} <em>—</em> por onde vamos?
+        Olá{greetName ? `, ${greetName}` : ''} <em>—</em> por onde vamos?
       </h1>
       <div className="home__choices">
         <button className="home-card" onClick={enterMesa}>

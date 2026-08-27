@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { BoardNote, BoardOp, BoardState, PortalEvents } from '@aiportal/shared';
 import { api } from '../api/client';
 import { useUi } from './uiStore';
+import { uuid } from '../lib/compat';
 
 /**
  * Quadro colaborativo no cliente. Modelo de sincronização:
@@ -206,7 +207,7 @@ export const useBoard = create<BoardUiState>((set, get) => {
 export function newNote(x: number, y: number, author: string): BoardNote {
   const now = new Date().toISOString();
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     x,
     y,
     w: 220,

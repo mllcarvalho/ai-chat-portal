@@ -4,11 +4,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { MermaidBlock } from './MermaidBlock';
+import { copyText } from '../../lib/compat';
 
 function CodeBlock(props: { language?: string; children: ReactNode; raw: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    void navigator.clipboard.writeText(props.raw).then(() => {
+    void copyText(props.raw).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     });

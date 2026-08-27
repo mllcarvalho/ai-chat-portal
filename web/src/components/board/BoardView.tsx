@@ -16,6 +16,7 @@ import { newNote, useBoard } from '../../stores/boardStore';
 import { useCollab } from '../../stores/collabStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { uuid } from '../../lib/compat';
 
 const COLORS: BoardNoteColor[] = ['yellow', 'orange', 'blue', 'green', 'pink', 'purple'];
 const MIN_ZOOM = 0.4;
@@ -37,10 +38,19 @@ function NoteCard(props: {
   onDelete: () => void;
   onOpenComments: () => void;
   onDragStateChange: (dragging: boolean) => void;
+  /** Nota recém-criada nesta aba: já abre com o cursor no texto. */
+  autoFocus?: boolean;
 }) {
   const { note, zoom, selected, commentCount } = props;
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number }>();
+  const textRef = useRef<HTMLTextAreaElement>(null);
   const setActiveNote = useBoard((s) => s.setActiveNote);
+
+  useEffect(() => {
+    if (props.autoFocus) textRef.current?.focus();
+    // só na montagem: o foco é para a criação, não para cada re-render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startDrag = (e: React.PointerEvent) => {
     // arrastar pela faixa superior; clique nos controles não arrasta
@@ -103,6 +113,7 @@ function NoteCard(props: {
         </button>
       </div>
       <textarea
+        ref={textRef}
         className="board-note__text"
         value={note.text}
         placeholder="Escreva…"
@@ -154,6 +165,7 @@ export function BoardView() {
   const [commentsFor, setCommentsFor] = useState<string | undefined>();
   const [commentDraft, setCommentDraft] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [freshNoteId, setFreshNoteId] = useState<string>();
   const canvasRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number }>();
   const lastCursorSent = useRef(0);
@@ -198,6 +210,7 @@ export function BoardView() {
     const note = newNote(Math.round(x - 110), Math.round(y - 20), myName);
     apply([{ type: 'note_upsert', note }]);
     select(note.id);
+    setFreshNoteId(note.id);
   };
 
   const zoomBy = (factor: number) =>
@@ -257,7 +270,7 @@ export function BoardView() {
       {
         type: 'comment_add',
         comment: {
-          id: crypto.randomUUID(),
+          id: uuid(),
           noteId: commentsFor,
           author: myName,
           text,
@@ -353,6 +366,7 @@ export function BoardView() {
               }}
               onOpenComments={() => setCommentsFor(note.id)}
               onDragStateChange={setDragging}
+              autoFocus={note.id === freshNoteId}
             />
           ))}
           {Object.entries(cursors).map(([id, cursor]) => (

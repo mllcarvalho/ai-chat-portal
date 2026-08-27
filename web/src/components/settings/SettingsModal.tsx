@@ -7,6 +7,7 @@ import { useCollab } from '../../stores/collabStore';
 import { useUi } from '../../stores/uiStore';
 import { AgentIcon } from '../common/AgentIcon';
 import { Modal } from '../common/Modal';
+import { copyText } from '../../lib/compat';
 
 /** Troca a senha de URLs tipo http://usuario:senha@proxy:8080 por •••• na exibição. */
 const maskProxyPassword = (url: string) =>
@@ -130,7 +131,7 @@ function CollabSection() {
   };
 
   const copyLink = (id: string, url: string) => {
-    void navigator.clipboard.writeText(url).then(
+    void copyText(url).then(
       () => {
         setCopiedId(id);
         setTimeout(() => setCopiedId(undefined), 2000);

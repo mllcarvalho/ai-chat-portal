@@ -8,6 +8,7 @@ import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
 import { Markdown } from '../common/Markdown';
 import { ToolCallCard } from './ToolCallCard';
+import { copyText } from '../../lib/compat';
 
 type ToolResultPart = Extract<MessagePart, { type: 'tool_result' }>;
 
@@ -87,7 +88,7 @@ export const MessageBubble = memo(function MessageBubble(props: {
   const isUser = message.role === 'user';
 
   const copyMessage = () => {
-    void navigator.clipboard.writeText(messageText(message)).then(
+    void copyText(messageText(message)).then(
       () => useUi.getState().toast('Resposta copiada.', 'ok'),
       () => useUi.getState().toast('Não foi possível copiar.', 'error'),
     );

@@ -5,6 +5,7 @@ import { attachChat, streamChat, type ChatStreamHandlers } from '../api/sseChat'
 import { useSessions } from './sessionsStore';
 import { useCatalog } from './catalogStore';
 import { useUi } from './uiStore';
+import { uuid } from '../lib/compat';
 
 /** Comando do portal_run_command aguardando aprovar/negar na UI. */
 export interface PendingApproval {
@@ -371,7 +372,7 @@ export const useChat = create<ChatState>((set, get) => {
         // UUID gerado aqui e enviado ao servidor: os dois lados persistem o
         // MESMO id mesmo se a conexão cair antes do meta (editar/regenerar
         // dependem desse id para achar a mensagem)
-        id: crypto.randomUUID(),
+        id: uuid(),
         role: 'user',
         parts: userParts,
         createdAt: new Date().toISOString(),

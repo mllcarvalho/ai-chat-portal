@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { useDiagnostics } from '../../stores/diagnosticsStore';
 import { useUi } from '../../stores/uiStore';
 import { PageShell, Panel } from './PageShell';
+import { copyText } from '../../lib/compat';
 
 /**
  * Diagnóstico do ambiente: lista as verificações da máquina (ferramentas,
@@ -37,7 +38,7 @@ export function DiagnosticsPage() {
     setCopying(true);
     try {
       const { text } = await api.supportReport();
-      await navigator.clipboard.writeText(text);
+      await copyText(text);
       toast('Relatório copiado — cole no chat de suporte.', 'ok');
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Erro ao copiar o relatório', 'error');

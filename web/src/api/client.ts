@@ -40,6 +40,7 @@ import type {
   CollabStatus,
 } from '@aiportal/shared';
 import { CLIENT_HEADER, DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
+import { uuid } from '../lib/compat';
 
 const TOKEN_KEY = 'aiportal.token';
 const CLIENT_ID_KEY = 'aiportal.clientId';
@@ -52,12 +53,12 @@ export const clientId: string = (() => {
   try {
     let id = sessionStorage.getItem(CLIENT_ID_KEY);
     if (!id) {
-      id = crypto.randomUUID();
+      id = uuid();
       sessionStorage.setItem(CLIENT_ID_KEY, id);
     }
     return id;
   } catch {
-    return crypto.randomUUID();
+    return uuid();
   }
 })();
 
