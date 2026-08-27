@@ -30,6 +30,7 @@ import { newNote, newShape, newText, useBoard, type BoardSelection } from '../..
 import { useCollab } from '../../stores/collabStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { useUi } from '../../stores/uiStore';
+import { MULTIPLAYER_UI } from '../../lib/features';
 
 /**
  * Quadro do squad. Toda a interação de ponteiro passa por UM lugar (o canvas,
@@ -637,7 +638,7 @@ export function BoardView() {
           <StickyNote className="icon" aria-hidden /> Quadro do squad
         </span>
         <div className="board__presence" title="Quem está no quadro agora">
-          {boardViewers.map((peer) => (
+          {MULTIPLAYER_UI && boardViewers.map((peer) => (
             <span
               key={peer.clientId}
               className="collab-avatar"
@@ -895,7 +896,7 @@ export function BoardView() {
             );
           })}
 
-          {Object.entries(cursors).map(([id, cursor]) => (
+          {MULTIPLAYER_UI && Object.entries(cursors).map(([id, cursor]) => (
             <div
               key={id}
               className="board-cursor"

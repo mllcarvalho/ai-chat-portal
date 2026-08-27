@@ -6,6 +6,7 @@ import { useCollab } from '../../stores/collabStore';
 import { usePreview } from '../../stores/previewStore';
 import { useUi } from '../../stores/uiStore';
 import { clientId } from '../../api/client';
+import { MULTIPLAYER_UI } from '../../lib/features';
 import { ChatHeader } from './ChatHeader';
 import { MessageBubble } from './MessageBubble';
 import { Composer } from './Composer';
@@ -84,7 +85,7 @@ export function ChatView() {
   return (
     <>
       <ChatHeader />
-      {viewers.length > 0 && (
+      {MULTIPLAYER_UI && viewers.length > 0 && (
         <div className="collab-viewers" title="Pessoas com esta conversa aberta agora">
           {viewers.map((peer) => (
             <span key={peer.clientId} className="collab-viewers__person">

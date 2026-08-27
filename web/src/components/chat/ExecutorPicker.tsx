@@ -3,6 +3,7 @@ import type { Session } from '@aiportal/shared';
 import { clientId } from '../../api/client';
 import { useCollab } from '../../stores/collabStore';
 import { Dropdown } from '../common/Dropdown';
+import { MULTIPLAYER_UI } from '../../lib/features';
 
 /**
  * Escolhe QUEM roda a inferência da conversa (federação de licenças):
@@ -22,7 +23,7 @@ export function ExecutorPicker(props: { session: Session }) {
 
   // federação só faz sentido no Copilot (as CLIs são donas do próprio loop)
   const provider = session.provider ?? 'copilot';
-  if (!identity || provider !== 'copilot') return null;
+  if (!MULTIPLAYER_UI || !identity || provider !== 'copilot') return null;
 
   // candidatos: participantes conectados que anunciaram poder executar
   const executors = peers.filter((p) => p.canExecute);

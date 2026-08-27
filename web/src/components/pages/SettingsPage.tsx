@@ -22,6 +22,7 @@ import { useCollab } from '../../stores/collabStore';
 import { useUi } from '../../stores/uiStore';
 import { AgentIcon } from '../common/AgentIcon';
 import { PageShell } from './PageShell';
+import { MULTIPLAYER_UI } from '../../lib/features';
 
 /**
  * Configurações como página (não mais modal): navegação lateral por seção e
@@ -518,7 +519,7 @@ export function SettingsPage() {
   const [extraCaCerts, setExtraCaCerts] = useState('');
   const [savingNet, setSavingNet] = useState(false);
   const [savingLibs, setSavingLibs] = useState(false);
-  const [active, setActive] = useState<SectionId>(isGuest ? 'chat' : 'collab');
+  const [active, setActive] = useState<SectionId>(isGuest || !MULTIPLAYER_UI ? 'chat' : 'collab');
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -661,7 +662,9 @@ export function SettingsPage() {
       })
       .catch((err) => toast((err as Error).message, 'error'));
 
-  const sections = SECTIONS.filter((s) => !isGuest || !s.hostOnly);
+  const sections = SECTIONS.filter((s) => !isGuest || !s.hostOnly).filter(
+    (s) => MULTIPLAYER_UI || s.id !== 'collab',
+  );
   const subtitle = isGuest
     ? `Convidado como ${identity?.name} · Portal v${health?.version ?? '?'}`
     : `Portal v${health?.version ?? '?'} · ${me ? `${me.login} (GitHub via VS Code)` : 'conta não conectada'}`;
@@ -682,7 +685,7 @@ export function SettingsPage() {
         </nav>
 
         <div className="settings__content" ref={contentRef}>
-          {!isGuest && <CollabSection />}
+          {!isGuest && MULTIPLAYER_UI && <CollabSection />}
 
           <Section
             id="chat"
@@ -696,7 +699,7 @@ export function SettingsPage() {
             >
               <Switch checked={hideToolCards} onChange={setHideToolCards} label="Ocultar cards técnicos" />
             </SettingRow>
-            <LocalPortalRow />
+            {MULTIPLAYER_UI && <LocalPortalRow />}
             {!isGuest && (
               <SettingRow
                 label="Comandos sempre permitidos"
