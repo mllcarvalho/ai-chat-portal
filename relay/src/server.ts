@@ -337,6 +337,10 @@ server.on('upgrade', (req, socket, head) => {
 
 server.listen(PORT, () => {
   log(`escutando em :${PORT}${STATIC_DIR ? ` (servindo UI de ${STATIC_DIR})` : ''}`);
+  if (STATIC_DIR && !fs.existsSync(path.join(STATIC_DIR, 'index.html'))) {
+    // caminho relativo resolve contra o cwd — com `npm run -w` o cwd é relay/
+    console.warn(`[relay] RELAY_STATIC_DIR sem index.html: ${STATIC_DIR} — use um caminho absoluto (ex.: $PWD/web/dist)`);
+  }
 });
 
 const shutdown = () => {

@@ -102,8 +102,11 @@ sua é a ponte*).
 ```bash
 npm run build -w @aiportal/web          # gera web/dist
 npm run build:relay                     # gera relay/dist/server.cjs
-RELAY_STATIC_DIR=web/dist PORT=8787 npm run -w @aiportal/relay start
+RELAY_STATIC_DIR=$PWD/web/dist PORT=8787 npm run -w @aiportal/relay start
 ```
+
+(Caminho absoluto de propósito: o `npm run -w` executa dentro de `relay/`, e um
+caminho relativo apontaria para `relay/web/dist`.)
 
 O relay serve a UI em `http://localhost:8787` (localhost é contexto seguro:
 mesmo comportamento da página HTTPS). Então:
