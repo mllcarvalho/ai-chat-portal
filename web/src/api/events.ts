@@ -1,5 +1,6 @@
 import { TOKEN_HEADER } from '@aiportal/shared';
 import { getToken } from './client';
+import { apiUrl } from './server';
 
 /**
  * Leitor do canal global de eventos (GET /api/events, SSE). Mesma mecânica do
@@ -14,7 +15,7 @@ export async function streamPortalEvents(
   onEvent: (event: string, data: unknown) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`/api/events?clientId=${encodeURIComponent(clientId)}`, {
+  const res = await fetch(apiUrl(`/api/events?clientId=${encodeURIComponent(clientId)}`), {
     headers: { [TOKEN_HEADER]: getToken() },
     signal,
   });

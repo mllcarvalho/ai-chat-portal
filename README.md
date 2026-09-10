@@ -52,6 +52,7 @@ Dados do usuário ficam em `~/AIChatPortal/` (config, sessões, skills, agentes,
 | `web/`       | Interface React (servida pela própria extensão)                      |
 | `shared/`    | Tipos TypeScript compartilhados (contrato da API)                    |
 | `installer/` | Pacote npm `bmad-product-studio` — o instalador de um comando (npx) |
+| `relay/`     | Relay do portal hospedado (UI no CloudFront/S3 da empresa) — opcional, ver `PORTAL-HOSPEDADO.md` |
 | `scripts/`   | `setup.mjs` (dev), `release.mjs` (publicação no npm)                 |
 
 ## Desenvolvimento

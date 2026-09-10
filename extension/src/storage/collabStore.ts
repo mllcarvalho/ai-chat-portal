@@ -1,6 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as os from 'node:os';
 import type { CollabConfig, CollabGuest, CollabIdentity } from '@aiportal/shared';
+import { RELAY_ROOM_ID_LENGTH } from '@aiportal/shared';
 import { emitBus } from '../events/bus';
 import { getConfig, patchConfig } from './configStore';
 import { tokenMatches } from '../server/tokenCheck';
@@ -27,6 +28,25 @@ export function setCollabEnabled(enabled: boolean): CollabConfig {
   const collab = { ...collabConfig(), enabled };
   saveCollab(collab);
   return collab;
+}
+
+/**
+ * Chave da sala no relay do portal hospedado: gerada uma vez e guardada; o
+ * id da sala é o sha256 dela (é o que o relay confere — sem registro). Só a
+ * aba do host recebe a chave; convidados só conhecem o id.
+ */
+export function ensureRelayRoom(): { roomId: string; key: string } {
+  const collab = collabConfig();
+  let key = collab.relayKey;
+  if (!key) {
+    key = crypto.randomBytes(24).toString('hex');
+    patchConfig({ collab: { ...collab, relayKey: key } });
+  }
+  return { roomId: relayRoomId(key), key };
+}
+
+export function relayRoomId(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex').slice(0, RELAY_ROOM_ID_LENGTH);
 }
 
 export function setHostName(hostName: string): CollabConfig {

@@ -5537,6 +5537,10 @@ button.chip--action:disabled {
 .collab-dot--online {
   box-shadow: 0 0 0 2px rgba(23, 130, 70, 0.25);
 }
+.collab-bridge--on {
+  color: var(--ok);
+  font-weight: 500;
+}
 
 /* link de convite visível na linha do convidado */
 .collab-guest__link {

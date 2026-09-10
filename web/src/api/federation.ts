@@ -24,7 +24,10 @@ export function getLocalPortal(): { base: string; token: string } | undefined {
     const url = new URL(raw);
     const token = url.searchParams.get('token') ?? '';
     if (!token) return undefined;
-    return { base: url.origin, token };
+    // no portal hospedado o "Copiar URL do Portal" dá a URL da empresa com
+    // ?server=http://127.0.0.1:PORT — a extensão local é o server, não a origem
+    const server = url.searchParams.get('server');
+    return { base: server ? new URL(server).origin : url.origin, token };
   } catch {
     return undefined;
   }

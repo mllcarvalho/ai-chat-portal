@@ -3,6 +3,8 @@ import type { CollabIdentity, CollabPeer, CollabStatus, PortalEvents } from '@ai
 import { api, clientId } from '../api/client';
 import { cancelJob, getLocalPortal, runFederatedJob } from '../api/federation';
 import { streamPortalEvents } from '../api/events';
+import { syncRelayBridge } from '../api/relayBridge';
+import { isHosted, viaRelay } from '../api/server';
 import { useBoard } from './boardStore';
 import { useChat } from './chatStore';
 import { useSessions } from './sessionsStore';
@@ -57,6 +59,9 @@ export const useCollab = create<CollabState>((set, get) => {
         set({ identity: hello.identity, peers: hello.peers, connected: true });
         // re-anuncia a capacidade de executar após (re)conectar
         if (get().canExecute || getLocalPortal()) get().advertiseCapability(!!getLocalPortal());
+        // portal hospedado: a aba do host é a ponte dos convidados — o status
+        // traz a sala do relay (e religa a ponte depois de um restart)
+        if (hello.identity.role === 'host' && isHosted() && !viaRelay()) void get().loadStatus();
         // conexão nova depois de uma queda: o que aconteceu no vácuo não
         // chegou por evento — ressincroniza tudo que está na tela
         if (everConnected) resyncAfterReconnect();
@@ -215,7 +220,9 @@ export const useCollab = create<CollabState>((set, get) => {
 
     loadStatus: async () => {
       try {
-        set({ status: await api.collabStatus() });
+        const status = await api.collabStatus();
+        set({ status });
+        syncRelayBridge(status.enabled ? status.relay : undefined);
       } catch {
         // convidado (403) ou servidor antigo: a seção simplesmente não aparece
       }

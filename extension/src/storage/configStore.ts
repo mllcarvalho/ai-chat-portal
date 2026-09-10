@@ -57,6 +57,7 @@ export function patchConfig(
       | 'sharedLibraries'
       | 'captureBrowser'
       | 'collab'
+      | 'hostedPortalUrl'
     >
   >,
 ): Config {

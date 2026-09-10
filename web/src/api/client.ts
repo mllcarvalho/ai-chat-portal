@@ -42,6 +42,7 @@ import type {
 } from '@aiportal/shared';
 import { CLIENT_HEADER, DEFAULT_PORT, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { uuid } from '../lib/compat';
+import { apiUrl, getServer, isHosted, setServer, viaRelay } from './server';
 
 const TOKEN_KEY = 'aiportal.token';
 const CLIENT_ID_KEY = 'aiportal.clientId';
@@ -88,23 +89,30 @@ let lastFailoverProbe = 0;
 /**
  * O portal pode migrar de porta quando outra janela do VS Code assume o
  * servidor: se a nossa origem morreu, procura o portal vivo e se redireciona.
+ * No portal hospedado a página não muda de lugar: só a base da API é
+ * atualizada. Convidado pelo relay não sonda nada — quem migra é o host.
  */
 async function maybeFailover(): Promise<void> {
+  if (viaRelay()) return;
   const now = Date.now();
   if (now - lastFailoverProbe < 15000) return;
   lastFailoverProbe = now;
+  const hosted = isHosted();
   // convidados entram pelo IP da LAN do host: a sondagem procura o portal no
   // MESMO endereço em que a página foi servida, não em 127.0.0.1 fixo
-  const host = location.hostname || '127.0.0.1';
+  const current = hosted ? new URL(getServer()) : location;
+  const host = current.hostname || '127.0.0.1';
   const ports: number[] = [];
   for (let port = DEFAULT_PORT; port <= DEFAULT_PORT + PORT_RANGE; port++) {
-    if (String(port) !== location.port) ports.push(port);
+    if (String(port) !== current.port) ports.push(port);
   }
   // sondagem em paralelo: em série eram até ~11s até achar o portal vivo
   const results = await Promise.all(
     ports.map(async (port) => {
       try {
         const res = await fetch(`http://${host}:${port}/api/health`, {
+          // de uma origem externa (portal hospedado) só passa com o token
+          headers: { [TOKEN_HEADER]: getToken() },
           signal: AbortSignal.timeout(1500),
         });
         if (!res.ok) return undefined;
@@ -116,13 +124,26 @@ async function maybeFailover(): Promise<void> {
     }),
   );
   const port = results.find((p) => p !== undefined);
-  if (port !== undefined) {
+  if (port === undefined) return;
+  if (hosted) {
+    setServer(`http://${host}:${port}`);
+    window.dispatchEvent(new Event('aiportal:server-changed'));
+  } else {
     location.replace(`http://${host}:${port}/?token=${encodeURIComponent(getToken())}`);
   }
 }
 
+/** Mensagem de "servidor fora" que faz sentido para o modo em que a UI está. */
+function unavailableMessage(): string {
+  if (viaRelay()) return 'O portal do host está fora do ar — ele precisa estar com o VS Code e o portal abertos.';
+  if (isHosted()) {
+    return `Não alcancei o portal local em ${getServer()} — confira se o VS Code está aberto e se o navegador permitiu o acesso à rede local.`;
+  }
+  return 'Servidor do portal indisponível — procurando em outra porta…';
+}
+
 async function downloadFromUrl(url: string, fallbackName: string): Promise<void> {
-  const res = await fetch(url, { headers: { [TOKEN_HEADER]: getToken() } });
+  const res = await fetch(apiUrl(url), { headers: { [TOKEN_HEADER]: getToken() } });
   if (!res.ok) {
     let message = `Erro ${res.status}`;
     try {
@@ -144,7 +165,7 @@ async function downloadFromUrl(url: string, fallbackName: string): Promise<void>
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const doFetch = () =>
-    fetch(path, {
+    fetch(apiUrl(path), {
       method,
       headers: {
         [TOKEN_HEADER]: getToken(),
@@ -165,11 +186,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         res = await doFetch();
       } catch {
         void maybeFailover();
-        throw new ApiError(0, 'Servidor do portal indisponível — procurando em outra porta…');
+        throw new ApiError(0, unavailableMessage());
       }
     } else {
       void maybeFailover();
-      throw new ApiError(0, 'Servidor do portal indisponível — procurando em outra porta…');
+      throw new ApiError(0, unavailableMessage());
     }
   }
   if (!res.ok) {
@@ -598,5 +619,7 @@ export const api = {
     commandAllowlist?: string[];
     /** '' volta ao automático. */
     captureBrowser?: string;
+    /** '' desliga (a extensão volta a servir a UI). */
+    hostedPortalUrl?: string;
   }) => request<Omit<Config, 'token'>>('PATCH', '/api/config', patch),
 };

@@ -37,6 +37,7 @@ import {
   type KnowledgeDoc,
 } from '@aiportal/shared';
 import { api, getToken } from '../../api/client';
+import { getServer } from '../../api/server';
 import { isConvertibleDocument } from '../../lib/extractDocument';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
@@ -116,7 +117,8 @@ export function KnowledgePage() {
   const bookmarklet = useMemo(() => {
     const ports = [
       ...new Set([
-        Number(window.location.port) || DEFAULT_PORT,
+        // portal hospedado: a extensão está no ?server= (127.0.0.1:PORT), não na origem da página
+        Number(new URL(getServer() || window.location.href).port) || DEFAULT_PORT,
         ...Array.from({ length: PORT_RANGE + 1 }, (_, i) => DEFAULT_PORT + i),
       ]),
     ];

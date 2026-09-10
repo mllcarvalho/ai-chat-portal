@@ -17,6 +17,9 @@ import { isBmadAsset, type Config } from '@aiportal/shared';
 import { api } from '../../api/client';
 import { copyText } from '../../lib/compat';
 import { getLocalPortal, pingLocalPortal, setLocalPortal } from '../../api/federation';
+import { bridgeState, onBridgeState, type BridgeState } from '../../api/relayBridge';
+import { isHosted, normalizeServer, viaRelay } from '../../api/server';
+import { relayJoinUrl } from '@aiportal/shared';
 import { useCatalog } from '../../stores/catalogStore';
 import { useCollab } from '../../stores/collabStore';
 import { useUi } from '../../stores/uiStore';
@@ -336,11 +339,27 @@ function CollabSection() {
     }
   };
 
+  // portal hospedado: a aba do host faz a ponte com o relay, e o convite é
+  // pela URL da empresa (sala + token) — nenhum IP de máquina no link
+  const hosted = isHosted() && !viaRelay();
+  const [bridge, setBridge] = useState<BridgeState>(bridgeState());
+  useEffect(() => onBridgeState(setBridge), []);
+  const roomUrl = hosted && status?.relay ? relayJoinUrl(location.origin, status.relay.roomId, '') : '';
+
   const activeGuests = status?.guests.filter((g) => !g.revoked) ?? [];
   const revokedGuests = status?.guests.filter((g) => g.revoked) ?? [];
-  const suggestions = [...(status?.lanUrls ?? []), ...(status?.mdnsUrl ? [status.mdnsUrl] : [])];
+  const suggestions = [
+    ...(roomUrl ? [roomUrl] : []),
+    ...(status?.lanUrls ?? []),
+    ...(status?.mdnsUrl ? [status.mdnsUrl] : []),
+  ];
   const baseUrl = (address.trim() || suggestions[0] || '').replace(/\/+$/, '');
-  const joinUrl = (token: string) => (baseUrl ? `${baseUrl}/?token=${token}` : '');
+  const joinUrl = (token: string) => {
+    if (!baseUrl) return '';
+    // link hospedado termina em "&token=" (sala na query); o da LAN monta "/?token="
+    if (baseUrl.includes('?room=')) return `${baseUrl}${token}`;
+    return `${baseUrl}/?token=${token}`;
+  };
 
   return (
     <Section
@@ -378,6 +397,23 @@ function CollabSection() {
                   aria-label="Seu nome nas sessões compartilhadas"
                 />
               </SettingRow>
+
+              {hosted && (
+                <SettingRow
+                  label="Ponte com o portal hospedado"
+                  hint="Os convidados entram pela URL da empresa; esta aba repassa as chamadas deles para a extensão local. Mantenha uma aba do portal aberta."
+                >
+                  <span className={`collab-guest__state${bridge === 'connected' ? ' collab-bridge--on' : ''}`}>
+                    {bridge === 'connected'
+                      ? 'conectada nesta aba'
+                      : bridge === 'waiting'
+                        ? 'outra aba sua é a ponte'
+                        : bridge === 'connecting'
+                          ? 'conectando ao relay…'
+                          : 'desligada'}
+                  </span>
+                </SettingRow>
+              )}
 
               <SettingRow
                 label="Endereço que os convidados usam"
@@ -518,6 +554,7 @@ export function SettingsPage() {
   const [noProxy, setNoProxy] = useState('');
   const [extraCaCerts, setExtraCaCerts] = useState('');
   const [savingNet, setSavingNet] = useState(false);
+  const [hostedUrl, setHostedUrl] = useState('');
   const [savingLibs, setSavingLibs] = useState(false);
   const [active, setActive] = useState<SectionId>(isGuest || !MULTIPLAYER_UI ? 'chat' : 'collab');
   const contentRef = useRef<HTMLDivElement>(null);
@@ -533,9 +570,26 @@ export function SettingsPage() {
         setHttpProxy(c.network?.httpProxy ?? '');
         setNoProxy(c.network?.noProxy ?? '');
         setExtraCaCerts(c.network?.extraCaCerts ?? '');
+        setHostedUrl(c.hostedPortalUrl ?? '');
       })
       .catch(() => undefined);
   }, [isGuest]);
+
+  const saveHostedUrl = async () => {
+    const value = hostedUrl.trim();
+    if (value && !normalizeServer(value)) {
+      toast('URL inválida — use a origem do portal, ex.: https://portal.empresa.com', 'error');
+      return;
+    }
+    try {
+      const updated = await api.patchConfig({ hostedPortalUrl: value });
+      setConfig(updated);
+      setHostedUrl(updated.hostedPortalUrl ?? '');
+      toast(value ? 'Portal hospedado salvo — "Abrir no Navegador" passa a usar essa URL.' : 'Portal hospedado removido.', 'ok');
+    } catch (err) {
+      toast((err as Error).message, 'error');
+    }
+  };
 
   // a seção mais visível vira a ativa na navegação lateral
   useEffect(() => {
@@ -849,6 +903,28 @@ export function SettingsPage() {
                     {savingNet ? 'Salvando…' : 'Salvar rede'}
                   </button>
                 </div>
+              </div>
+
+              <div className="settings-subhead">
+                Portal hospedado
+                <span className="settings-subhead__hint">
+                  Se a empresa publica a interface num endereço próprio (CloudFront/S3), informe aqui: o comando "Abrir no
+                  Navegador" e o instalador passam a abrir essa URL, apontando para a extensão desta máquina. Vazio = a
+                  extensão serve a interface ela mesma. A configuração <code>aiChatPortal.hostedPortalUrl</code> do VS Code,
+                  quando definida, tem precedência.
+                </span>
+              </div>
+              <div className="setting-row__inline">
+                <input
+                  className="setting-row__input setting-row__input--wide"
+                  value={hostedUrl}
+                  onChange={(e) => setHostedUrl(e.target.value)}
+                  placeholder="https://portal.empresa.com"
+                  aria-label="URL do portal hospedado"
+                />
+                <button className="btn" disabled={hostedUrl.trim() === (config?.hostedPortalUrl ?? '')} onClick={() => void saveHostedUrl()}>
+                  Salvar
+                </button>
               </div>
             </Section>
           )}

@@ -1,0 +1,26 @@
+{
+  "name": "@aiportal/relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Relay do portal hospedado: encaminha as chamadas dos convidados para a aba do host (WebSocket). Não guarda dados, não fala com modelo nenhum.",
+  "main": "dist/server.cjs",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "dev": "tsx src/server.ts",
+    "start": "node dist/server.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aiportal/shared": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

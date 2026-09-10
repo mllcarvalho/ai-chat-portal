@@ -8,6 +8,7 @@ import {
   sharedRevision,
 } from '../../storage/sharedLibrary';
 import { getConfig, patchConfig } from '../../storage/configStore';
+import { normalizeOrigin } from '../../storage/hostedPortal';
 import {
   applyNpmrcSettings,
   applyProxyToProcessEnv,
@@ -86,7 +87,24 @@ export function registerConfigRoutes(router: Router): void {
       microsoft?: { clientId?: string; tenant?: string };
       commandAllowlist?: string[];
       captureBrowser?: string;
+      hostedPortalUrl?: string;
     };
+    // portal hospedado: só a origem (http/https); '' desliga
+    let hostedPortalUrl: string | undefined | null;
+    if (patch.hostedPortalUrl !== undefined) {
+      if (typeof patch.hostedPortalUrl !== 'string') {
+        sendError(res, 400, 'hostedPortalUrl deve ser uma string');
+        return;
+      }
+      if (!patch.hostedPortalUrl.trim()) hostedPortalUrl = null;
+      else {
+        hostedPortalUrl = normalizeOrigin(patch.hostedPortalUrl) ?? null;
+        if (!hostedPortalUrl) {
+          sendError(res, 400, 'hostedPortalUrl inválida — use a origem, ex.: https://portal.empresa.com');
+          return;
+        }
+      }
+    }
     // navegador da captura SSO: só os que falam CDP (Firefox não fala)
     const CAPTURE_BROWSERS = ['Chrome', 'Edge', 'Brave'] as const;
     type CaptureBrowser = (typeof CAPTURE_BROWSERS)[number];
@@ -164,6 +182,7 @@ export function registerConfigRoutes(router: Router): void {
       ...(microsoft ? { microsoft } : {}),
       ...(commandAllowlist !== undefined ? { commandAllowlist } : {}),
       ...(captureBrowser !== undefined ? { captureBrowser: captureBrowser ?? undefined } : {}),
+      ...(hostedPortalUrl !== undefined ? { hostedPortalUrl: hostedPortalUrl ?? undefined } : {}),
     });
     const { token: _token, ...safe } = updated;
     sendJson(res, 200, safe);

@@ -4,6 +4,7 @@ import { Router, sendError, sendJson } from '../router';
 import {
   addGuest,
   collabConfig,
+  ensureRelayRoom,
   hostDisplayName,
   lanAddresses,
   revokeGuest,
@@ -46,6 +47,8 @@ export function registerCollabRoutes(router: Router, deps: RouteDeps): void {
       port,
       guests,
       online: peersSnapshot(),
+      // esta rota é host-only: a chave da sala só chega à aba do host
+      ...(collab.enabled ? { relay: ensureRelayRoom() } : {}),
     };
   };
 

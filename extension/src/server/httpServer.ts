@@ -6,6 +6,7 @@ import { PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { Router, sendError } from './router';
 import { getConfig } from '../storage/configStore';
 import { collabEnabled, identityForToken, lanAddresses } from '../storage/collabStore';
+import { hostedPortalUrl } from '../storage/hostedPortal';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -56,6 +57,10 @@ function isAllowedOrigin(origin: string, config: Config, port: number): boolean 
     const m = /^http:\/\/(\d{1,3}(?:\.\d{1,3}){3}):(\d+)$/.exec(origin);
     if (m && Number(m[2]) === port && lanAddressesCached().includes(m[1])) return true;
   }
+  // portal hospedado: a UI vem do CloudFront/S3 da empresa e fala com esta
+  // extensão em 127.0.0.1 (o Chrome exige o preflight de rede privada, já
+  // respondido abaixo)
+  if (hostedPortalUrl() === origin) return true;
   return (config.devOrigins ?? []).includes(origin);
 }
 

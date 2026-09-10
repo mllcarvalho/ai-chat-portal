@@ -49,7 +49,17 @@
         "command": "aiChatPortal.warmup",
         "title": "BMAD Product Studio: Autorizar uso do Copilot"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "BMAD Product Studio",
+      "properties": {
+        "aiChatPortal.hostedPortalUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Portal hospedado pela empresa (ex.: `https://portal.empresa.com`). Quando definido, \"Abrir no Navegador\" e o instalador abrem essa URL apontando para a extensão desta máquina (`?server=http://127.0.0.1:PORT`). Vazio = a extensão serve a interface localmente. Tem precedência sobre o valor salvo na tela de configurações do portal."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",

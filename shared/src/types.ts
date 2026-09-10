@@ -68,6 +68,14 @@ export interface Config {
   projectsRoot: string;
   /** Origens extras liberadas no CORS (ex.: http://localhost:5173 em dev). */
   devOrigins?: string[];
+  /**
+   * Portal hospedado (UI no CloudFront/S3 da empresa): quando definido, o
+   * comando "Abrir no Navegador" e o instalador abrem esta URL com
+   * `?server=http://127.0.0.1:PORT&token=…`, e a origem entra no CORS. Vazio =
+   * a extensão serve a UI ela mesma, como sempre. A configuração do VS Code
+   * `aiChatPortal.hostedPortalUrl` (política corporativa) tem precedência.
+   */
+  hostedPortalUrl?: string;
   /** Rede corporativa para as conexões dos proxies MCP (proxy/CA). */
   network?: NetworkConfig;
   /** Autenticação Microsoft para ler SharePoint via Graph. */
@@ -104,6 +112,12 @@ export interface CollabConfig {
   /** Nome exibido do dono da máquina nas sessões compartilhadas (default: conta GitHub). */
   hostName?: string;
   guests: CollabGuest[];
+  /**
+   * Segredo da sala no relay do portal hospedado (gerado uma vez). O id da
+   * sala é o sha256 dele: quem tem a chave é a ponte; quem tem o id + um
+   * token de convite é convidado.
+   */
+  relayKey?: string;
 }
 
 /** Convite individual: o token identifica a pessoa (nome, cor) e é revogável. */
@@ -163,6 +177,12 @@ export interface CollabStatus {
   port: number;
   guests: CollabGuestInfo[];
   online: CollabPeer[];
+  /**
+   * Sala do relay (portal hospedado). Só a aba do host recebe a chave — é ela
+   * quem abre a ponte. Presente sempre que a colaboração está ligada; a UI só
+   * usa quando está sendo servida por um portal hospedado.
+   */
+  relay?: { roomId: string; key: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +347,10 @@ export interface NetworkConfig {
 /** Escrito em ~/AIChatPortal/runtime.json enquanto o servidor está de pé. */
 export interface RuntimeInfo {
   port: number;
+  /** URL que abre o portal: local (127.0.0.1) ou, se configurado, o portal hospedado com ?server=. */
   portalUrl: string;
+  /** URL local com token, sempre (é a que a federação e a UI hospedada usam para achar a extensão). */
+  localUrl?: string;
   pid: number;
   startedAt: string;
   version: string;

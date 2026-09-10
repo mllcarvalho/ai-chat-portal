@@ -55,9 +55,15 @@ function computeBuildId(context: vscode.ExtensionContext): number {
   }
 }
 
-/** URL canônica do portal: o runtime.json é escrito por quem está servindo agora. */
+/**
+ * URL canônica do portal: o runtime.json é escrito por quem está servindo
+ * agora. Remontada a cada chamada para o portal hospedado (config/setting)
+ * valer na hora, sem religar o servidor.
+ */
 function canonicalPortalUrl(): string | undefined {
-  return readRuntime()?.portalUrl ?? portalUrl;
+  const runtime = readRuntime();
+  if (runtime) return buildPortalUrl(runtime.port, getConfig().token);
+  return portalUrl;
 }
 
 async function doWarmup(context: vscode.ExtensionContext): Promise<void> {
@@ -220,6 +226,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentPort.value = result.port;
     portalUrl = buildPortalUrl(result.port, freshConfig.token);
     writeRuntime(result.port, freshConfig.token, version);
+    // a URL do runtime.json (que o instalador abre) acompanha a configuração
+    // do portal hospedado sem precisar religar a janela
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration('aiChatPortal.hostedPortalUrl') && serving) {
+          portalUrl = buildPortalUrl(result.port, getConfig().token);
+          writeRuntime(result.port, getConfig().token, version);
+        }
+      }),
+    );
     // MCPs sobem SÓ na janela que serve o portal: cada janela subindo os
     // próprios stdio duplicava todos os processos. Antes de religar, importa
     // proxy/CA do shell de login (o host da extensão via GUI não herda).

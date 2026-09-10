@@ -1,6 +1,7 @@
 import type { ChatRequestBody, ChatSseEventName, ChatSseEvents } from '@aiportal/shared';
 import { TOKEN_HEADER } from '@aiportal/shared';
 import { getToken } from './client';
+import { apiUrl } from './server';
 
 export interface ChatStreamHandlers {
   onMeta: (data: ChatSseEvents['meta']) => void;
@@ -125,7 +126,7 @@ export async function streamChat(
   handlers: ChatStreamHandlers,
   signal: AbortSignal,
 ): Promise<void> {
-  const res = await fetch('/api/chat', {
+  const res = await fetch(apiUrl('/api/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [TOKEN_HEADER]: getToken() },
     body: JSON.stringify(body),
@@ -158,7 +159,7 @@ export async function attachChat(
   /** Chamado quando o replay vai começar — zere o parcial local aqui. */
   onReplayStart?: () => void,
 ): Promise<boolean> {
-  const res = await fetch('/api/chat/attach', {
+  const res = await fetch(apiUrl('/api/chat/attach'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [TOKEN_HEADER]: getToken() },
     body: JSON.stringify({ sessionId }),
