@@ -97,6 +97,34 @@ sua é a ponte*).
 - autenticação dos convidados no listener do ALB (`authenticate-oidc` com o IdP
   da empresa) — zero código, e sem client secret em lugar nenhum.
 
+## Variante: tudo no ECS, sem S3
+
+O relay também serve a interface (`RELAY_STATIC_DIR`), então um container só
+resolve os dois papéis — é o que o `relay/Dockerfile` faz por padrão: copia o
+`web/dist` para dentro da imagem e liga a variável. O CloudFront fica com um
+origin só (o ALB):
+
+```
+https://portal.empresa.com → CloudFront → ALB (OIDC) → ECS: relay (UI + /relay/*)
+```
+
+- behavior `/relay/*`: `CachingDisabled` + `AllViewer` (streaming e WebSocket);
+- behavior padrão: política de cache que respeita o `Cache-Control` do origin
+  (`UseOriginCacheControlHeaders`) — o relay manda `no-cache` no `index.html` e
+  1h nos assets, que têm hash no nome. Ou `CachingDisabled` em tudo, que para
+  esse tamanho de UI não faz diferença.
+
+Trocar para S3 depois é só publicar o `web/dist` no bucket, apontar o behavior
+padrão para ele e subir o container com `RELAY_STATIC_DIR` vazio.
+
+Build da imagem, da raiz do repo:
+
+```bash
+npm run build -w @aiportal/web && npm run build:relay
+docker build -f relay/Dockerfile -t portal-relay .
+docker run -p 8787:8787 portal-relay
+```
+
 ## Rodando local (sem AWS)
 
 ```bash
@@ -120,8 +148,7 @@ mesmo comportamento da página HTTPS). Então:
 Variáveis do relay: `PORT`, `RELAY_STATIC_DIR` (opcional), `RELAY_CORS_ORIGINS`
 (dev com Vite em `:5173`).
 
-Imagem Docker: `relay/Dockerfile` leva só o `dist/server.cjs` (build antes, na
-esteira).
+Imagem Docker: ver a variante "tudo no ECS" acima.
 
 ## Onde está no código
 

@@ -1,0 +1,5 @@
+# contexto do docker build do relay (rodado da raiz): só o que a imagem copia
+*
+!relay/dist/server.cjs
+!web/dist
+!web/dist/**
