@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import type { Config, HealthInfo } from '@aiportal/shared';
-import { PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
+import { CLIENT_HEADER, PORT_RANGE, TOKEN_HEADER } from '@aiportal/shared';
 import { Router, sendError } from './router';
 import { getConfig } from '../storage/configStore';
 import { collabEnabled, identityForToken, lanAddresses } from '../storage/collabStore';
@@ -170,7 +170,9 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${TOKEN_HEADER}`);
+      // o header do cliente (id da aba) só importa fora da mesma origem — que é
+      // exatamente quando há preflight (portal hospedado, federação)
+      res.setHeader('Access-Control-Allow-Headers', `Content-Type, ${TOKEN_HEADER}, ${CLIENT_HEADER}`);
       // Chrome/Edge exigem este header no preflight de sites públicos para
       // 127.0.0.1 (Private Network Access)
       res.setHeader('Access-Control-Allow-Private-Network', 'true');
