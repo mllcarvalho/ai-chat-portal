@@ -97,6 +97,11 @@ sua é a ponte*).
 - autenticação dos convidados no listener do ALB (`authenticate-oidc` com o IdP
   da empresa) — zero código, e sem client secret em lugar nenhum.
 
+## Subindo no ambiente corporativo
+
+Checklist esteira por esteira (imagem, ECS, ALB interno com OIDC, CloudFront
+interno, o que fica fora da AWS e a validação): `relay/DEPLOY-CORPORATIVO.md`.
+
 ## Onboarding: quem abre o link sem ter nada instalado
 
 O link da empresa sozinho não instala nada — a extensão continua sendo

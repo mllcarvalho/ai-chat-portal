@@ -184,6 +184,10 @@ Resources:
               OriginReadTimeout: 60
               OriginKeepaliveTimeout: 60
         # UI: respeita o Cache-Control do relay (index.html no-cache, assets 1h)
+        # EMPRESA: com authenticate-oidc no ALB, use a politica AllViewer
+        # (216adef6-5c7f-47e4-b989-5492eafa07d3) nos dois behaviors — o ALB
+        # monta a callback do IdP a partir do header Host, que precisa ser o
+        # dominio do CloudFront
         DefaultCacheBehavior:
           TargetOriginId: alb
           ViewerProtocolPolicy: redirect-to-https
