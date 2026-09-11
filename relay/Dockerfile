@@ -7,6 +7,11 @@ FROM node:22-alpine
 WORKDIR /app
 COPY relay/dist/server.cjs ./server.cjs
 COPY web/dist ./web
+# onboarding corporativo servido pelo próprio portal: /setup.html (passo a
+# passo, com o bootstrap embutido para download) e /bootstrap.sh (curl | sh).
+# Preencha os valores do scripts/bootstrap-itau.sh antes de buildar a imagem.
+COPY scripts/setup-itau.html ./web/setup.html
+COPY scripts/bootstrap-itau.sh ./web/bootstrap.sh
 ENV NODE_ENV=production
 ENV PORT=8787
 # a UI é servida pelo próprio relay; deixe vazio para servir só o /relay/* (UI no S3)

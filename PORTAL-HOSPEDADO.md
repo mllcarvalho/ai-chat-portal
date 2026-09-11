@@ -97,6 +97,31 @@ sua é a ponte*).
 - autenticação dos convidados no listener do ALB (`authenticate-oidc` com o IdP
   da empresa) — zero código, e sem client secret em lugar nenhum.
 
+## Onboarding: quem abre o link sem ter nada instalado
+
+O link da empresa sozinho não instala nada — a extensão continua sendo
+instalada na máquina de cada pessoa. O que o portal hospedado faz é guiar:
+
+- **Link aberto "seco"** (sem `?server=`/`?room=`): a UI mostra a tela de
+  boas-vindas (`HostedWelcome.tsx`). Ela sonda `127.0.0.1:4717-4727` a cada
+  5s (o `/api/health` da extensão é aberto a qualquer origem, só versão e
+  estado dos motores) e reage:
+  - nada rodando → passo a passo: VS Code + Node, o setup corporativo em
+    `/setup.html` (a página `scripts/setup-itau.html`, com o bootstrap
+    embutido para download; o script também sai em `/bootstrap.sh`), e o
+    comando `npx <instalador>@latest --portal https://portal.empresa.com`;
+  - extensão atrasada em relação à UI → comando de atualizar (a UI hospedada
+    é sempre a mais nova; a versão da extensão entra no build via
+    `__PORTAL_VERSION__`);
+  - extensão atual → como entrar autenticado ("Abrir no Navegador" no VS Code).
+- **`npx … --portal <url>`** grava `hostedPortalUrl` no `~/AIChatPortal/config.json`
+  (antes mesmo da primeira ativação — a extensão preserva o config parcial e só
+  completa o token), instala/atualiza a extensão, sobe o VS Code e abre o portal
+  já pelo link da empresa com `?server=` e `?token=`. A página `/setup.html`,
+  quando servida pelo portal, já mostra o comando com `--portal`.
+- **Dentro do portal**, se a extensão local estiver atrás da UI, o banner de
+  atualização de sempre aparece com esse mesmo comando.
+
 ## Variante: tudo no ECS, sem S3
 
 O relay também serve a interface (`RELAY_STATIC_DIR`), então um container só

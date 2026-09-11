@@ -3,3 +3,5 @@
 !relay/dist/server.cjs
 !web/dist
 !web/dist/**
+!scripts/setup-itau.html
+!scripts/bootstrap-itau.sh

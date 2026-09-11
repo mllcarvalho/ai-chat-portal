@@ -3,6 +3,7 @@ import { Check as CheckIcon, TriangleAlert, X } from 'lucide-react';
 import { useCatalog } from '../../stores/catalogStore';
 import { useSessions } from '../../stores/sessionsStore';
 import { getToken } from '../../api/client';
+import { getServer, installCommand, isHosted, viaRelay } from '../../api/server';
 
 function Check(props: { ok: boolean | undefined; label: string; hint?: string }) {
   return (
@@ -73,7 +74,11 @@ export function OnboardingScreen() {
           label="Servidor do portal ativo"
           hint={
             serverUp === false
-              ? 'Abra o VS Code (a extensão BMAD Product Studio sobe o servidor automaticamente) ou rode npm start na pasta do projeto.'
+              ? viaRelay()
+                ? 'O portal do host está fora do ar — ele precisa estar com o VS Code e uma aba do portal abertos.'
+                : isHosted()
+                  ? `Não alcancei a extensão em ${getServer()}. Abra o VS Code nesta máquina (a extensão sobe o servidor sozinha). Se o navegador perguntar sobre acesso à rede local, permita. Ainda não instalou? Rode: ${installCommand()}`
+                  : 'Abra o VS Code (a extensão BMAD Product Studio sobe o servidor automaticamente) ou rode npm start na pasta do projeto.'
               : undefined
           }
         />

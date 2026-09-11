@@ -161,8 +161,12 @@ function makeHandler(router: Router, opts: ServerOpts, getPort: () => number) {
       // headers de CORS aqui é inofensivo — a request de verdade ainda passa
       // pelo token. É o que permite a uma aba servida por OUTRO portal (ex.:
       // federação host↔convidado) falar com este, apresentando o token.
+      // /api/health é aberto a qualquer origem: a tela de boas-vindas do portal
+      // hospedado sonda 127.0.0.1 ANTES de a máquina ter qualquer configuração
+      // (sem token só sai versão/estado dos motores — nada de conta)
+      const isHealth = url.pathname === '/api/health';
       const allowed =
-        isCapture || isAllowedOrigin(origin, config, port) || req.method === 'OPTIONS' || !!auth;
+        isCapture || isHealth || isAllowedOrigin(origin, config, port) || req.method === 'OPTIONS' || !!auth;
       if (!allowed) {
         sendError(res, 403, 'Origem não permitida');
         return;

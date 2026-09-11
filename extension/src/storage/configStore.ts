@@ -22,17 +22,22 @@ function resolveProjectsRoot(stored: string | undefined): string {
 }
 
 export function loadConfig(): Config {
-  const existing = readJson<Config>(CONFIG_PATH);
+  const existing = readJson<Partial<Config>>(CONFIG_PATH);
   if (existing && existing.token) {
-    cached = { ...existing, projectsRoot: resolveProjectsRoot(existing.projectsRoot) };
+    cached = { ...(existing as Config), projectsRoot: resolveProjectsRoot(existing.projectsRoot) };
   } else {
+    // primeira ativação. O instalador pode ter deixado um config parcial
+    // (ex.: hostedPortalUrl via `--portal`) — preserva o que veio, só
+    // completa o que falta
     cached = {
       version: 1,
       port: DEFAULT_PORT,
-      token: crypto.randomBytes(32).toString('hex'),
       projectsRoot: defaultProjectsRoot(),
       devOrigins: ['http://localhost:5173'],
+      ...(existing ?? {}),
+      token: crypto.randomBytes(32).toString('hex'),
     };
+    cached.projectsRoot = resolveProjectsRoot(cached.projectsRoot);
     writeJsonAtomic(CONFIG_PATH, cached);
   }
   ensureLayout(cached.projectsRoot);

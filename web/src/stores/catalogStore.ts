@@ -11,6 +11,7 @@ import type {
   ToolInfo,
 } from '@aiportal/shared';
 import { api } from '../api/client';
+import { installCommand, isHosted, versionOlder } from '../api/server';
 import { useUi } from './uiStore';
 
 /** Falha de rede num refresh: mantém o catálogo anterior e avisa via toast. */
@@ -55,6 +56,11 @@ export const useCatalog = create<CatalogState>((set) => ({
   loadHealth: async () => {
     try {
       const health = await api.health();
+      // UI hospedada é sempre a mais nova: se a extensão local está atrás,
+      // reaproveita o banner de atualização com o comando que aponta para cá
+      if (isHosted() && !health.update && versionOlder(health.version, __PORTAL_VERSION__)) {
+        health.update = { latest: __PORTAL_VERSION__, command: installCommand() };
+      }
       set({ health });
       return health;
     } catch {

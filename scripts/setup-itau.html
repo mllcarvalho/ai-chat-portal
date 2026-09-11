@@ -995,6 +995,11 @@ printf '%s\n' "Para reverter tudo: ${C_BLD}sh $0 --undo${C_RST}"
 
   var BOOTSTRAP_CMD = 'sh ~/Downloads/bootstrap-itau.sh';
   var NPX_CMD = 'npx bmad-product-studio-beta@latest';
+  // servida pelo portal hospedado (https://portal.empresa/setup.html): o
+  // instalador já aponta a extensão para este endereço
+  if (/^https?:$/.test(location.protocol) && location.hostname !== 'localhost') {
+    NPX_CMD += ' --portal ' + location.origin;
+  }
 
   var OS_WORD = { mac: 'Terminal', win: 'Git Bash' };
   var TERM_TITLE = { mac: 'Terminal — macOS', win: 'Git Bash — Windows' };

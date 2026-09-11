@@ -108,3 +108,28 @@ export function consumeServerParams(params: URLSearchParams): string[] {
   }
   return consumed;
 }
+
+/**
+ * A página foi servida por um portal hospedado (relay/CloudFront), não pela
+ * extensão. Independe de já haver um servidor conhecido: é o que decide
+ * mostrar a tela de boas-vindas quando não há ?server= nem ?room=.
+ */
+export function isHostedPage(): boolean {
+  return !!window.__AIPORTAL_HOSTED__ || import.meta.env.VITE_HOSTED === '1';
+}
+
+/** Comando de instalar/atualizar apontando a extensão para este portal. */
+export function installCommand(): string {
+  return `npx ${__INSTALLER_PKG__}@latest --portal ${location.origin}`;
+}
+
+/** a < b em semver simples (x.y.z). */
+export function versionOlder(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff < 0;
+  }
+  return false;
+}

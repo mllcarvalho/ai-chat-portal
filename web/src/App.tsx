@@ -11,6 +11,8 @@ import { Welcome } from './components/layout/Welcome';
 import { HomeScreen } from './components/layout/HomeScreen';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { OnboardingScreen } from './components/onboarding/OnboardingScreen';
+import { HostedWelcome } from './components/onboarding/HostedWelcome';
+import { isHosted, isHostedPage } from './api/server';
 import { SkillsPage } from './components/pages/SkillsPage';
 import { AgentsPage } from './components/pages/AgentsPage';
 import { McpServersPage } from './components/pages/McpServersPage';
@@ -84,6 +86,9 @@ export function App() {
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
+  // link da empresa aberto "seco" (sem ?server= nem ?room=): não há servidor
+  // para falar — orienta a instalar/apontar a extensão local
+  if (isHostedPage() && !isHosted()) return <HostedWelcome />;
   if (!booted) return null;
   if (!health?.ok) return <OnboardingScreen />;
   // o login RACF configura o proxy DA MÁQUINA DO HOST — convidado nem vê

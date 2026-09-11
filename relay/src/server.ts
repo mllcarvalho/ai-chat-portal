@@ -250,7 +250,15 @@ const MIME: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
+  '.sh': 'text/plain; charset=utf-8',
 };
+
+/**
+ * Marca a página como "servida por um portal hospedado" (não pela extensão):
+ * a UI usa isso para, sem ?server=/?room=, mostrar a tela de boas-vindas com
+ * o passo a passo de instalação em vez do check de servidor local.
+ */
+const HOSTED_MARKER = '<script>window.__AIPORTAL_HOSTED__=1</script>';
 
 async function serveStatic(res: http.ServerResponse, dir: string, pathname: string): Promise<void> {
   let rel = decodeURIComponent(pathname).replace(/^\/+/, '');
@@ -265,6 +273,9 @@ async function serveStatic(res: http.ServerResponse, dir: string, pathname: stri
   } catch {
     sendJson(res, 404, { error: 'Interface web não encontrada' });
     return;
+  }
+  if (file.endsWith('index.html')) {
+    data = Buffer.from(data.toString('utf8').replace('</head>', `${HOSTED_MARKER}</head>`), 'utf8');
   }
   res.writeHead(200, {
     'Content-Type': MIME[path.extname(file)] ?? 'application/octet-stream',

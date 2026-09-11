@@ -34,8 +34,42 @@ const pkgDir = __dirname;
 const pkgName = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).name;
 const isWindows = platform() === 'win32';
 const runtimePath = join(homedir(), 'AIChatPortal', 'runtime.json');
+const configPath = join(homedir(), 'AIChatPortal', 'config.json');
+
+// --portal https://portal.empresa.com : portal hospedado pela empresa. Grava a
+// URL na config da extensão (a origem entra no CORS e "Abrir no Navegador"
+// passa a abrir por lá) e abre o portal já pelo link da empresa.
+const portalArgIndex = process.argv.findIndex((a) => a === '--portal' || a.startsWith('--portal='));
+let hostedPortal;
+if (portalArgIndex >= 0) {
+  const raw = process.argv[portalArgIndex].includes('=')
+    ? process.argv[portalArgIndex].split('=').slice(1).join('=')
+    : process.argv[portalArgIndex + 1];
+  try {
+    const url = new URL(String(raw));
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('protocolo');
+    hostedPortal = url.origin;
+  } catch {
+    console.error('\x1b[31m✗ --portal precisa de uma URL http(s), ex.: --portal https://portal.empresa.com\x1b[0m');
+    process.exit(1);
+  }
+}
 
 const log = (msg) => console.log(`\x1b[36m▸\x1b[0m ${msg}`);
+
+/** Grava hostedPortalUrl no config.json da extensão (cria/mescla; a extensão completa o resto). */
+function saveHostedPortal(origin) {
+  const { mkdirSync, writeFileSync } = require('fs');
+  let current = {};
+  try {
+    current = JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch {
+    // sem config ainda: a extensão gera o token na primeira ativação
+  }
+  if (current.hostedPortalUrl === origin) return;
+  mkdirSync(join(homedir(), 'AIChatPortal'), { recursive: true });
+  writeFileSync(configPath, JSON.stringify({ ...current, hostedPortalUrl: origin }, null, 2) + '\n');
+}
 const ok = (msg) => console.log(`\x1b[32m✓\x1b[0m ${msg}`);
 const fail = (msg) => {
   console.error(`\x1b[31m✗ ${msg}\x1b[0m`);
@@ -169,6 +203,11 @@ if (installed && !/github\.copilot-chat/i.test(installed)) {
   code(['--install-extension', 'GitHub.copilot-chat']);
 }
 
+if (hostedPortal) {
+  saveHostedPortal(hostedPortal);
+  ok(`Portal hospedado: ${hostedPortal}`);
+}
+
 // ---------- 3. garantir servidor ativo ----------
 
 const expectedVersion = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8')).version;
@@ -253,7 +292,13 @@ async function main() {
 
   // ---------- 5. abrir o navegador ----------
 
-  const url = portal.runtime.portalUrl;
+  let url = portal.runtime.portalUrl;
+  if (hostedPortal) {
+    // a extensão pode já estar de pé com um runtime.json de antes do --portal:
+    // monta a URL hospedada aqui mesmo, com a porta e o token do runtime
+    const token = new URL(portal.runtime.localUrl || portal.runtime.portalUrl).searchParams.get('token');
+    url = `${hostedPortal}/?server=${encodeURIComponent(`http://127.0.0.1:${portal.runtime.port}`)}&token=${token}`;
+  }
   log('Abrindo o portal no navegador…');
   try {
     if (isWindows) {

@@ -20,6 +20,16 @@ Um comando: instala a extensão no seu VS Code, espera o servidor local subir e 
 npx bmad-product-studio@latest
 ```
 
+## Portal hospedado pela empresa
+
+Se a sua empresa publica a interface num endereço próprio, passe a URL uma vez:
+
+```bash
+npx bmad-product-studio --portal https://portal.empresa.com
+```
+
+A extensão continua rodando na sua máquina; só a interface vem do endereço da empresa. "Abrir no Navegador" passa a abrir por lá.
+
 ## Reabrir depois
 
 Rode o comando de novo (instantâneo) — ou, no VS Code, `Cmd/Ctrl+Shift+P` → **"BMAD Product Studio: Abrir no Navegador"**.
