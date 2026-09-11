@@ -43,6 +43,7 @@ docker push …
 | Base | `node:22-alpine`, roda como `node` (não root) |
 | Porta | 8787 |
 | Env | `PORT=8787`, `RELAY_STATIC_DIR=/app/web` (já no Dockerfile; nada a passar) |
+| Env opcional | `RELAY_SETUP_URL=https://…/instalacao.html` — página de instalação da empresa (GitHub Pages); a tela de boas-vindas aponta para ela em vez do `/setup.html` embutido |
 | Health | `GET /relay/health` → `{"ok":true,"rooms":N}` |
 | Logs | stdout (`[relay] …`) |
 | Arquitetura | x86_64 (buildar com `--platform linux/amd64` se o agente for ARM) |
@@ -57,7 +58,7 @@ docker push …
 | Target group | tipo `ip`, HTTP 8787, health `/relay/health` a cada 15s, deregistration 10s |
 | Rede | subnets privadas, sem IP público; saída só para puxar a imagem (NAT ou VPC endpoints do ECR + logs) |
 | SG da task | 8787 apenas do SG do ALB |
-| Segredos / env | nenhum |
+| Segredos / env | nenhum obrigatório; `RELAY_SETUP_URL` se a página de instalação for a do GitHub Pages |
 
 ## 4. ALB (interno)
 

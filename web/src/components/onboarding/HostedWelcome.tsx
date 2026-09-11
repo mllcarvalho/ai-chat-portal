@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Check as CheckIcon, Copy, X } from 'lucide-react';
 import { DEFAULT_PORT, PORT_RANGE } from '@aiportal/shared';
-import { installCommand, versionOlder } from '../../api/server';
+import { installCommand, setupUrl, versionOlder } from '../../api/server';
 import { copyText } from '../../lib/compat';
 
 /**
@@ -165,8 +165,8 @@ export function HostedWelcome() {
                     <div className="check-item__hint">
                       Proxy, certificado e registry precisam estar configurados antes. O passo a passo completo, com
                       o script de preparação, está em{' '}
-                      <a href="/setup.html" target="_blank" rel="noreferrer">
-                        {location.host}/setup.html
+                      <a href={setupUrl()} target="_blank" rel="noreferrer">
+                        {setupUrl().replace(/^https?:\/\//, '').replace(/^\//, `${location.host}/`)}
                       </a>
                       .
                     </div>

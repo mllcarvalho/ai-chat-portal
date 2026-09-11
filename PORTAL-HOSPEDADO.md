@@ -193,7 +193,8 @@ mesmo comportamento da página HTTPS). Então:
    convidado, passando pelo relay e pela sua aba.
 
 Variáveis do relay: `PORT`, `RELAY_STATIC_DIR` (opcional), `RELAY_CORS_ORIGINS`
-(dev com Vite em `:5173`).
+(dev com Vite em `:5173`), `RELAY_SETUP_URL` (página de instalação da empresa,
+ex.: o `instalacao.html` do GitHub Pages, no lugar do `/setup.html` embutido).
 
 Imagem Docker: ver a variante "tudo no ECS" acima.
 

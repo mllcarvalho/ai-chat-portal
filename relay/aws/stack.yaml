@@ -63,6 +63,9 @@ Resources:
             - { Name: PORT, Value: '8787' }
             # a UI vem dentro da imagem (RELAY_STATIC_DIR=/app/web no Dockerfile);
             # com a UI no S3, sobrescreva com valor vazio aqui
+            # EMPRESA: pagina de instalacao propria (GitHub Pages) no lugar do
+            # /setup.html embutido:
+            # - { Name: RELAY_SETUP_URL, Value: 'https://empresa.github.io/portal/instalacao.html' }
           LogConfiguration:
             LogDriver: awslogs
             Options:

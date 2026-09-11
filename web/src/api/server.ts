@@ -133,3 +133,8 @@ export function versionOlder(a: string, b: string): boolean {
   }
   return false;
 }
+
+/** Página de instalação para máquinas da empresa: a configurada no relay, ou o /setup.html embutido. */
+export function setupUrl(): string {
+  return window.__AIPORTAL_SETUP_URL__ || '/setup.html';
+}

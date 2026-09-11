@@ -30,6 +30,9 @@ import {
  *   RELAY_STATIC_DIR     opcional: serve a UI (web/dist) daqui — bom para teste
  *                        local e para um deploy de um processo só
  *   RELAY_CORS_ORIGINS   opcional: origens extras (dev com Vite em :5173)
+ *   RELAY_SETUP_URL      opcional: página de instalação da empresa (ex.: o
+ *                        instalacao.html do GitHub Pages). A tela de
+ *                        boas-vindas aponta para ela em vez do /setup.html
  */
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -38,6 +41,7 @@ const CORS_ORIGINS = (process.env.RELAY_CORS_ORIGINS ?? '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+const SETUP_URL = (process.env.RELAY_SETUP_URL ?? '').trim();
 const PING_MS = 20_000;
 const HEALTH_PATH = `${RELAY_PREFIX}/health`;
 
@@ -258,7 +262,10 @@ const MIME: Record<string, string> = {
  * a UI usa isso para, sem ?server=/?room=, mostrar a tela de boas-vindas com
  * o passo a passo de instalação em vez do check de servidor local.
  */
-const HOSTED_MARKER = '<script>window.__AIPORTAL_HOSTED__=1</script>';
+const HOSTED_MARKER =
+  `<script>window.__AIPORTAL_HOSTED__=1` +
+  (SETUP_URL ? `;window.__AIPORTAL_SETUP_URL__=${JSON.stringify(SETUP_URL)}` : '') +
+  `</script>`;
 
 async function serveStatic(res: http.ServerResponse, dir: string, pathname: string): Promise<void> {
   let rel = decodeURIComponent(pathname).replace(/^\/+/, '');
