@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Portal hospedado (BMAD Product Studio): relay + UI num container ECS Fargate,
+  atras de um ALB e de um CloudFront. Versao de TESTE numa conta pessoal
+  (ALB publico, CloudFront publico, sem OIDC). Os pontos que mudam na empresa
+  estao marcados com "EMPRESA:".
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets publicas em pelo menos 2 AZs (as da VPC default servem).
+  ImageUri:
+    Type: String
+    Description: Imagem no ECR, com tag (o deploy.sh preenche).
+
+Resources:
+  # ---------------------------------------------------------------- ECS
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref AWS::StackName
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${AWS::StackName}
+      RetentionInDays: 7
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref AWS::StackName
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: relay
+          Image: !Ref ImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8787
+              Protocol: tcp
+          Environment:
+            - { Name: PORT, Value: '8787' }
+            # a UI vem dentro da imagem (RELAY_STATIC_DIR=/app/web no Dockerfile);
+            # com a UI no S3, sobrescreva com valor vazio aqui
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: relay
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: relay - so o ALB fala com a task
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8787
+          ToPort: 8787
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: !Ref AWS::StackName
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      # UMA task por vez: as salas ficam em memoria — duas tasks separariam
+      # host e convidado (com mais de uma, entra um Redis pub/sub entre elas)
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      HealthCheckGracePeriodSeconds: 30
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # IP publico so para puxar a imagem do ECR sem NAT (VPC default)
+          # EMPRESA: DISABLED, com NAT ou VPC endpoints do ECR
+          AssignPublicIp: ENABLED
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+          Subnets: !Ref SubnetIds
+      LoadBalancers:
+        - ContainerName: relay
+          ContainerPort: 8787
+          TargetGroupArn: !Ref TargetGroup
+
+  # ---------------------------------------------------------------- ALB
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: relay ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        # teste: aberto na 80 (o CloudFront chega por HTTP). EMPRESA: ALB
+        # interno com VPC origin do CloudFront — o SG so precisa liberar o SG
+        # do VPC origin, e a porta vira 443 com o certificado da empresa
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      # EMPRESA: Scheme: internal
+      Scheme: internet-facing
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref AlbSecurityGroup]
+      LoadBalancerAttributes:
+        # WebSocket da aba do host e SSE: o relay faz ping a cada 20s, mas
+        # folga aqui nao custa nada
+        - Key: idle_timeout.timeout_seconds
+          Value: '300'
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8787
+      HealthCheckPath: /relay/health
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '10'
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      # EMPRESA: Port 443/HTTPS com certificado, e DefaultActions comecando por
+      # Type: authenticate-oidc (IdP corporativo) antes do forward
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ---------------------------------------------------------------- CloudFront
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub ${AWS::StackName} (portal hospedado)
+        HttpVersion: http2
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: alb
+            DomainName: !GetAtt LoadBalancer.DNSName
+            # EMPRESA: no lugar de CustomOriginConfig, um VPC origin apontando
+            # para o ALB interno (VpcOriginConfig), e o CloudFront restrito
+            # pela rede da empresa
+            CustomOriginConfig:
+              OriginProtocolPolicy: http-only
+              HTTPPort: 80
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 60
+        # UI: respeita o Cache-Control do relay (index.html no-cache, assets 1h)
+        DefaultCacheBehavior:
+          TargetOriginId: alb
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 83da9c7e-98b4-4e11-a168-04f0df8e2c65 # UseOriginCacheControlHeaders
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
+        CacheBehaviors:
+          # relay: nada de cache, tudo repassado (query ?key= do WebSocket,
+          # headers X-Portal-*, streaming)
+          - PathPattern: /relay/*
+            TargetOriginId: alb
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: false
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
+
+Outputs:
+  PortalUrl:
+    Description: Use este valor em aiChatPortal.hostedPortalUrl no VS Code
+    Value: !Sub https://${Distribution.DomainName}
+  AlbUrl:
+    Description: Acesso direto ao ALB (HTTP, so para diagnostico)
+    Value: !Sub http://${LoadBalancer.DNSName}

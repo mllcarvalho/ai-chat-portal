@@ -125,6 +125,23 @@ docker build -f relay/Dockerfile -t portal-relay .
 docker run -p 8787:8787 portal-relay
 ```
 
+## Subindo numa conta AWS de teste
+
+`relay/aws/` tem uma stack CloudFormation mínima (ECS Fargate + ALB + CloudFront
+na VPC default) e um script que builda, publica no ECR e faz o deploy:
+
+```bash
+AWS_REGION=us-east-1 relay/aws/deploy.sh
+```
+
+Ao final ele imprime `PortalUrl` (o domínio `*.cloudfront.net`, já em HTTPS).
+Coloque esse valor em `aiChatPortal.hostedPortalUrl` no VS Code e use "Abrir no
+Navegador". Para derrubar: `aws cloudformation delete-stack --stack-name portal-relay`.
+
+É a versão de teste: ALB e CloudFront públicos, sem OIDC. Os pontos que mudam
+na empresa (ALB interno, VPC origin, listener 443 com `authenticate-oidc`,
+task sem IP público) estão marcados com `EMPRESA:` no `stack.yaml`.
+
 ## Rodando local (sem AWS)
 
 ```bash
